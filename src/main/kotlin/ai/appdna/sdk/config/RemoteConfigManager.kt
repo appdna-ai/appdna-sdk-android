@@ -1,0 +1,134 @@
+package ai.appdna.sdk.config
+
+import ai.appdna.sdk.Log
+import ai.appdna.sdk.storage.LocalStorage
+import com.google.firebase.firestore.FirebaseFirestore
+import org.json.JSONObject
+
+/**
+ * Manages remote config from Firestore with local caching.
+ */
+internal class RemoteConfigManager(
+    private val firestorePath: String?,
+    private val storage: LocalStorage,
+    private val configTTL: Long
+) {
+    private var flags: Map<String, Any> = emptyMap()
+    private var experiments: Map<String, ExperimentConfig> = emptyMap()
+
+    init {
+        loadCachedConfigs()
+    }
+
+    fun getConfig(key: String): Any? = flags[key]
+
+    fun getExperimentConfig(id: String): ExperimentConfig? = experiments[id]
+
+    fun getAllExperiments(): Map<String, ExperimentConfig> = experiments
+
+    fun fetchConfigs() {
+        val path = firestorePath ?: run {
+            Log.warning("No Firestore path available — serving cached config only")
+            return
+        }
+
+        val db = FirebaseFirestore.getInstance()
+        val basePath = "$path/config"
+
+        // Fetch flags
+        db.document("$basePath/flags").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                flags = data
+                cacheData("flags", JSONObject(data).toString())
+            }
+        }.addOnFailureListener { e ->
+            Log.error("Failed to fetch flags: ${e.message}")
+        }
+
+        // Fetch experiments
+        db.document("$basePath/experiments").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                parseExperiments(data)
+                cacheData("experiments", JSONObject(data).toString())
+            }
+        }.addOnFailureListener { e ->
+            Log.error("Failed to fetch experiments: ${e.message}")
+        }
+
+        Log.info("Fetching remote configs from Firestore")
+    }
+
+    private fun parseExperiments(data: Map<String, Any>) {
+        val parsed = mutableMapOf<String, ExperimentConfig>()
+        for ((key, value) in data) {
+            if (value is Map<*, *>) {
+                @Suppress("UNCHECKED_CAST")
+                val map = value as Map<String, Any>
+                try {
+                    val variants = (map["variants"] as? List<*>)?.mapNotNull { v ->
+                        if (v is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val vm = v as Map<String, Any>
+                            ExperimentVariant(
+                                id = vm["id"] as? String ?: return@mapNotNull null,
+                                weight = (vm["weight"] as? Number)?.toDouble() ?: return@mapNotNull null,
+                                config = vm["config"] as? Map<String, Any> ?: emptyMap()
+                            )
+                        } else null
+                    } ?: emptyList()
+
+                    parsed[key] = ExperimentConfig(
+                        id = map["id"] as? String ?: key,
+                        name = map["name"] as? String ?: "",
+                        status = map["status"] as? String ?: "paused",
+                        salt = map["salt"] as? String ?: "",
+                        platforms = (map["platforms"] as? List<*>)?.filterIsInstance<String>() ?: listOf("android"),
+                        variants = variants
+                    )
+                } catch (e: Exception) {
+                    Log.warning("Failed to parse experiment '$key': ${e.message}")
+                }
+            }
+        }
+        experiments = parsed
+    }
+
+    private fun loadCachedConfigs() {
+        storage.getString("cache_flags")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                flags = obj.keys().asSequence().associateWith { obj.get(it) }
+            } catch (_: Exception) {}
+        }
+        storage.getString("cache_experiments")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
+                @Suppress("UNCHECKED_CAST")
+                parseExperiments(data)
+            } catch (_: Exception) {}
+        }
+    }
+
+    private fun cacheData(key: String, json: String) {
+        storage.setString("cache_$key", json)
+    }
+}
+
+/**
+ * Experiment config model.
+ */
+data class ExperimentConfig(
+    val id: String,
+    val name: String,
+    val status: String,
+    val salt: String,
+    val platforms: List<String>,
+    val variants: List<ExperimentVariant>
+)
+
+data class ExperimentVariant(
+    val id: String,
+    val weight: Double,
+    val config: Map<String, Any> = emptyMap()
+)
