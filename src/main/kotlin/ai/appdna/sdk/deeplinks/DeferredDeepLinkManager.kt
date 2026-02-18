@@ -1,8 +1,11 @@
 package ai.appdna.sdk.deeplinks
 
 import android.content.Context
+import android.net.Uri
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
+import com.android.installreferrer.api.InstallReferrerClient
+import com.android.installreferrer.api.InstallReferrerStateListener
 import com.google.firebase.firestore.FirebaseFirestore
 
 /**
@@ -87,6 +90,7 @@ internal class DeferredDeepLinkManager(
                 // Track event
                 eventTracker?.track("deferred_deep_link_resolved", mapOf(
                     "path" to deepLink.screen,
+                    "params" to deepLink.params,
                     "visitor_id" to visitorId
                 ))
 
@@ -114,9 +118,54 @@ internal class DeferredDeepLinkManager(
             }
         }
 
-        // Strategy 2: Android Install Referrer (if available)
-        // Note: In production, integrate com.android.installreferrer library
+        // Strategy 2: Android Install Referrer
+        val referrerVisitorId = getInstallReferrerVisitorId()
+        if (referrerVisitorId != null) {
+            Log.debug("DeferredDeepLink: resolved visitor ID from Install Referrer")
+            return referrerVisitorId
+        }
+
         return null
+    }
+
+    /**
+     * Synchronously attempt to retrieve visitor ID from the Install Referrer.
+     * The referrer URL may contain "appdna_visitor=<id>" as a query param.
+     */
+    private fun getInstallReferrerVisitorId(): String? {
+        return try {
+            val client = InstallReferrerClient.newBuilder(context).build()
+            var visitorId: String? = null
+            val latch = java.util.concurrent.CountDownLatch(1)
+
+            client.startConnection(object : InstallReferrerStateListener {
+                override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                    if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
+                        try {
+                            val referrer = client.installReferrer.installReferrer
+                            // Parse referrer URL for appdna_visitor param
+                            val uri = Uri.parse("https://referrer?$referrer")
+                            visitorId = uri.getQueryParameter("appdna_visitor")
+                        } catch (e: Exception) {
+                            Log.error("DeferredDeepLink: Install Referrer parse error: ${e.message}")
+                        }
+                    }
+                    client.endConnection()
+                    latch.countDown()
+                }
+
+                override fun onInstallReferrerServiceDisconnected() {
+                    latch.countDown()
+                }
+            })
+
+            // Wait up to 2 seconds for the referrer response
+            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
+            visitorId
+        } catch (e: Exception) {
+            Log.error("DeferredDeepLink: Install Referrer error: ${e.message}")
+            null
+        }
     }
 
     private fun isFirstLaunch(): Boolean {
