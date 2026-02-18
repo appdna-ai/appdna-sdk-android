@@ -19,7 +19,7 @@ class EventSchemaTest {
 
     @Test
     fun testSdkVersion() {
-        assertEquals("0.2.0", EventSchema.SDK_VERSION)
+        assertEquals("0.3.0", EventSchema.SDK_VERSION)
     }
 
     @Test
@@ -48,7 +48,7 @@ class EventSchemaTest {
         // Device
         val device = envelope.getJSONObject("device")
         assertEquals("android", device.getString("platform"))
-        assertEquals("0.2.0", device.getString("sdk_version"))
+        assertEquals("0.3.0", device.getString("sdk_version"))
         assertEquals("1.0.0", device.getString("app_version"))
 
         // Context
