@@ -154,7 +154,7 @@ fun OnboardingFlowHost(
         // Progress bar
         if (flow.settings.show_progress) {
             LinearProgressIndicator(
-                progress = { progress },
+                progress = progress,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(4.dp),

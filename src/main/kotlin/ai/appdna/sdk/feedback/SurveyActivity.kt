@@ -143,7 +143,7 @@ fun SurveyScreen(
         // Progress
         if (config.appearance.showProgress && visibleQuestions.isNotEmpty()) {
             LinearProgressIndicator(
-                progress = { (currentIndex + 1).toFloat() / visibleQuestions.size },
+                progress = (currentIndex + 1).toFloat() / visibleQuestions.size,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 color = accentColor,
             )
