@@ -4,13 +4,19 @@ import android.content.Context
 import ai.appdna.sdk.config.ExperimentManager
 import ai.appdna.sdk.config.FeatureFlagManager
 import ai.appdna.sdk.config.RemoteConfigManager
+import ai.appdna.sdk.deeplinks.DeferredDeepLink
+import ai.appdna.sdk.deeplinks.DeferredDeepLinkManager
+import ai.appdna.sdk.feedback.SurveyConfig
 import ai.appdna.sdk.events.EventQueue
 import ai.appdna.sdk.events.EventSchema
 import ai.appdna.sdk.events.EventTracker
+import ai.appdna.sdk.feedback.SurveyManager
 import ai.appdna.sdk.integrations.PushTokenManager
 import ai.appdna.sdk.integrations.RevenueCatBridge
 import ai.appdna.sdk.network.ApiClient
 import ai.appdna.sdk.storage.LocalStorage
+import ai.appdna.sdk.webentitlements.WebEntitlement
+import ai.appdna.sdk.webentitlements.WebEntitlementManager
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
@@ -21,7 +27,7 @@ import org.json.JSONObject
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "0.2.0"
+    const val sdkVersion = "0.3.0"
 
     // Internal managers
     private var apiKey: String? = null
@@ -37,6 +43,12 @@ object AppDNA {
     private var experimentManager: ExperimentManager? = null
     private var pushTokenManager: PushTokenManager? = null
     private var revenueCatBridge: RevenueCatBridge? = null
+    private var surveyManager: SurveyManager? = null
+    private var webEntitlementManager: WebEntitlementManager? = null
+    private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
+    private var appContext: Context? = null
+    private var bootstrapOrgId: String? = null
+    private var bootstrapAppId: String? = null
 
     private var isConfigured = false
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -66,7 +78,8 @@ object AppDNA {
 
             Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
 
-            val appContext = context.applicationContext
+            this.appContext = context.applicationContext
+            val appContext = this.appContext!!
             val appVersion = try {
                 appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "0.0.0"
             } catch (_: Exception) { "0.0.0" }
@@ -114,6 +127,18 @@ object AppDNA {
                 eventTracker = tracker
             )
 
+            // v0.3 managers
+            this.surveyManager = SurveyManager(appContext, tracker, client)
+            this.webEntitlementManager = WebEntitlementManager(tracker, appContext)
+
+            // Wire survey config updates from RemoteConfigManager to SurveyManager
+            remoteCfg.surveyUpdateHandler = { rawSurveys ->
+                val parsed = rawSurveys.mapNotNull { (key, data) ->
+                    SurveyConfig.fromMap(data)?.let { key to it }
+                }.toMap()
+                surveyManager?.updateConfigs(parsed)
+            }
+
             // 7. Bootstrap (fetch orgId/appId, then Firestore configs)
             scope.launch {
                 performBootstrap(client, remoteCfg, tracker)
@@ -128,6 +153,13 @@ object AppDNA {
      */
     fun identify(userId: String, traits: Map<String, Any>? = null) {
         identityManager?.identify(userId, traits)
+
+        // Start web entitlement observer for this user (v0.3)
+        val orgId = bootstrapOrgId
+        val appId = bootstrapAppId
+        if (orgId != null && appId != null) {
+            webEntitlementManager?.startObserving(orgId, appId, userId)
+        }
     }
 
     /**
@@ -136,6 +168,8 @@ object AppDNA {
     fun reset() {
         identityManager?.reset()
         experimentManager?.resetExposures()
+        surveyManager?.resetSession()
+        webEntitlementManager?.stopObserving()
         Log.info("Identity reset")
     }
 
@@ -146,6 +180,8 @@ object AppDNA {
      */
     fun track(event: String, properties: Map<String, Any>? = null) {
         eventTracker?.track(event, properties)
+        // Evaluate surveys on every tracked event (v0.3)
+        surveyManager?.onEvent(event, properties)
     }
 
     /**
@@ -221,20 +257,29 @@ object AppDNA {
         Log.info("Consent updated: analytics=$analytics")
     }
 
-    // MARK: - v0.2 Stubs (deferred to v0.3)
+    // MARK: - Public API: Web Entitlements (v0.3)
 
     /**
-     * Present a paywall. NOT available on Android v0.2 — logs a warning.
+     * Get the current web subscription entitlement.
      */
-    fun presentPaywall(id: String) {
-        Log.warning("presentPaywall() is not available on Android SDK v0.2 — deferred to v0.3")
+    val webEntitlement: WebEntitlement?
+        get() = webEntitlementManager?.currentEntitlement
+
+    /**
+     * Register a listener for web entitlement changes.
+     */
+    fun onWebEntitlementChanged(listener: (WebEntitlement?) -> Unit) {
+        webEntitlementManager?.addChangeListener(listener)
     }
 
+    // MARK: - Public API: Deferred Deep Links (v0.3)
+
     /**
-     * Present an onboarding flow. NOT available on Android v0.2 — logs a warning.
+     * Check for a deferred deep link on first launch.
+     * Call after configure() and onReady.
      */
-    fun presentOnboarding(flowId: String? = null) {
-        Log.warning("presentOnboarding() is not available on Android SDK v0.2 — deferred to v0.3")
+    fun checkDeferredDeepLink(callback: (DeferredDeepLink?) -> Unit) {
+        deferredDeepLinkManager?.checkDeferredDeepLink(callback) ?: callback(null)
     }
 
     // MARK: - Public API: Ready callback
@@ -268,6 +313,21 @@ object AppDNA {
 
                 Log.info("Bootstrap successful: orgId=$orgId, appId=$appId")
 
+                synchronized(this@AppDNA) {
+                    bootstrapOrgId = orgId
+                    bootstrapAppId = appId
+
+                    // v0.3: Create deferred deep link manager
+                    appContext?.let { ctx ->
+                        deferredDeepLinkManager = DeferredDeepLinkManager(ctx, orgId, appId, tracker)
+                    }
+
+                    // Start web entitlement observer if user is already identified
+                    identityManager?.currentIdentity?.userId?.let { userId ->
+                        webEntitlementManager?.startObserving(orgId, appId, userId)
+                    }
+                }
+
                 // Fetch Firestore configs
                 remoteCfg.fetchConfigs()
             } catch (e: Exception) {
@@ -296,6 +356,7 @@ object AppDNA {
      */
     fun shutdown() {
         eventQueue?.shutdown()
+        webEntitlementManager?.stopObserving()
         scope.cancel()
     }
 }

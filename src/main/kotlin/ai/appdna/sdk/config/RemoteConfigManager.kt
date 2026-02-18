@@ -15,6 +15,10 @@ internal class RemoteConfigManager(
 ) {
     private var flags: Map<String, Any> = emptyMap()
     private var experiments: Map<String, ExperimentConfig> = emptyMap()
+    private var surveys: Map<String, Map<String, Any>> = emptyMap()
+
+    /** Callback when survey configs are updated from Firestore. */
+    var surveyUpdateHandler: ((Map<String, Map<String, Any>>) -> Unit)? = null
 
     init {
         loadCachedConfigs()
@@ -25,6 +29,8 @@ internal class RemoteConfigManager(
     fun getExperimentConfig(id: String): ExperimentConfig? = experiments[id]
 
     fun getAllExperiments(): Map<String, ExperimentConfig> = experiments
+
+    fun getSurveyConfigs(): Map<String, Map<String, Any>> = surveys
 
     fun fetchConfigs() {
         val path = firestorePath ?: run {
@@ -53,6 +59,16 @@ internal class RemoteConfigManager(
             }
         }.addOnFailureListener { e ->
             Log.error("Failed to fetch experiments: ${e.message}")
+        }
+
+        // Fetch surveys (v0.3)
+        db.document("$basePath/surveys").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                parseSurveys(data)
+                cacheData("surveys", JSONObject(data).toString())
+            }
+        }.addOnFailureListener { e ->
+            Log.error("Failed to fetch surveys: ${e.message}")
         }
 
         Log.info("Fetching remote configs from Firestore")
@@ -93,6 +109,20 @@ internal class RemoteConfigManager(
         experiments = parsed
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSurveys(data: Map<String, Any>) {
+        val surveysMap = data["surveys"] as? Map<String, Any> ?: data
+        val parsed = mutableMapOf<String, Map<String, Any>>()
+        for ((key, value) in surveysMap) {
+            if (value is Map<*, *>) {
+                parsed[key] = value as Map<String, Any>
+            }
+        }
+        surveys = parsed
+        Log.debug("Parsed ${parsed.size} survey configs")
+        surveyUpdateHandler?.invoke(parsed)
+    }
+
     private fun loadCachedConfigs() {
         storage.getString("cache_flags")?.let { json ->
             try {
@@ -106,6 +136,14 @@ internal class RemoteConfigManager(
                 val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
                 @Suppress("UNCHECKED_CAST")
                 parseExperiments(data)
+            } catch (_: Exception) {}
+        }
+        storage.getString("cache_surveys")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
+                @Suppress("UNCHECKED_CAST")
+                parseSurveys(data)
             } catch (_: Exception) {}
         }
     }
