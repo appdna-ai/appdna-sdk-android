@@ -19,15 +19,15 @@ data class WebEntitlement(
     val currentPeriodEnd: Long?,
     val trialEnd: Long?
 ) {
-    fun toMap(): Map<String, Any?> = mapOf(
-        "isActive" to isActive,
-        "planName" to planName,
-        "priceId" to priceId,
-        "interval" to interval,
-        "status" to status,
-        "currentPeriodEnd" to currentPeriodEnd,
-        "trialEnd" to trialEnd
-    )
+    fun toMap(): Map<String, Any?> = buildMap {
+        put("isActive", isActive)
+        put("status", status)
+        if (planName != null) { put("planName", planName); put("plan_name", planName) }
+        if (priceId != null) { put("priceId", priceId); put("price_id", priceId) }
+        if (interval != null) { put("interval", interval) }
+        if (currentPeriodEnd != null) { put("currentPeriodEnd", currentPeriodEnd); put("current_period_end", currentPeriodEnd) }
+        if (trialEnd != null) { put("trialEnd", trialEnd); put("trial_end", trialEnd) }
+    }
 
     companion object {
         fun fromMap(data: Map<String, Any>): WebEntitlement {

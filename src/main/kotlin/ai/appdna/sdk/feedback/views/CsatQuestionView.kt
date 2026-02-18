@@ -25,6 +25,7 @@ fun CsatQuestionView(
     onAnswer: (SurveyAnswer) -> Unit
 ) {
     val maxRating = question.csatConfig?.maxRating ?: 5
+    val style = question.csatConfig?.style ?: "star"
     val selectedRating = answer?.answer as? Int ?: 0
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -37,15 +38,35 @@ fun CsatQuestionView(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (rating in 1..maxRating) {
-                Icon(
-                    imageVector = if (selectedRating >= rating) Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = "Rating $rating",
-                    tint = if (selectedRating >= rating) Color(0xFFFFD700) else Color.Gray.copy(alpha = 0.3f),
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clickable { onAnswer(SurveyAnswer(question.id, rating)) }
-                )
+                if (style == "emoji") {
+                    Text(
+                        text = emojiForRating(rating, maxRating),
+                        fontSize = 32.sp,
+                        modifier = Modifier.clickable {
+                            onAnswer(SurveyAnswer(question.id, rating))
+                        }
+                    )
+                } else {
+                    Icon(
+                        imageVector = if (selectedRating >= rating) Icons.Filled.Star else Icons.Outlined.Star,
+                        contentDescription = "Rating $rating",
+                        tint = if (selectedRating >= rating) Color(0xFFFFD700) else Color.Gray.copy(alpha = 0.3f),
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable { onAnswer(SurveyAnswer(question.id, rating)) }
+                    )
+                }
             }
         }
     }
+}
+
+/**
+ * Map a numeric rating to an emoji, distributing evenly across 5 emojis.
+ * Matches the iOS CSATQuestionView.emojiFor(rating:max:) logic.
+ */
+private fun emojiForRating(rating: Int, max: Int): String {
+    val emojis = listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D")
+    val index = ((rating - 1).toDouble() / (max - 1).toDouble() * (emojis.size - 1)).toInt()
+    return emojis[index.coerceAtMost(emojis.size - 1)]
 }

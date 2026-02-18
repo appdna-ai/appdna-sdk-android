@@ -1,6 +1,12 @@
 package ai.appdna.sdk.feedback
 
+import android.app.Activity
+import android.app.AlertDialog
 import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.EditText
+import android.widget.FrameLayout
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
@@ -128,8 +134,11 @@ internal class SurveyManager(
             put("context", JSONObject().apply {
                 put("sdk_version", AppDNA.sdkVersion)
                 put("platform", "android")
+                put("device", Build.MODEL)
+                put("app_version", getAppVersion())
                 val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
                 put("session_count", prefs.getInt("session_count", 0))
+                put("days_since_install", daysSinceInstall())
             })
         }
 
@@ -140,6 +149,26 @@ internal class SurveyManager(
             } catch (e: Exception) {
                 Log.error("Failed to submit survey response: ${e.message}")
             }
+        }
+    }
+
+    private fun getAppVersion(): String {
+        return try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "0.0.0"
+        } catch (_: Exception) {
+            "0.0.0"
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun daysSinceInstall(): Int {
+        return try {
+            val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            val installTime = packageInfo.firstInstallTime
+            val elapsed = System.currentTimeMillis() - installTime
+            maxOf(0, (elapsed / 86_400_000).toInt())
+        } catch (_: Exception) {
+            0
         }
     }
 
@@ -154,9 +183,72 @@ internal class SurveyManager(
                 }
             }
             SurveySentiment.NEGATIVE -> {
-                Log.info("Negative sentiment — feedback follow-up")
+                if (actions.onNegative?.action == "show_feedback_form") {
+                    presentFeedbackForm(actions.onNegative?.message)
+                }
             }
             SurveySentiment.NEUTRAL -> {}
+        }
+    }
+
+    private fun presentFeedbackForm(message: String?) {
+        scope.launch(Dispatchers.Main) {
+            val activity = getCurrentActivity() ?: run {
+                Log.warning("No activity available for feedback form presentation")
+                return@launch
+            }
+
+            val input = EditText(activity).apply {
+                hint = "Tell us what you think..."
+                maxLines = 4
+            }
+            val container = FrameLayout(activity).apply {
+                val padding = (16 * activity.resources.displayMetrics.density).toInt()
+                setPadding(padding, 0, padding, 0)
+                addView(input)
+            }
+
+            AlertDialog.Builder(activity)
+                .setTitle(message ?: "We'd love your feedback")
+                .setMessage("What could we do better?")
+                .setView(container)
+                .setPositiveButton("Submit") { _, _ ->
+                    val feedback = input.text.toString()
+                    eventTracker.track("survey_feedback_submitted", mapOf(
+                        "feedback" to feedback
+                    ))
+                }
+                .setNegativeButton("Cancel") { _, _ ->
+                    eventTracker.track("feedback_form_dismissed")
+                }
+                .create()
+                .show()
+        }
+    }
+
+    private fun getCurrentActivity(): Activity? {
+        // Use reflection to get the current activity from ActivityThread, matching iOS's
+        // pattern of getting the topmost view controller via UIApplication.shared
+        return try {
+            val activityThread = Class.forName("android.app.ActivityThread")
+            val currentMethod = activityThread.getMethod("currentActivityThread")
+            val thread = currentMethod.invoke(null)
+            val activitiesField = activityThread.getDeclaredField("mActivities")
+            activitiesField.isAccessible = true
+            @Suppress("UNCHECKED_CAST")
+            val activities = activitiesField.get(thread) as? android.util.ArrayMap<Any, Any>
+            activities?.values?.firstNotNullOfOrNull { record ->
+                val pausedField = record.javaClass.getDeclaredField("paused")
+                pausedField.isAccessible = true
+                if (!pausedField.getBoolean(record)) {
+                    val activityField = record.javaClass.getDeclaredField("activity")
+                    activityField.isAccessible = true
+                    activityField.get(record) as? Activity
+                } else null
+            }
+        } catch (e: Exception) {
+            Log.warning("Failed to get current activity: ${e.message}")
+            null
         }
     }
 
@@ -178,6 +270,20 @@ internal class SurveyManager(
                 rating >= 4 -> SurveySentiment.POSITIVE
                 rating <= 2 -> SurveySentiment.NEGATIVE
                 else -> SurveySentiment.NEUTRAL
+            }
+        }
+
+        // Emoji scale: index 0-1 = negative, 2 = neutral, 3-4 = positive
+        if (config.surveyType == "emoji_scale" || firstAnswer.answer is String) {
+            val emojis = listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D")
+            val emoji = firstAnswer.answer as? String
+            val idx = emojis.indexOf(emoji)
+            if (idx >= 0) {
+                return when {
+                    idx >= 3 -> SurveySentiment.POSITIVE
+                    idx <= 1 -> SurveySentiment.NEGATIVE
+                    else -> SurveySentiment.NEUTRAL
+                }
             }
         }
 

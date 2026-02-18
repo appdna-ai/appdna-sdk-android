@@ -107,11 +107,13 @@ fun SurveyScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, SurveyAnswer>() }
-    val visibleQuestions = remember(answers.size) {
-        config.questions.filter { q ->
-            val showIf = q.showIf ?: return@filter true
-            val prev = answers[showIf.questionId] ?: return@filter false
-            showIf.answerIn.any { "${prev.answer}" == "$it" }
+    val visibleQuestions by remember {
+        derivedStateOf {
+            config.questions.filter { q ->
+                val showIf = q.showIf ?: return@filter true
+                val prev = answers[showIf.questionId] ?: return@filter false
+                showIf.answerIn.any { "${prev.answer}" == "$it" }
+            }
         }
     }
 

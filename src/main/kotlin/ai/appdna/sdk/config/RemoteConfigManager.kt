@@ -1,6 +1,10 @@
 package ai.appdna.sdk.config
 
 import ai.appdna.sdk.Log
+import ai.appdna.sdk.onboarding.OnboardingConfigParser
+import ai.appdna.sdk.onboarding.OnboardingFlowConfig
+import ai.appdna.sdk.paywalls.PaywallConfig
+import ai.appdna.sdk.paywalls.PaywallConfigParser
 import ai.appdna.sdk.storage.LocalStorage
 import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONObject
@@ -16,6 +20,9 @@ internal class RemoteConfigManager(
     private var flags: Map<String, Any> = emptyMap()
     private var experiments: Map<String, ExperimentConfig> = emptyMap()
     private var surveys: Map<String, Map<String, Any>> = emptyMap()
+    private var paywalls: Map<String, PaywallConfig> = emptyMap()
+    private var onboardingFlows: Map<String, OnboardingFlowConfig> = emptyMap()
+    private var activeOnboardingFlowId: String? = null
 
     /** Callback when survey configs are updated from Firestore. */
     var surveyUpdateHandler: ((Map<String, Map<String, Any>>) -> Unit)? = null
@@ -31,6 +38,19 @@ internal class RemoteConfigManager(
     fun getAllExperiments(): Map<String, ExperimentConfig> = experiments
 
     fun getSurveyConfigs(): Map<String, Map<String, Any>> = surveys
+
+    fun getPaywallConfig(id: String): PaywallConfig? = paywalls[id]
+
+    /**
+     * Get an onboarding flow by ID, or the active flow if id is null.
+     */
+    fun getOnboardingFlow(id: String?): OnboardingFlowConfig? {
+        if (id != null) {
+            return onboardingFlows[id]
+        }
+        val activeId = activeOnboardingFlowId ?: return null
+        return onboardingFlows[activeId]
+    }
 
     fun fetchConfigs() {
         val path = firestorePath ?: run {
@@ -69,6 +89,26 @@ internal class RemoteConfigManager(
             }
         }.addOnFailureListener { e ->
             Log.error("Failed to fetch surveys: ${e.message}")
+        }
+
+        // Fetch paywalls
+        db.document("$basePath/paywalls").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                parsePaywalls(data)
+                cacheData("paywalls", JSONObject(data).toString())
+            }
+        }.addOnFailureListener { e ->
+            Log.error("Failed to fetch paywalls: ${e.message}")
+        }
+
+        // Fetch onboarding (v0.2)
+        db.document("$basePath/onboarding").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                parseOnboarding(data)
+                cacheData("onboarding", JSONObject(data).toString())
+            }
+        }.addOnFailureListener { e ->
+            Log.error("Failed to fetch onboarding: ${e.message}")
         }
 
         Log.info("Fetching remote configs from Firestore")
@@ -123,6 +163,19 @@ internal class RemoteConfigManager(
         surveyUpdateHandler?.invoke(parsed)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun parsePaywalls(data: Map<String, Any>) {
+        paywalls = PaywallConfigParser.parsePaywalls(data)
+        Log.debug("Parsed ${paywalls.size} paywall configs")
+    }
+
+    private fun parseOnboarding(data: Map<String, Any>) {
+        val (activeId, flows) = OnboardingConfigParser.parseOnboardingRoot(data)
+        onboardingFlows = flows
+        activeOnboardingFlowId = activeId
+        Log.debug("Parsed ${flows.size} onboarding flows, active=$activeId")
+    }
+
     private fun loadCachedConfigs() {
         storage.getString("cache_flags")?.let { json ->
             try {
@@ -144,6 +197,22 @@ internal class RemoteConfigManager(
                 val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
                 @Suppress("UNCHECKED_CAST")
                 parseSurveys(data)
+            } catch (_: Exception) {}
+        }
+        storage.getString("cache_paywalls")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
+                @Suppress("UNCHECKED_CAST")
+                parsePaywalls(data)
+            } catch (_: Exception) {}
+        }
+        storage.getString("cache_onboarding")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
+                @Suppress("UNCHECKED_CAST")
+                parseOnboarding(data)
             } catch (_: Exception) {}
         }
     }

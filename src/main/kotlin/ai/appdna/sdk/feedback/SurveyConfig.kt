@@ -205,15 +205,15 @@ data class SurveyFollowUpActions(
             @Suppress("UNCHECKED_CAST")
             val neut = data["on_neutral"] as? Map<String, Any>
             return SurveyFollowUpActions(
-                onPositive = pos?.let { FollowUpAction(it["action"] as? String ?: "") },
-                onNegative = neg?.let { FollowUpAction(it["action"] as? String ?: "") },
-                onNeutral = neut?.let { FollowUpAction(it["action"] as? String ?: "") }
+                onPositive = pos?.let { FollowUpAction(it["action"] as? String ?: "", it["message"] as? String) },
+                onNegative = neg?.let { FollowUpAction(it["action"] as? String ?: "", it["message"] as? String) },
+                onNeutral = neut?.let { FollowUpAction(it["action"] as? String ?: "", it["message"] as? String) }
             )
         }
     }
 }
 
-data class FollowUpAction(val action: String)
+data class FollowUpAction(val action: String, val message: String? = null)
 
 data class SurveyAnswer(val questionId: String, val answer: Any) {
     fun toMap(): Map<String, Any> = mapOf("question_id" to questionId, "answer" to answer)

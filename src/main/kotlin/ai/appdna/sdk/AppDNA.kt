@@ -1,5 +1,6 @@
 package ai.appdna.sdk
 
+import android.app.Activity
 import android.content.Context
 import ai.appdna.sdk.config.ExperimentManager
 import ai.appdna.sdk.config.FeatureFlagManager
@@ -14,6 +15,11 @@ import ai.appdna.sdk.feedback.SurveyManager
 import ai.appdna.sdk.integrations.PushTokenManager
 import ai.appdna.sdk.integrations.RevenueCatBridge
 import ai.appdna.sdk.network.ApiClient
+import ai.appdna.sdk.onboarding.AppDNAOnboardingListener
+import ai.appdna.sdk.onboarding.OnboardingFlowManager
+import ai.appdna.sdk.paywalls.AppDNAPaywallListener
+import ai.appdna.sdk.paywalls.PaywallContext
+import ai.appdna.sdk.paywalls.PaywallManager
 import ai.appdna.sdk.storage.LocalStorage
 import ai.appdna.sdk.webentitlements.WebEntitlement
 import ai.appdna.sdk.webentitlements.WebEntitlementManager
@@ -43,6 +49,8 @@ object AppDNA {
     private var experimentManager: ExperimentManager? = null
     private var pushTokenManager: PushTokenManager? = null
     private var revenueCatBridge: RevenueCatBridge? = null
+    private var paywallManager: PaywallManager? = null
+    private var onboardingFlowManager: OnboardingFlowManager? = null
     private var surveyManager: SurveyManager? = null
     private var webEntitlementManager: WebEntitlementManager? = null
     private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
@@ -124,6 +132,17 @@ object AppDNA {
             this.experimentManager = ExperimentManager(
                 remoteConfigManager = remoteCfg,
                 identityManager = identityMgr,
+                eventTracker = tracker
+            )
+
+            // Paywall & onboarding managers
+            this.paywallManager = PaywallManager(
+                remoteConfigManager = remoteCfg,
+                eventTracker = tracker
+            )
+
+            this.onboardingFlowManager = OnboardingFlowManager(
+                remoteConfigManager = remoteCfg,
                 eventTracker = tracker
             )
 
@@ -229,6 +248,57 @@ object AppDNA {
      */
     fun getExperimentConfig(experimentId: String, key: String): Any? {
         return experimentManager?.getExperimentConfig(experimentId, key)
+    }
+
+    // MARK: - Public API: Paywalls
+
+    /**
+     * Present a paywall by ID from the given Activity.
+     * Fetches the paywall config from remote config and presents the paywall UI.
+     *
+     * @param activity The Activity to present from.
+     * @param id The paywall ID (matching Firestore config).
+     * @param context Optional paywall context (placement, experiment, variant).
+     * @param listener Optional listener for paywall lifecycle events.
+     */
+    fun presentPaywall(
+        activity: Activity,
+        id: String,
+        context: PaywallContext? = null,
+        listener: AppDNAPaywallListener? = null
+    ) {
+        paywallManager?.present(
+            activity = activity,
+            id = id,
+            context = context,
+            listener = listener
+        ) ?: Log.warning("Cannot present paywall — SDK not configured")
+    }
+
+    // MARK: - Public API: Onboarding (v0.2)
+
+    /**
+     * Present an onboarding flow by ID. Returns false if config is unavailable.
+     * If flowId is null, the active flow from remote config is used.
+     *
+     * @param activity The Activity to present from.
+     * @param flowId Optional flow ID. If null, the active flow is used.
+     * @param listener Optional listener for onboarding lifecycle events.
+     * @return true if the flow was presented, false if config was not found.
+     */
+    fun presentOnboarding(
+        activity: Activity,
+        flowId: String? = null,
+        listener: AppDNAOnboardingListener? = null
+    ): Boolean {
+        return onboardingFlowManager?.present(
+            activity = activity,
+            flowId = flowId,
+            listener = listener
+        ) ?: run {
+            Log.warning("Cannot present onboarding — SDK not configured")
+            false
+        }
     }
 
     // MARK: - Public API: Push Token
