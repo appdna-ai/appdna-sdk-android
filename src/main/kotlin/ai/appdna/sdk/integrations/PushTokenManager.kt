@@ -1,5 +1,6 @@
 package ai.appdna.sdk.integrations
 
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
 import ai.appdna.sdk.network.ApiClient
@@ -130,7 +131,7 @@ internal class PushTokenManager(
                     put("platform", "android")
                     put("device_id", deviceId ?: "")
                     put("app_version", appVersion)
-                    put("sdk_version", "0.3.0")
+                    put("sdk_version", AppDNA.sdkVersion)
                     put("os_version", Build.VERSION.RELEASE)
                 }
                 apiClient?.post("/api/v1/push/token", body.toString())

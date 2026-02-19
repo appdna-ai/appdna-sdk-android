@@ -12,7 +12,7 @@ import java.util.UUID
  */
 internal object EventSchema {
     const val SCHEMA_VERSION = 1
-    const val SDK_VERSION = "0.3.0"
+    const val SDK_VERSION = "1.0.0"
 
     /**
      * Build an event envelope JSON matching the iOS format.
@@ -41,6 +41,9 @@ internal object EventSchema {
                 put("os", Build.VERSION.RELEASE)
                 put("app_version", appVersion)
                 put("sdk_version", SDK_VERSION)
+                if (ai.appdna.sdk.AppDNA.currentBundleVersion > 0) {
+                    put("bundle_version", ai.appdna.sdk.AppDNA.currentBundleVersion)
+                }
                 put("locale", Locale.getDefault().toString())
                 put("country", Locale.getDefault().country)
             })

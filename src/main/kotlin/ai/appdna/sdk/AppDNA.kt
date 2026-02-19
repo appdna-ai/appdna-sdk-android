@@ -33,7 +33,33 @@ import org.json.JSONObject
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "0.3.0"
+    const val sdkVersion = "1.0.0"
+
+    // Module namespaces (v1.0)
+    /** Push notification module. */
+    @JvmStatic val push = PushModule()
+    /** Billing module. */
+    @JvmStatic val billing = BillingModule()
+    /** Onboarding module. */
+    @JvmStatic val onboarding = ai.appdna.sdk.OnboardingModule()
+    /** Paywall module. */
+    @JvmStatic val paywall = ai.appdna.sdk.PaywallModule()
+    /** Remote config module. */
+    @JvmStatic val remoteConfig = ai.appdna.sdk.RemoteConfigModule()
+    /** Feature flags module. */
+    @JvmStatic val features = ai.appdna.sdk.FeaturesModule()
+    /** In-app messages module. */
+    @JvmStatic val inAppMessages = InAppMessagesModule()
+    /** Surveys module. */
+    @JvmStatic val surveys = ai.appdna.sdk.SurveysModule()
+    /** Deep links module. */
+    @JvmStatic val deepLinks = DeepLinksModule()
+    /** Experiments module. */
+    @JvmStatic val experiments = ai.appdna.sdk.ExperimentsModule()
+
+    /** Current config bundle version reported in events. */
+    @JvmStatic var currentBundleVersion: Int = 0
+        internal set
 
     // Internal managers
     private var apiKey: String? = null
@@ -118,6 +144,7 @@ object AppDNA {
 
             // 5. Initialize push token manager (v0.4 SPEC-030: backend registration)
             this.pushTokenManager = PushTokenManager(context, storage, tracker, client)
+            push.manager = this.pushTokenManager
 
             // 6. Initialize config managers (Firestore)
             val remoteCfg = RemoteConfigManager(
@@ -351,6 +378,29 @@ object AppDNA {
         Log.info("Consent updated: analytics=$analytics")
     }
 
+    // MARK: - Public API: Log Level
+
+    /**
+     * Set the SDK log level at runtime.
+     * Valid values: "none", "error", "warning", "info", "debug".
+     */
+    @JvmStatic
+    fun setLogLevel(level: String) {
+        val logLevel = when (level.lowercase()) {
+            "none" -> LogLevel.NONE
+            "error" -> LogLevel.ERROR
+            "warning" -> LogLevel.WARNING
+            "info" -> LogLevel.INFO
+            "debug" -> LogLevel.DEBUG
+            else -> {
+                Log.warning("Unknown log level '$level' — defaulting to INFO")
+                LogLevel.INFO
+            }
+        }
+        Log.level = logLevel
+        Log.info("Log level set to ${logLevel.name}")
+    }
+
     // MARK: - Public API: Web Entitlements (v0.3)
 
     /**
@@ -431,6 +481,19 @@ object AppDNA {
             Log.warning("Bootstrap failed — using cached config")
         }
 
+        // Wire module namespaces (v1.0)
+        synchronized(this@AppDNA) {
+            onboarding.manager = onboardingFlowManager
+            paywall.manager = paywallManager
+            remoteConfig.manager = remoteConfigManager
+            features.manager = featureFlagManager
+            surveys.manager = surveyManager
+            experiments.manager = experimentManager
+        }
+
+        // Load bundled config (v1.0 offline-first)
+        loadConfigBundle()
+
         // Mark ready
         synchronized(this@AppDNA) {
             isConfigured = true
@@ -442,6 +505,26 @@ object AppDNA {
             for (cb in callbacks) {
                 cb()
             }
+        }
+    }
+
+    // MARK: - Config Bundle (v1.0 offline-first)
+
+    /**
+     * Load config from bundle embedded in app assets.
+     * Priority: remote (already fetched) > cached > bundled.
+     */
+    private fun loadConfigBundle() {
+        try {
+            val ctx = appContext ?: return
+            val inputStream = ctx.assets.open("appdna-config.json")
+            val json = inputStream.bufferedReader().use { it.readText() }
+            val config = JSONObject(json)
+            val bundleVersion = config.optInt("bundle_version", 0)
+            currentBundleVersion = bundleVersion
+            Log.info("Loaded bundled config (version $bundleVersion)")
+        } catch (_: Exception) {
+            Log.debug("No bundled config found at appdna-config.json — using remote/cached only")
         }
     }
 
