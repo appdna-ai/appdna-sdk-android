@@ -23,17 +23,17 @@ data class Entitlement(
 /**
  * Result of a purchase operation.
  */
-sealed class BillingResult {
+sealed class PurchaseResult {
     /** Purchase completed and verified. */
-    data class Purchased(val entitlement: Entitlement) : BillingResult()
+    data class Purchased(val entitlement: Entitlement) : PurchaseResult()
     /** User cancelled the purchase flow. */
-    object Cancelled : BillingResult()
+    object Cancelled : PurchaseResult()
     /** Purchase is pending (e.g., awaiting parental approval or slow payment method). */
-    object Pending : BillingResult()
+    object Pending : PurchaseResult()
     /** Unknown or unhandled result. */
-    object Unknown : BillingResult()
+    object Unknown : PurchaseResult()
     /** Purchase verification failed. */
-    data class Failed(val error: String) : BillingResult()
+    data class Failed(val error: String) : PurchaseResult()
 }
 
 /**
@@ -76,24 +76,15 @@ data class ProductInfo(
  * val isPremium = billing.entitlementCache.hasActiveSubscription
  * ```
  */
-class NativeBillingManager(
+class NativeBillingManager internal constructor(
     private val context: Context,
     internal val receiptVerifier: ReceiptVerifier,
     internal val entitlementCache: EntitlementCache
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    /** Connection manager handling BillingClient lifecycle. */
-    internal val connectionManager = BillingConnectionManager(
-        context = context,
-        purchasesUpdatedListener = purchaseUpdateListener
-    )
-
-    /** Price resolver for querying product details. */
-    val priceResolver = PriceResolver(connectionManager)
-
     /** Active purchase continuation — only one purchase flow at a time. */
-    private var purchaseContinuation: CancellableContinuation<BillingResult>? = null
+    private var purchaseContinuation: CancellableContinuation<PurchaseResult>? = null
 
     /** Attribution context for the current purchase. */
     var currentPaywallId: String? = null
@@ -116,7 +107,7 @@ class NativeBillingManager(
                 AppDNA.track("purchase_canceled", mapOf(
                     "paywall_id" to (currentPaywallId ?: "")
                 ))
-                resumePurchase(BillingResult.Cancelled)
+                resumePurchase(PurchaseResult.Cancelled)
             }
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
                 Log.info("Item already owned — triggering restore")
@@ -125,25 +116,34 @@ class NativeBillingManager(
                         val restored = restorePurchases()
                         val entitlement = restored.firstOrNull()
                         if (entitlement != null) {
-                            resumePurchase(BillingResult.Purchased(entitlement))
+                            resumePurchase(PurchaseResult.Purchased(entitlement))
                         } else {
-                            resumePurchase(BillingResult.Unknown)
+                            resumePurchase(PurchaseResult.Unknown)
                         }
                     } catch (e: Exception) {
-                        resumePurchase(BillingResult.Failed(e.message ?: "Restore failed"))
+                        resumePurchase(PurchaseResult.Failed(e.message ?: "Restore failed"))
                     }
                 }
             }
             BillingClient.BillingResponseCode.ITEM_NOT_OWNED -> {
                 Log.warning("Item not owned")
-                resumePurchase(BillingResult.Failed("Item not owned"))
+                resumePurchase(PurchaseResult.Failed("Item not owned"))
             }
             else -> {
                 Log.warning("Purchase update: code=${billingResult.responseCode}, msg=${billingResult.debugMessage}")
-                resumePurchase(BillingResult.Unknown)
+                resumePurchase(PurchaseResult.Unknown)
             }
         }
     }
+
+    /** Connection manager handling BillingClient lifecycle. */
+    internal val connectionManager = BillingConnectionManager(
+        context = context,
+        purchasesUpdatedListener = purchaseUpdateListener
+    )
+
+    /** Price resolver for querying product details. */
+    internal val priceResolver = PriceResolver(connectionManager)
 
     // -- Initialization --
 
@@ -170,7 +170,7 @@ class NativeBillingManager(
         activity: Activity,
         productId: String,
         offerToken: String? = null
-    ): BillingResult {
+    ): PurchaseResult {
         Log.info("Starting purchase for product: $productId")
         AppDNA.track("purchase_started", mapOf(
             "product_id" to productId,
@@ -178,7 +178,7 @@ class NativeBillingManager(
         ))
 
         val client = connectionManager.awaitConnectedClient()
-            ?: return BillingResult.Failed("BillingClient not connected")
+            ?: return PurchaseResult.Failed("BillingClient not connected")
 
         // Query product details
         val queryParams = QueryProductDetailsParams.newBuilder()
@@ -193,11 +193,11 @@ class NativeBillingManager(
         val queryResult = client.queryProductDetails(queryParams)
         if (queryResult.billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
             Log.warning("Failed to query product details: ${queryResult.billingResult.debugMessage}")
-            return BillingResult.Failed("Failed to query product details")
+            return PurchaseResult.Failed("Failed to query product details")
         }
 
         val productDetails = queryResult.productDetailsList?.firstOrNull()
-            ?: return BillingResult.Failed("Product not found: $productId")
+            ?: return PurchaseResult.Failed("Product not found: $productId")
 
         // Resolve offer
         val selectedOffer = if (offerToken != null) {
@@ -226,7 +226,7 @@ class NativeBillingManager(
             if (launchResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 purchaseContinuation = null
                 continuation.resume(
-                    BillingResult.Failed("Failed to launch billing flow: ${launchResult.debugMessage}")
+                    PurchaseResult.Failed("Failed to launch billing flow: ${launchResult.debugMessage}")
                 ) {}
             }
         }
@@ -322,7 +322,7 @@ class NativeBillingManager(
                 "product_id" to productId,
                 "paywall_id" to (currentPaywallId ?: "")
             ))
-            resumePurchase(BillingResult.Pending)
+            resumePurchase(PurchaseResult.Pending)
             return
         }
 
@@ -358,21 +358,21 @@ class NativeBillingManager(
                 "is_trial" to entitlement.isTrial.toString()
             ))
 
-            resumePurchase(BillingResult.Purchased(entitlement))
+            resumePurchase(PurchaseResult.Purchased(entitlement))
         } catch (e: Exception) {
             Log.error("Purchase verification failed: ${e.message}")
             AppDNA.track("purchase_failed", mapOf(
                 "product_id" to productId,
                 "error" to (e.message ?: "verification_error")
             ))
-            resumePurchase(BillingResult.Failed(e.message ?: "Verification failed"))
+            resumePurchase(PurchaseResult.Failed(e.message ?: "Verification failed"))
         }
     }
 
     /**
      * Resume the suspended purchase coroutine with the given result.
      */
-    private fun resumePurchase(result: BillingResult) {
+    private fun resumePurchase(result: PurchaseResult) {
         purchaseContinuation?.let { continuation ->
             purchaseContinuation = null
             continuation.resume(result) {}
