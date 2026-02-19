@@ -93,14 +93,13 @@ data class ValuePropItem(
 )
 
 /**
- * Listener for receiving onboarding flow lifecycle events.
+ * Delegate for receiving onboarding flow lifecycle events.
  */
-interface AppDNAOnboardingListener {
-    fun onboardingStepViewed(flowId: String, stepId: String, stepIndex: Int) {}
-    fun onboardingStepCompleted(flowId: String, stepId: String, data: Map<String, Any>?) {}
-    fun onboardingStepSkipped(flowId: String, stepId: String) {}
-    fun onboardingFlowCompleted(flowId: String, data: Map<String, Any>) {}
-    fun onboardingFlowDismissed(flowId: String, lastStepId: String) {}
+interface AppDNAOnboardingDelegate {
+    fun onOnboardingStarted(flowId: String) {}
+    fun onOnboardingStepChanged(flowId: String, stepId: String, stepIndex: Int, totalSteps: Int) {}
+    fun onOnboardingCompleted(flowId: String, responses: Map<String, Any>) {}
+    fun onOnboardingDismissed(flowId: String, atStep: Int) {}
 }
 
 // MARK: - Parsing helpers

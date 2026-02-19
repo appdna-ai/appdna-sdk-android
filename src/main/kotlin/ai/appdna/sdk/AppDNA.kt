@@ -15,9 +15,9 @@ import ai.appdna.sdk.feedback.SurveyManager
 import ai.appdna.sdk.integrations.PushTokenManager
 import ai.appdna.sdk.integrations.RevenueCatBridge
 import ai.appdna.sdk.network.ApiClient
-import ai.appdna.sdk.onboarding.AppDNAOnboardingListener
+import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
 import ai.appdna.sdk.onboarding.OnboardingFlowManager
-import ai.appdna.sdk.paywalls.AppDNAPaywallListener
+import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
 import ai.appdna.sdk.paywalls.PaywallContext
 import ai.appdna.sdk.paywalls.PaywallManager
 import ai.appdna.sdk.storage.LocalStorage
@@ -292,7 +292,7 @@ object AppDNA {
         activity: Activity,
         id: String,
         context: PaywallContext? = null,
-        listener: AppDNAPaywallListener? = null
+        listener: AppDNAPaywallDelegate? = null
     ) {
         paywallManager?.present(
             activity = activity,
@@ -316,7 +316,7 @@ object AppDNA {
     fun presentOnboarding(
         activity: Activity,
         flowId: String? = null,
-        listener: AppDNAOnboardingListener? = null
+        listener: AppDNAOnboardingDelegate? = null
     ): Boolean {
         return onboardingFlowManager?.present(
             activity = activity,
@@ -532,8 +532,12 @@ object AppDNA {
      * Shut down the SDK and release resources. Call from Application.onTerminate().
      */
     fun shutdown() {
-        eventQueue?.shutdown()
-        webEntitlementManager?.stopObserving()
-        scope.cancel()
+        synchronized(this) {
+            eventQueue?.shutdown()
+            webEntitlementManager?.stopObserving()
+            scope.cancel()
+            isConfigured = false
+            Log.info("SDK shut down")
+        }
     }
 }

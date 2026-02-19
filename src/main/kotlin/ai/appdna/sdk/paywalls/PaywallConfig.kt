@@ -97,15 +97,26 @@ enum class DismissReason(val value: String) {
 }
 
 /**
- * Listener for paywall lifecycle events.
+ * Action taken by the user on a paywall.
  */
-interface AppDNAPaywallListener {
-    fun paywallDidAppear(paywallId: String) {}
-    fun paywallDidDismiss(paywallId: String, reason: DismissReason) {}
-    fun paywallDidStartPurchase(paywallId: String, productId: String) {}
-    fun paywallDidCompletePurchase(paywallId: String, productId: String, transactionId: String) {}
-    fun paywallDidFailPurchase(paywallId: String, productId: String, error: Exception) {}
-    fun paywallDidRestorePurchases(paywallId: String, restoredProductIds: List<String>) {}
+enum class PaywallAction(val value: String) {
+    CTA_TAPPED("cta_tapped"),
+    FEATURE_SELECTED("feature_selected"),
+    PLAN_CHANGED("plan_changed"),
+    LINK_TAPPED("link_tapped"),
+    CUSTOM("custom")
+}
+
+/**
+ * Delegate for paywall lifecycle events.
+ */
+interface AppDNAPaywallDelegate {
+    fun onPaywallPresented(paywallId: String) {}
+    fun onPaywallAction(paywallId: String, action: PaywallAction) {}
+    fun onPaywallPurchaseStarted(paywallId: String, productId: String) {}
+    fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: ai.appdna.sdk.TransactionInfo) {}
+    fun onPaywallPurchaseFailed(paywallId: String, error: Exception) {}
+    fun onPaywallDismissed(paywallId: String) {}
 }
 
 // MARK: - Parsing helpers

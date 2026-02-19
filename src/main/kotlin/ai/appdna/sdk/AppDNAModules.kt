@@ -1,6 +1,7 @@
 package ai.appdna.sdk
 
 import android.app.Activity
+import ai.appdna.sdk.billing.Entitlement
 import ai.appdna.sdk.billing.NativeBillingManager
 import ai.appdna.sdk.config.ExperimentManager
 import ai.appdna.sdk.config.FeatureFlagManager
@@ -15,16 +16,57 @@ import kotlinx.coroutines.*
 // MARK: - Module Namespaces (v1.0)
 // Provides `AppDNA.push.*`, `AppDNA.billing.*`, etc.
 
+// MARK: - Typed Data Classes (SPEC-041)
+
 /**
- * Listener for push notification lifecycle events.
+ * Push notification payload.
  */
-interface AppDNAPushListener {
+data class PushPayload(
+    val pushId: String,
+    val title: String,
+    val body: String,
+    val imageUrl: String? = null,
+    val data: Map<String, Any>? = null,
+    val action: PushAction? = null
+)
+
+/**
+ * Push action from notification tap.
+ */
+data class PushAction(
+    val type: String,
+    val value: String
+)
+
+/**
+ * Transaction information from a completed purchase.
+ */
+data class TransactionInfo(
+    val transactionId: String,
+    val productId: String,
+    val purchaseDate: String,
+    val environment: String = "production"
+)
+
+/**
+ * Survey response entry.
+ */
+data class SurveyResponse(
+    val questionId: String,
+    val answer: Any,
+    val metadata: Map<String, Any>? = null
+)
+
+/**
+ * Delegate for push notification lifecycle events.
+ */
+interface AppDNAPushDelegate {
     /** Called when the push token is registered or refreshed. */
     fun onPushTokenRegistered(token: String) {}
     /** Called when a push notification is received. */
-    fun onPushReceived(payload: Map<String, Any>, inForeground: Boolean) {}
+    fun onPushReceived(notification: PushPayload, inForeground: Boolean) {}
     /** Called when a push notification is tapped. */
-    fun onPushTapped(payload: Map<String, Any>, actionId: String?) {}
+    fun onPushTapped(notification: PushPayload, actionId: String?) {}
 }
 
 /**
@@ -32,10 +74,13 @@ interface AppDNAPushListener {
  */
 class PushModule internal constructor() {
     internal var manager: PushTokenManager? = null
-    private var listener: AppDNAPushListener? = null
+    private var listener: AppDNAPushDelegate? = null
 
     /** Current push token. */
     val token: String? get() = manager?.currentToken
+
+    /** Get the current push token (spec-compliant method form). */
+    fun getToken(): String? = manager?.currentToken
 
     /** Set the FCM token. */
     fun setToken(token: String) = AppDNA.setPushToken(token)
@@ -52,10 +97,10 @@ class PushModule internal constructor() {
             ?: Log.warning("Cannot request push permission — SDK not configured")
     }
 
-    /** Set a listener for push notification lifecycle events. */
-    fun setListener(listener: AppDNAPushListener?) {
-        this.listener = listener
-        manager?.pushListener = listener
+    /** Set a delegate for push notification lifecycle events. */
+    fun setDelegate(delegate: AppDNAPushDelegate?) {
+        this.listener = delegate
+        manager?.pushListener = delegate
     }
 }
 
@@ -174,13 +219,13 @@ class BillingModule internal constructor() {
     }
 
     /**
-     * Set a listener to receive billing lifecycle callbacks (purchases, failures, restores).
+     * Set a delegate to receive billing lifecycle callbacks (purchases, failures, restores).
      */
-    fun setListener(listener: AppDNABillingListener?) {
-        this.billingListener = listener
+    fun setDelegate(delegate: AppDNABillingDelegate?) {
+        this.billingListener = delegate
     }
 
-    internal var billingListener: AppDNABillingListener? = null
+    internal var billingListener: AppDNABillingDelegate? = null
 }
 
 /**
@@ -188,7 +233,7 @@ class BillingModule internal constructor() {
  */
 class OnboardingModule internal constructor() {
     internal var manager: OnboardingFlowManager? = null
-    internal var listener: ai.appdna.sdk.onboarding.AppDNAOnboardingListener? = null
+    internal var listener: ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate? = null
 
     /** Present an onboarding flow. */
     fun present(
@@ -199,9 +244,9 @@ class OnboardingModule internal constructor() {
         return AppDNA.presentOnboarding(activity, flowId, listener)
     }
 
-    /** Set a listener for onboarding events. */
-    fun setListener(listener: ai.appdna.sdk.onboarding.AppDNAOnboardingListener?) {
-        this.listener = listener
+    /** Set a delegate for onboarding events. */
+    fun setDelegate(delegate: ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate?) {
+        this.listener = delegate
     }
 }
 
@@ -210,7 +255,7 @@ class OnboardingModule internal constructor() {
  */
 class PaywallModule internal constructor() {
     internal var manager: PaywallManager? = null
-    internal var listener: ai.appdna.sdk.paywalls.AppDNAPaywallListener? = null
+    internal var listener: ai.appdna.sdk.paywalls.AppDNAPaywallDelegate? = null
 
     /** Present a paywall. */
     fun present(
@@ -221,9 +266,9 @@ class PaywallModule internal constructor() {
         AppDNA.presentPaywall(activity, paywallId, context, listener)
     }
 
-    /** Set a listener for paywall events. */
-    fun setListener(listener: ai.appdna.sdk.paywalls.AppDNAPaywallListener?) {
-        this.listener = listener
+    /** Set a delegate for paywall events. */
+    fun setDelegate(delegate: ai.appdna.sdk.paywalls.AppDNAPaywallDelegate?) {
+        this.listener = delegate
     }
 }
 
@@ -274,16 +319,16 @@ class FeaturesModule internal constructor() {
  * In-app messages module namespace.
  */
 class InAppMessagesModule internal constructor() {
-    private var listener: AppDNAInAppMessageListener? = null
+    private var listener: AppDNAInAppMessageDelegate? = null
 
     /** Temporarily suppress display. */
     fun suppressDisplay(suppress: Boolean) {
         // Wired via MessageManager
     }
 
-    /** Set a listener for in-app message lifecycle events. */
-    fun setListener(listener: AppDNAInAppMessageListener?) {
-        this.listener = listener
+    /** Set a delegate for in-app message lifecycle events. */
+    fun setDelegate(delegate: AppDNAInAppMessageDelegate?) {
+        this.listener = delegate
     }
 }
 
@@ -292,14 +337,14 @@ class InAppMessagesModule internal constructor() {
  */
 class SurveysModule internal constructor() {
     internal var manager: SurveyManager? = null
-    private var listener: AppDNASurveyListener? = null
+    private var listener: AppDNASurveyDelegate? = null
 
     /** Present a specific survey. */
     fun present(surveyId: String) { manager?.present(surveyId) }
 
-    /** Set a listener for survey lifecycle events. */
-    fun setListener(listener: AppDNASurveyListener?) {
-        this.listener = listener
+    /** Set a delegate for survey lifecycle events. */
+    fun setDelegate(delegate: AppDNASurveyDelegate?) {
+        this.listener = delegate
     }
 }
 
@@ -307,7 +352,7 @@ class SurveysModule internal constructor() {
  * Deep links module namespace.
  */
 class DeepLinksModule internal constructor() {
-    private var listener: AppDNADeepLinkListener? = null
+    private var listener: AppDNADeepLinkDelegate? = null
 
     /**
      * Handle an incoming deep link URL.
@@ -332,9 +377,9 @@ class DeepLinksModule internal constructor() {
         }
     }
 
-    /** Set a listener for deep link events. */
-    fun setListener(listener: AppDNADeepLinkListener?) {
-        this.listener = listener
+    /** Set a delegate for deep link events. */
+    fun setDelegate(delegate: AppDNADeepLinkDelegate?) {
+        this.listener = delegate
     }
 }
 
@@ -362,22 +407,22 @@ data class OnboardingContext(
     val experimentOverrides: Map<String, String>? = null
 )
 
-// MARK: - Listener Interfaces (v1.0)
+// MARK: - Delegate Interfaces (v1.0)
 
 /**
- * Listener for billing/purchase events.
+ * Delegate for billing/purchase events.
  */
-interface AppDNABillingListener {
-    fun onPurchaseCompleted(productId: String, transactionId: String) {}
+interface AppDNABillingDelegate {
+    fun onPurchaseCompleted(productId: String, transaction: TransactionInfo) {}
     fun onPurchaseFailed(productId: String, error: Exception) {}
-    fun onEntitlementsChanged(entitlements: List<String>) {}
+    fun onEntitlementsChanged(entitlements: List<Entitlement>) {}
     fun onRestoreCompleted(restoredProducts: List<String>) {}
 }
 
 /**
- * Listener for in-app message events.
+ * Delegate for in-app message events.
  */
-interface AppDNAInAppMessageListener {
+interface AppDNAInAppMessageDelegate {
     fun onMessageShown(messageId: String, trigger: String) {}
     fun onMessageAction(messageId: String, action: String, data: Map<String, Any>?) {}
     fun onMessageDismissed(messageId: String) {}
@@ -385,17 +430,17 @@ interface AppDNAInAppMessageListener {
 }
 
 /**
- * Listener for survey events.
+ * Delegate for survey events.
  */
-interface AppDNASurveyListener {
+interface AppDNASurveyDelegate {
     fun onSurveyPresented(surveyId: String) {}
-    fun onSurveyCompleted(surveyId: String, responses: List<Map<String, Any>>) {}
+    fun onSurveyCompleted(surveyId: String, responses: List<SurveyResponse>) {}
     fun onSurveyDismissed(surveyId: String) {}
 }
 
 /**
- * Listener for deep link events.
+ * Delegate for deep link events.
  */
-interface AppDNADeepLinkListener {
+interface AppDNADeepLinkDelegate {
     fun onDeepLinkReceived(url: String, params: Map<String, String>) {}
 }
