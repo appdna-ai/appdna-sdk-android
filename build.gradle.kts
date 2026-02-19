@@ -56,6 +56,9 @@ dependencies {
     // JSON serialization
     implementation("org.json:json:20231013")
 
+    // Google Play Billing Library
+    implementation("com.android.billingclient:billing-ktx:7.0.0")
+
     // Google Play In-App Review
     implementation("com.google.android.play:review-ktx:2.0.1")
 
