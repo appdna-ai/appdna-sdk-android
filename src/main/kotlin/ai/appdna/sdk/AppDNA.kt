@@ -116,8 +116,8 @@ object AppDNA {
             this.eventQueue = eq
             tracker.setEventQueue(eq)
 
-            // 5. Initialize push token manager
-            this.pushTokenManager = PushTokenManager(storage, tracker)
+            // 5. Initialize push token manager (v0.4 SPEC-030: backend registration)
+            this.pushTokenManager = PushTokenManager(context, storage, tracker, client)
 
             // 6. Initialize config managers (Firestore)
             val remoteCfg = RemoteConfigManager(
@@ -301,10 +301,11 @@ object AppDNA {
         }
     }
 
-    // MARK: - Public API: Push Token
+    // MARK: - Public API: Push Token + Push Tracking (v0.4 / SPEC-030)
 
     /**
      * Set the FCM push token. Call from FirebaseMessagingService.onNewToken().
+     * This registers the token with the backend for direct push delivery.
      */
     fun setPushToken(token: String) {
         pushTokenManager?.setPushToken(token)
@@ -315,6 +316,29 @@ object AppDNA {
      */
     fun setPushPermission(granted: Boolean) {
         pushTokenManager?.setPushPermission(granted)
+    }
+
+    /**
+     * Track that a push notification was delivered.
+     * Call from FirebaseMessagingService.onMessageReceived().
+     */
+    fun trackPushDelivered(pushId: String) {
+        pushTokenManager?.trackDelivered(pushId)
+    }
+
+    /**
+     * Track that a push notification was tapped.
+     * Call from the tap intent handler.
+     */
+    fun trackPushTapped(pushId: String, action: String? = null) {
+        pushTokenManager?.trackTapped(pushId, action)
+    }
+
+    /**
+     * Called when FCM token refreshes. Re-registers with backend.
+     */
+    fun onNewPushToken(token: String) {
+        pushTokenManager?.onNewToken(token)
     }
 
     // MARK: - Public API: Privacy
