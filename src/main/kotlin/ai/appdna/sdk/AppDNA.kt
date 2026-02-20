@@ -1,0 +1,543 @@
+package ai.appdna.sdk
+
+import android.app.Activity
+import android.content.Context
+import ai.appdna.sdk.config.ExperimentManager
+import ai.appdna.sdk.config.FeatureFlagManager
+import ai.appdna.sdk.config.RemoteConfigManager
+import ai.appdna.sdk.deeplinks.DeferredDeepLink
+import ai.appdna.sdk.deeplinks.DeferredDeepLinkManager
+import ai.appdna.sdk.feedback.SurveyConfig
+import ai.appdna.sdk.events.EventQueue
+import ai.appdna.sdk.events.EventSchema
+import ai.appdna.sdk.events.EventTracker
+import ai.appdna.sdk.feedback.SurveyManager
+import ai.appdna.sdk.integrations.PushTokenManager
+import ai.appdna.sdk.integrations.RevenueCatBridge
+import ai.appdna.sdk.network.ApiClient
+import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
+import ai.appdna.sdk.onboarding.OnboardingFlowManager
+import ai.appdna.sdk.paywalls.AppDNAPaywallDelegate
+import ai.appdna.sdk.paywalls.PaywallContext
+import ai.appdna.sdk.paywalls.PaywallManager
+import ai.appdna.sdk.storage.LocalStorage
+import ai.appdna.sdk.webentitlements.WebEntitlement
+import ai.appdna.sdk.webentitlements.WebEntitlementManager
+import kotlinx.coroutines.*
+import org.json.JSONObject
+
+/**
+ * Main entry point for the AppDNA Android SDK.
+ * All public methods are thread-safe.
+ */
+object AppDNA {
+
+    /** SDK version string. */
+    const val sdkVersion = "1.0.0"
+
+    // Module namespaces (v1.0)
+    /** Push notification module. */
+    @JvmStatic val push = PushModule()
+    /** Billing module. */
+    @JvmStatic val billing = BillingModule()
+    /** Onboarding module. */
+    @JvmStatic val onboarding = ai.appdna.sdk.OnboardingModule()
+    /** Paywall module. */
+    @JvmStatic val paywall = ai.appdna.sdk.PaywallModule()
+    /** Remote config module. */
+    @JvmStatic val remoteConfig = ai.appdna.sdk.RemoteConfigModule()
+    /** Feature flags module. */
+    @JvmStatic val features = ai.appdna.sdk.FeaturesModule()
+    /** In-app messages module. */
+    @JvmStatic val inAppMessages = InAppMessagesModule()
+    /** Surveys module. */
+    @JvmStatic val surveys = ai.appdna.sdk.SurveysModule()
+    /** Deep links module. */
+    @JvmStatic val deepLinks = DeepLinksModule()
+    /** Experiments module. */
+    @JvmStatic val experiments = ai.appdna.sdk.ExperimentsModule()
+
+    /** Current config bundle version reported in events. */
+    @JvmStatic var currentBundleVersion: Int = 0
+        internal set
+
+    // Internal managers
+    private var apiKey: String? = null
+    private var environment: Environment = Environment.PRODUCTION
+    private var options: AppDNAOptions = AppDNAOptions()
+
+    private var apiClient: ApiClient? = null
+    private var identityManager: IdentityManager? = null
+    private var eventTracker: EventTracker? = null
+    private var eventQueue: EventQueue? = null
+    private var remoteConfigManager: RemoteConfigManager? = null
+    private var featureFlagManager: FeatureFlagManager? = null
+    private var experimentManager: ExperimentManager? = null
+    private var pushTokenManager: PushTokenManager? = null
+    private var revenueCatBridge: RevenueCatBridge? = null
+    private var paywallManager: PaywallManager? = null
+    private var onboardingFlowManager: OnboardingFlowManager? = null
+    private var surveyManager: SurveyManager? = null
+    private var webEntitlementManager: WebEntitlementManager? = null
+    private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
+    private var appContext: Context? = null
+    private var bootstrapOrgId: String? = null
+    private var bootstrapAppId: String? = null
+
+    private var isConfigured = false
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val readyCallbacks = mutableListOf<() -> Unit>()
+
+    // MARK: - Public API: Initialization
+
+    /**
+     * Configure the SDK. Call once at Application.onCreate().
+     */
+    fun configure(
+        context: Context,
+        apiKey: String,
+        environment: Environment = Environment.PRODUCTION,
+        options: AppDNAOptions = AppDNAOptions()
+    ) {
+        synchronized(this) {
+            if (isConfigured) {
+                Log.warning("AppDNA.configure() called multiple times — ignoring")
+                return
+            }
+
+            this.apiKey = apiKey
+            this.environment = environment
+            this.options = options
+            Log.level = options.logLevel
+
+            Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
+
+            this.appContext = context.applicationContext
+            val appContext = this.appContext!!
+            val appVersion = try {
+                appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "0.0.0"
+            } catch (_: Exception) { "0.0.0" }
+
+            // 1. Initialize storage
+            val storage = LocalStorage(appContext)
+
+            // 2. Initialize identity
+            val identityMgr = IdentityManager(storage)
+            this.identityManager = identityMgr
+
+            // 3. Initialize networking
+            val client = ApiClient(apiKey, environment)
+            this.apiClient = client
+
+            // 4. Initialize event system
+            val tracker = EventTracker(identityMgr, appVersion)
+            this.eventTracker = tracker
+
+            val eq = EventQueue(
+                apiClient = client,
+                storage = storage,
+                batchSize = options.batchSize,
+                flushInterval = options.flushInterval
+            )
+            this.eventQueue = eq
+            tracker.setEventQueue(eq)
+
+            // 5. Initialize push token manager (v0.4 SPEC-030: backend registration)
+            this.pushTokenManager = PushTokenManager(context, storage, tracker, client)
+            push.manager = this.pushTokenManager
+
+            // 6. Initialize config managers (Firestore)
+            val remoteCfg = RemoteConfigManager(
+                firestorePath = null, // Set after bootstrap
+                storage = storage,
+                configTTL = options.configTTL
+            )
+            this.remoteConfigManager = remoteCfg
+
+            this.featureFlagManager = FeatureFlagManager(remoteCfg)
+
+            this.experimentManager = ExperimentManager(
+                remoteConfigManager = remoteCfg,
+                identityManager = identityMgr,
+                eventTracker = tracker
+            )
+
+            // Paywall & onboarding managers
+            this.paywallManager = PaywallManager(
+                remoteConfigManager = remoteCfg,
+                eventTracker = tracker
+            )
+
+            this.onboardingFlowManager = OnboardingFlowManager(
+                remoteConfigManager = remoteCfg,
+                eventTracker = tracker
+            )
+
+            // v0.3 managers
+            this.surveyManager = SurveyManager(appContext, tracker, client)
+            this.webEntitlementManager = WebEntitlementManager(tracker, appContext)
+
+            // Wire survey config updates from RemoteConfigManager to SurveyManager
+            remoteCfg.surveyUpdateHandler = { rawSurveys ->
+                val parsed = rawSurveys.mapNotNull { (key, data) ->
+                    SurveyConfig.fromMap(data)?.let { key to it }
+                }.toMap()
+                surveyManager?.updateConfigs(parsed)
+            }
+
+            // 7. Bootstrap (fetch orgId/appId, then Firestore configs)
+            scope.launch {
+                performBootstrap(client, remoteCfg, tracker)
+            }
+        }
+    }
+
+    // MARK: - Public API: Identity
+
+    /**
+     * Link the anonymous device to a known user.
+     */
+    fun identify(userId: String, traits: Map<String, Any>? = null) {
+        identityManager?.identify(userId, traits)
+
+        // Start web entitlement observer for this user (v0.3)
+        val orgId = bootstrapOrgId
+        val appId = bootstrapAppId
+        if (orgId != null && appId != null) {
+            webEntitlementManager?.startObserving(orgId, appId, userId)
+        }
+    }
+
+    /**
+     * Clear user identity (keeps anonymous ID).
+     */
+    fun reset() {
+        identityManager?.reset()
+        experimentManager?.resetExposures()
+        surveyManager?.resetSession()
+        webEntitlementManager?.stopObserving()
+        Log.info("Identity reset")
+    }
+
+    // MARK: - Public API: Events
+
+    /**
+     * Track a custom event.
+     */
+    fun track(event: String, properties: Map<String, Any>? = null) {
+        eventTracker?.track(event, properties)
+        // Evaluate surveys on every tracked event (v0.3)
+        surveyManager?.onEvent(event, properties)
+    }
+
+    /**
+     * Force flush all queued events immediately.
+     */
+    fun flush() {
+        eventQueue?.flush()
+    }
+
+    // MARK: - Public API: Remote Config
+
+    /**
+     * Get a remote config value by key.
+     */
+    fun getRemoteConfig(key: String): Any? {
+        return remoteConfigManager?.getConfig(key)
+    }
+
+    /**
+     * Check if a feature flag is enabled.
+     */
+    fun isFeatureEnabled(flag: String): Boolean {
+        return featureFlagManager?.isEnabled(flag) ?: false
+    }
+
+    // MARK: - Public API: Experiments
+
+    /**
+     * Get the variant assignment for an experiment.
+     * Exposure is auto-tracked on first call per session.
+     */
+    fun getExperimentVariant(experimentId: String): String? {
+        return experimentManager?.getVariant(experimentId)?.id
+    }
+
+    /**
+     * Check if the user is in a specific variant.
+     */
+    fun isInVariant(experimentId: String, variantId: String): Boolean {
+        return experimentManager?.isInVariant(experimentId, variantId) ?: false
+    }
+
+    /**
+     * Get a specific config value from the assigned variant's payload.
+     */
+    fun getExperimentConfig(experimentId: String, key: String): Any? {
+        return experimentManager?.getExperimentConfig(experimentId, key)
+    }
+
+    // MARK: - Public API: Paywalls
+
+    /**
+     * Present a paywall by ID from the given Activity.
+     * Fetches the paywall config from remote config and presents the paywall UI.
+     *
+     * @param activity The Activity to present from.
+     * @param id The paywall ID (matching Firestore config).
+     * @param context Optional paywall context (placement, experiment, variant).
+     * @param listener Optional listener for paywall lifecycle events.
+     */
+    fun presentPaywall(
+        activity: Activity,
+        id: String,
+        context: PaywallContext? = null,
+        listener: AppDNAPaywallDelegate? = null
+    ) {
+        paywallManager?.present(
+            activity = activity,
+            id = id,
+            context = context,
+            listener = listener
+        ) ?: Log.warning("Cannot present paywall — SDK not configured")
+    }
+
+    // MARK: - Public API: Onboarding (v0.2)
+
+    /**
+     * Present an onboarding flow by ID. Returns false if config is unavailable.
+     * If flowId is null, the active flow from remote config is used.
+     *
+     * @param activity The Activity to present from.
+     * @param flowId Optional flow ID. If null, the active flow is used.
+     * @param listener Optional listener for onboarding lifecycle events.
+     * @return true if the flow was presented, false if config was not found.
+     */
+    fun presentOnboarding(
+        activity: Activity,
+        flowId: String? = null,
+        listener: AppDNAOnboardingDelegate? = null
+    ): Boolean {
+        return onboardingFlowManager?.present(
+            activity = activity,
+            flowId = flowId,
+            listener = listener
+        ) ?: run {
+            Log.warning("Cannot present onboarding — SDK not configured")
+            false
+        }
+    }
+
+    // MARK: - Public API: Push Token + Push Tracking (v0.4 / SPEC-030)
+
+    /**
+     * Set the FCM push token. Call from FirebaseMessagingService.onNewToken().
+     * This registers the token with the backend for direct push delivery.
+     */
+    fun setPushToken(token: String) {
+        pushTokenManager?.setPushToken(token)
+    }
+
+    /**
+     * Report push permission status.
+     */
+    fun setPushPermission(granted: Boolean) {
+        pushTokenManager?.setPushPermission(granted)
+    }
+
+    /**
+     * Track that a push notification was delivered.
+     * Call from FirebaseMessagingService.onMessageReceived().
+     */
+    fun trackPushDelivered(pushId: String) {
+        pushTokenManager?.trackDelivered(pushId)
+    }
+
+    /**
+     * Track that a push notification was tapped.
+     * Call from the tap intent handler.
+     */
+    fun trackPushTapped(pushId: String, action: String? = null) {
+        pushTokenManager?.trackTapped(pushId, action)
+    }
+
+    /**
+     * Called when FCM token refreshes. Re-registers with backend.
+     */
+    fun onNewPushToken(token: String) {
+        pushTokenManager?.onNewToken(token)
+    }
+
+    // MARK: - Public API: Privacy
+
+    /**
+     * Set analytics consent. When false, events are silently dropped.
+     */
+    fun setConsent(analytics: Boolean) {
+        eventTracker?.setConsent(analytics)
+        Log.info("Consent updated: analytics=$analytics")
+    }
+
+    // MARK: - Public API: Log Level
+
+    /**
+     * Set the SDK log level at runtime.
+     * Valid values: "none", "error", "warning", "info", "debug".
+     */
+    @JvmStatic
+    fun setLogLevel(level: String) {
+        val logLevel = when (level.lowercase()) {
+            "none" -> LogLevel.NONE
+            "error" -> LogLevel.ERROR
+            "warning" -> LogLevel.WARNING
+            "info" -> LogLevel.INFO
+            "debug" -> LogLevel.DEBUG
+            else -> {
+                Log.warning("Unknown log level '$level' — defaulting to INFO")
+                LogLevel.INFO
+            }
+        }
+        Log.level = logLevel
+        Log.info("Log level set to ${logLevel.name}")
+    }
+
+    // MARK: - Public API: Web Entitlements (v0.3)
+
+    /**
+     * Get the current web subscription entitlement.
+     */
+    val webEntitlement: WebEntitlement?
+        get() = webEntitlementManager?.currentEntitlement
+
+    /**
+     * Register a listener for web entitlement changes.
+     */
+    fun onWebEntitlementChanged(listener: (WebEntitlement?) -> Unit) {
+        webEntitlementManager?.addChangeListener(listener)
+    }
+
+    // MARK: - Public API: Deferred Deep Links (v0.3)
+
+    /**
+     * Check for a deferred deep link on first launch.
+     * Call after configure() and onReady.
+     */
+    fun checkDeferredDeepLink(callback: (DeferredDeepLink?) -> Unit) {
+        deferredDeepLinkManager?.checkDeferredDeepLink(callback) ?: callback(null)
+    }
+
+    // MARK: - Public API: Ready callback
+
+    /**
+     * Register a callback that fires when the SDK is fully initialized.
+     */
+    fun onReady(callback: () -> Unit) {
+        synchronized(this) {
+            if (isConfigured) {
+                callback()
+            } else {
+                readyCallbacks.add(callback)
+            }
+        }
+    }
+
+    // MARK: - Internal bootstrap
+
+    private suspend fun performBootstrap(
+        client: ApiClient,
+        remoteCfg: RemoteConfigManager,
+        tracker: EventTracker
+    ) {
+        val result = client.get("/api/v1/sdk/bootstrap")
+        if (result != null) {
+            try {
+                val orgId = result.getString("orgId")
+                val appId = result.getString("appId")
+                val firestorePath = result.getString("firestorePath")
+
+                Log.info("Bootstrap successful: orgId=$orgId, appId=$appId")
+
+                synchronized(this@AppDNA) {
+                    bootstrapOrgId = orgId
+                    bootstrapAppId = appId
+
+                    // v0.3: Create deferred deep link manager
+                    appContext?.let { ctx ->
+                        deferredDeepLinkManager = DeferredDeepLinkManager(ctx, orgId, appId, tracker)
+                    }
+
+                    // Start web entitlement observer if user is already identified
+                    identityManager?.currentIdentity?.userId?.let { userId ->
+                        webEntitlementManager?.startObserving(orgId, appId, userId)
+                    }
+                }
+
+                // Fetch Firestore configs
+                remoteCfg.fetchConfigs()
+            } catch (e: Exception) {
+                Log.error("Bootstrap parse error: ${e.message}")
+            }
+        } else {
+            Log.warning("Bootstrap failed — using cached config")
+        }
+
+        // Wire module namespaces (v1.0)
+        synchronized(this@AppDNA) {
+            onboarding.manager = onboardingFlowManager
+            paywall.manager = paywallManager
+            remoteConfig.manager = remoteConfigManager
+            features.manager = featureFlagManager
+            surveys.manager = surveyManager
+            experiments.manager = experimentManager
+        }
+
+        // Load bundled config (v1.0 offline-first)
+        loadConfigBundle()
+
+        // Mark ready
+        synchronized(this@AppDNA) {
+            isConfigured = true
+            tracker.track("sdk_initialized")
+            Log.info("SDK ready")
+
+            val callbacks = ArrayList(readyCallbacks)
+            readyCallbacks.clear()
+            for (cb in callbacks) {
+                cb()
+            }
+        }
+    }
+
+    // MARK: - Config Bundle (v1.0 offline-first)
+
+    /**
+     * Load config from bundle embedded in app assets.
+     * Priority: remote (already fetched) > cached > bundled.
+     */
+    private fun loadConfigBundle() {
+        try {
+            val ctx = appContext ?: return
+            val inputStream = ctx.assets.open("appdna-config.json")
+            val json = inputStream.bufferedReader().use { it.readText() }
+            val config = JSONObject(json)
+            val bundleVersion = config.optInt("bundle_version", 0)
+            currentBundleVersion = bundleVersion
+            Log.info("Loaded bundled config (version $bundleVersion)")
+        } catch (_: Exception) {
+            Log.debug("No bundled config found at appdna-config.json — using remote/cached only")
+        }
+    }
+
+    /**
+     * Shut down the SDK and release resources. Call from Application.onTerminate().
+     */
+    fun shutdown() {
+        synchronized(this) {
+            eventQueue?.shutdown()
+            webEntitlementManager?.stopObserving()
+            scope.cancel()
+            isConfigured = false
+            Log.info("SDK shut down")
+        }
+    }
+}
