@@ -65,6 +65,18 @@ internal class SurveyManager(
         }
     }
 
+    /**
+     * Present a specific survey by ID, bypassing trigger evaluation.
+     */
+    fun present(surveyId: String) {
+        val config = surveyConfigs[surveyId]
+        if (config == null) {
+            Log.warning("Survey config not found for id: $surveyId")
+            return
+        }
+        presentSurvey(surveyId, config, "manual")
+    }
+
     fun resetSession() {
         frequencyTracker.resetSession()
     }

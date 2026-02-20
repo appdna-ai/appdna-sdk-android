@@ -77,6 +77,7 @@ class PushModule internal constructor() {
     private var listener: AppDNAPushDelegate? = null
 
     /** Current push token. */
+    @get:JvmName("getTokenValue")
     val token: String? get() = manager?.currentToken
 
     /** Get the current push token (spec-compliant method form). */

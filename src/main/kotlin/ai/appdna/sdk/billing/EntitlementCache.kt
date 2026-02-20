@@ -90,6 +90,11 @@ internal class EntitlementCache(
     }
 
     /**
+     * Get all cached entitlements.
+     */
+    fun getAll(): List<Entitlement> = entitlements
+
+    /**
      * Register a listener for entitlement changes.
      */
     fun addChangeListener(listener: (List<Entitlement>) -> Unit) {

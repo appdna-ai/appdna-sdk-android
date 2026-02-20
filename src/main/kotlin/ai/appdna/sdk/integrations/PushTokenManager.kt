@@ -29,6 +29,24 @@ internal class PushTokenManager(
 
     private val scope = CoroutineScope(Dispatchers.IO)
 
+    /** Current push token from local storage. */
+    var currentToken: String?
+        get() = storage.getString(KEY_PUSH_TOKEN)
+        private set(value) {
+            if (value != null) storage.setString(KEY_PUSH_TOKEN, value)
+        }
+
+    /** Delegate for push notification lifecycle events. */
+    var pushListener: ai.appdna.sdk.AppDNAPushDelegate? = null
+
+    /**
+     * Request push notification permission (stub — Android 13+ runtime permission
+     * must be requested from the hosting Activity).
+     */
+    fun requestPermission() {
+        Log.info("Push permission request: on Android, request POST_NOTIFICATIONS permission from your Activity")
+    }
+
     /**
      * Store the push token, send a registration event, and register with backend.
      */

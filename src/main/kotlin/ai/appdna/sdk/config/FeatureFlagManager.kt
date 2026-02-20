@@ -17,4 +17,16 @@ internal class FeatureFlagManager(private val remoteConfigManager: RemoteConfigM
             else -> false
         }
     }
+
+    /**
+     * Get the raw value of a feature flag.
+     */
+    fun getValue(flag: String): Any? = remoteConfigManager.getConfig(flag)
+
+    /**
+     * Register a listener for feature flag changes (stub).
+     */
+    fun addChangeListener(callback: (Map<String, Boolean>) -> Unit) {
+        // Stub — change listeners are managed at the RemoteConfigManager level
+    }
 }

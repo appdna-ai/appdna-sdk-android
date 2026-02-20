@@ -15,7 +15,7 @@ internal class ExperimentManager(
     private val identityManager: IdentityManager,
     private val eventTracker: EventTracker
 ) {
-    private val exposedExperiments = mutableSetOf<String>()
+    private val exposedExperiments = mutableMapOf<String, String>()
 
     /**
      * Get the variant for an experiment. Returns null if not eligible.
@@ -108,10 +108,19 @@ internal class ExperimentManager(
         return variants.last()
     }
 
+    /**
+     * Get all recorded exposures as (experimentId, variantId) pairs.
+     */
+    fun getExposures(): List<Pair<String, String>> {
+        synchronized(exposedExperiments) {
+            return exposedExperiments.map { (experimentId, variantId) -> experimentId to variantId }
+        }
+    }
+
     private fun trackExposure(experimentId: String, variantId: String) {
         synchronized(exposedExperiments) {
-            if (!exposedExperiments.contains(experimentId)) {
-                exposedExperiments.add(experimentId)
+            if (!exposedExperiments.containsKey(experimentId)) {
+                exposedExperiments[experimentId] = variantId
                 eventTracker.track("experiment_exposure", mapOf(
                     "experiment_id" to experimentId,
                     "variant" to variantId,

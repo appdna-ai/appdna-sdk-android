@@ -31,7 +31,15 @@ internal class RemoteConfigManager(
         loadCachedConfigs()
     }
 
+    private val changeListeners = mutableListOf<(Map<String, Any>) -> Unit>()
+
     fun getConfig(key: String): Any? = flags[key]
+
+    fun getAllConfig(): Map<String, Any> = flags
+
+    fun addChangeListener(callback: (Map<String, Any>) -> Unit) {
+        changeListeners.add(callback)
+    }
 
     fun getExperimentConfig(id: String): ExperimentConfig? = experiments[id]
 
@@ -66,6 +74,7 @@ internal class RemoteConfigManager(
             snapshot.data?.let { data ->
                 flags = data
                 cacheData("flags", JSONObject(data).toString())
+                notifyChangeListeners()
             }
         }.addOnFailureListener { e ->
             Log.error("Failed to fetch flags: ${e.message}")
@@ -219,6 +228,12 @@ internal class RemoteConfigManager(
 
     private fun cacheData(key: String, json: String) {
         storage.setString("cache_$key", json)
+    }
+
+    private fun notifyChangeListeners() {
+        for (listener in changeListeners) {
+            listener(flags)
+        }
     }
 }
 

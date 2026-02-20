@@ -21,14 +21,13 @@ internal class PaywallManager(
         activity: Activity,
         id: String,
         context: PaywallContext? = null,
-        listener: AppDNAPaywallListener? = null
+        listener: AppDNAPaywallDelegate? = null
     ) {
         val config = remoteConfigManager.getPaywallConfig(id)
         if (config == null) {
             Log.error("Paywall config not found for id: $id")
-            listener?.paywallDidFailPurchase(
+            listener?.onPaywallPurchaseFailed(
                 paywallId = id,
-                productId = "",
                 error = IllegalStateException("Paywall config not found")
             )
             return
@@ -47,17 +46,17 @@ internal class PaywallManager(
             config = config,
             paywallContext = context,
             onAppear = {
-                listener?.paywallDidAppear(paywallId = id)
+                listener?.onPaywallPresented(paywallId = id)
             },
             onDismiss = { reason ->
                 eventTracker.track("paywall_close", mapOf(
                     "paywall_id" to id,
                     "dismiss_reason" to reason.value
                 ))
-                listener?.paywallDidDismiss(paywallId = id, reason = reason)
+                listener?.onPaywallDismissed(paywallId = id)
             },
             onPlanSelected = { plan ->
-                listener?.paywallDidStartPurchase(paywallId = id, productId = plan.product_id)
+                listener?.onPaywallPurchaseStarted(paywallId = id, productId = plan.product_id)
                 eventTracker.track("purchase_started", mapOf(
                     "paywall_id" to id,
                     "product_id" to plan.product_id

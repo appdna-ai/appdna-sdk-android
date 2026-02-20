@@ -20,7 +20,7 @@ internal class OnboardingFlowManager(
     fun present(
         activity: Activity,
         flowId: String? = null,
-        listener: AppDNAOnboardingListener? = null
+        listener: AppDNAOnboardingDelegate? = null
     ): Boolean {
         // Resolve flow config
         val flow = remoteConfigManager.getOnboardingFlow(flowId)
@@ -37,6 +37,9 @@ internal class OnboardingFlowManager(
 
         val startTime = System.currentTimeMillis()
 
+        // Notify delegate of flow start
+        listener?.onOnboardingStarted(flowId = flow.id)
+
         // Launch the OnboardingActivity
         OnboardingActivity.launch(
             context = activity,
@@ -48,7 +51,7 @@ internal class OnboardingFlowManager(
                     "step_index" to stepIndex,
                     "step_type" to flow.steps[stepIndex].type.value
                 ))
-                listener?.onboardingStepViewed(flowId = flow.id, stepId = stepId, stepIndex = stepIndex)
+                listener?.onOnboardingStepChanged(flowId = flow.id, stepId = stepId, stepIndex = stepIndex, totalSteps = flow.steps.size)
             },
             onStepCompleted = { stepId, stepIndex, data ->
                 eventTracker.track("onboarding_step_completed", mapOf(
@@ -57,7 +60,6 @@ internal class OnboardingFlowManager(
                     "step_index" to stepIndex,
                     "selection_data" to (data ?: emptyMap<String, Any>())
                 ))
-                listener?.onboardingStepCompleted(flowId = flow.id, stepId = stepId, data = data)
             },
             onStepSkipped = { stepId, stepIndex ->
                 eventTracker.track("onboarding_step_skipped", mapOf(
@@ -65,7 +67,6 @@ internal class OnboardingFlowManager(
                     "step_id" to stepId,
                     "step_index" to stepIndex
                 ))
-                listener?.onboardingStepSkipped(flowId = flow.id, stepId = stepId)
             },
             onFlowCompleted = { responses ->
                 val durationMs = System.currentTimeMillis() - startTime
@@ -75,7 +76,7 @@ internal class OnboardingFlowManager(
                     "total_duration_ms" to durationMs,
                     "responses" to responses
                 ))
-                listener?.onboardingFlowCompleted(flowId = flow.id, data = responses)
+                listener?.onOnboardingCompleted(flowId = flow.id, responses = responses)
             },
             onFlowDismissed = { lastStepId, lastStepIndex ->
                 eventTracker.track("onboarding_flow_dismissed", mapOf(
@@ -83,7 +84,7 @@ internal class OnboardingFlowManager(
                     "last_step_id" to lastStepId,
                     "last_step_index" to lastStepIndex
                 ))
-                listener?.onboardingFlowDismissed(flowId = flow.id, lastStepId = lastStepId)
+                listener?.onOnboardingDismissed(flowId = flow.id, atStep = lastStepIndex)
             }
         )
 

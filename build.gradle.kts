@@ -46,6 +46,9 @@ dependencies {
     // Firebase Firestore for remote config
     implementation("com.google.firebase:firebase-firestore-ktx:24.10.0")
 
+    // Firebase Cloud Messaging for push notifications
+    implementation("com.google.firebase:firebase-messaging-ktx:23.4.0")
+
     // OkHttp for event ingestion
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
