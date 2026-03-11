@@ -403,6 +403,68 @@ private fun PaywallSectionView(
                 )
             }
         }
+        // SPEC-084: Missing sections
+        "image" -> {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height((section.data?.height ?: 240f).dp)
+                    .clip(RoundedCornerShape((section.data?.corner_radius ?: 12f).dp))
+                    .background(Color.Gray.copy(alpha = 0.2f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("\uD83D\uDDBC", fontSize = 32.sp) // Image placeholder
+            }
+        }
+        "spacer" -> {
+            Spacer(modifier = Modifier.height((section.data?.spacer_height ?: 24f).dp))
+        }
+        "testimonial" -> {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+            ) {
+                Text(
+                    text = "\u201C",
+                    fontSize = 40.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF6366F1),
+                )
+                Text(
+                    text = section.data?.quote ?: section.data?.testimonial ?: "",
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = 14.sp,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    // Author initials circle
+                    section.data?.author_name?.let { name ->
+                        val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }.take(2).joinToString("")
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(Color(0xFF6366F1).copy(alpha = 0.2f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(initials, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF6366F1))
+                        }
+                    }
+                    Column {
+                        section.data?.author_name?.let {
+                            Text(it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 14.sp)
+                        }
+                        section.data?.author_role?.let {
+                            Text(it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

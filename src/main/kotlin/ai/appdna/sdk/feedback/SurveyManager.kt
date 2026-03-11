@@ -188,18 +188,23 @@ internal class SurveyManager(
         val sentiment = determineSentiment(config, answers)
         val actions = config.followUpActions ?: return
 
-        when (sentiment) {
-            SurveySentiment.POSITIVE -> {
-                if (actions.onPositive?.action == "prompt_review") {
-                    ReviewPromptManager.triggerReview(context)
-                }
+        val action = when (sentiment) {
+            SurveySentiment.POSITIVE -> actions.onPositive
+            SurveySentiment.NEGATIVE -> actions.onNegative
+            SurveySentiment.NEUTRAL -> actions.onNeutral
+        } ?: return
+
+        when (action.action) {
+            "prompt_review" -> ReviewPromptManager.triggerReview(context)
+            "show_feedback_form" -> presentFeedbackForm(action.message)
+            "trigger_winback" -> {
+                // SPEC-084: Fire custom event for downstream handling
+                eventTracker.track("survey_winback_triggered", mapOf(
+                    "sentiment" to sentiment.name.lowercase(),
+                    "message" to (action.message ?: ""),
+                ))
             }
-            SurveySentiment.NEGATIVE -> {
-                if (actions.onNegative?.action == "show_feedback_form") {
-                    presentFeedbackForm(actions.onNegative?.message)
-                }
-            }
-            SurveySentiment.NEUTRAL -> {}
+            "dismiss" -> { /* No-op */ }
         }
     }
 

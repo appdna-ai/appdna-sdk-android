@@ -69,6 +69,13 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
             }
         }
 
+        // Custom color
+        data["color"]?.let { color ->
+            try {
+                builder.setColor(android.graphics.Color.parseColor(color))
+            } catch (_: Exception) {}
+        }
+
         // Tap intent with push_id for tracking
         val tapIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             putExtra("push_id", pushId)
@@ -83,6 +90,24 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )
+        }
+
+        // SPEC-084: Action buttons
+        parseActionButtons(data).forEach { action ->
+            val actionIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
+                putExtra("push_id", pushId)
+                putExtra("action_id", action.id)
+                putExtra("action_type", action.type)
+                putExtra("action_value", action.value)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }
+            if (actionIntent != null) {
+                val pendingIntent = PendingIntent.getActivity(
+                    this, action.id.hashCode(), actionIntent,
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                builder.addAction(0, action.label, pendingIntent)
+            }
         }
 
         return builder.build()
@@ -100,6 +125,22 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                 manager.createNotificationChannel(channel)
             }
         }
+    }
+
+    // SPEC-084: Parse action buttons from push data
+    private data class ActionButton(val id: String, val label: String, val type: String, val value: String?)
+
+    private fun parseActionButtons(data: Map<String, String>): List<ActionButton> {
+        val buttons = mutableListOf<ActionButton>()
+        // Action buttons are sent as action_0_id, action_0_label, action_0_type, action_0_value, etc.
+        for (i in 0..2) {
+            val id = data["action_${i}_id"] ?: break
+            val label = data["action_${i}_label"] ?: continue
+            val type = data["action_${i}_type"] ?: "dismiss"
+            val value = data["action_${i}_value"]
+            buttons.add(ActionButton(id, label, type, value))
+        }
+        return buttons
     }
 
     companion object {

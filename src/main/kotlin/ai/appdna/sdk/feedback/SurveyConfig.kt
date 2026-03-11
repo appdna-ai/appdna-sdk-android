@@ -168,7 +168,9 @@ data class SurveyAppearance(
     val presentation: String,
     val theme: SurveyTheme?,
     val dismissAllowed: Boolean,
-    val showProgress: Boolean
+    val showProgress: Boolean,
+    // SPEC-084: Style engine integration
+    val cornerRadius: Int? = null,
 ) {
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyAppearance {
@@ -176,9 +178,18 @@ data class SurveyAppearance(
             val themeData = data["theme"] as? Map<String, Any>
             return SurveyAppearance(
                 presentation = data["presentation"] as? String ?: "bottom_sheet",
-                theme = themeData?.let { SurveyTheme(it["background_color"] as? String, it["text_color"] as? String, it["accent_color"] as? String, it["button_color"] as? String) },
+                theme = themeData?.let {
+                    SurveyTheme(
+                        it["background_color"] as? String,
+                        it["text_color"] as? String,
+                        it["accent_color"] as? String,
+                        it["button_color"] as? String,
+                        it["font_family"] as? String,
+                    )
+                },
                 dismissAllowed = data["dismiss_allowed"] as? Boolean ?: true,
-                showProgress = data["show_progress"] as? Boolean ?: false
+                showProgress = data["show_progress"] as? Boolean ?: false,
+                cornerRadius = (data["corner_radius"] as? Number)?.toInt(),
             )
         }
     }
@@ -188,7 +199,8 @@ data class SurveyTheme(
     val backgroundColor: String?,
     val textColor: String?,
     val accentColor: String?,
-    val buttonColor: String?
+    val buttonColor: String?,
+    val fontFamily: String? = null,
 )
 
 data class SurveyFollowUpActions(

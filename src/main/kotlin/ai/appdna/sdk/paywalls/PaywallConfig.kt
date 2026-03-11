@@ -9,18 +9,24 @@ data class PaywallConfig(
     val layout: PaywallLayout,
     val sections: List<PaywallSection>,
     val dismiss: PaywallDismiss? = null,
-    val background: PaywallBackground? = null
+    val background: PaywallBackground? = null,
+    // SPEC-084: Design tokens
+    val animation: ai.appdna.sdk.core.AnimationConfig? = null,
+    val localizations: Map<String, Map<String, String>>? = null,
+    val default_locale: String? = null,
 )
 
 data class PaywallLayout(
-    val type: String, // "stack" or "grid"
+    val type: String, // "stack", "grid", "carousel"
     val spacing: Float? = null,
-    val padding: Float? = null
+    val padding: Float? = null,
 )
 
 data class PaywallSection(
-    val type: String, // "header", "features", "plans", "cta", "social_proof", "guarantee"
-    val data: PaywallSectionData? = null
+    val type: String, // "header", "features", "plans", "cta", "social_proof", "guarantee", "image", "spacer", "testimonial"
+    val data: PaywallSectionData? = null,
+    // SPEC-084: Per-section styling
+    val style: ai.appdna.sdk.core.SectionStyleConfig? = null,
 )
 
 data class PaywallSectionData(
@@ -42,9 +48,25 @@ data class PaywallSectionData(
     val rating: Double? = null,
     val review_count: Int? = null,
     val testimonial: String? = null,
+    val sub_type: String? = null,       // "app_rating", "countdown", "trial_badge"
+    val countdown_seconds: Int? = null,
+    val text: String? = null,
 
     // Guarantee
-    val guarantee_text: String? = null
+    val guarantee_text: String? = null,
+
+    // Image section
+    val height: Float? = null,
+    val corner_radius: Float? = null,
+
+    // Spacer section
+    val spacer_height: Float? = null,
+
+    // Testimonial section
+    val quote: String? = null,
+    val author_name: String? = null,
+    val author_role: String? = null,
+    val avatar_url: String? = null,
 )
 
 data class PaywallPlan(
@@ -202,7 +224,17 @@ internal object PaywallConfigParser {
                 rating = (d["rating"] as? Number)?.toDouble(),
                 review_count = (d["review_count"] as? Number)?.toInt(),
                 testimonial = d["testimonial"] as? String,
-                guarantee_text = d["guarantee_text"] as? String
+                sub_type = d["sub_type"] as? String,
+                countdown_seconds = (d["countdown_seconds"] as? Number)?.toInt(),
+                text = d["text"] as? String,
+                guarantee_text = d["guarantee_text"] as? String,
+                height = (d["height"] as? Number)?.toFloat(),
+                corner_radius = (d["corner_radius"] as? Number)?.toFloat(),
+                spacer_height = (d["spacer_height"] as? Number)?.toFloat(),
+                quote = d["quote"] as? String,
+                author_name = d["author_name"] as? String,
+                author_role = d["author_role"] as? String,
+                avatar_url = d["avatar_url"] as? String,
             )
         }
 
