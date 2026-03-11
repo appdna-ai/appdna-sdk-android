@@ -47,6 +47,8 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
             "equals" -> depValue.toString() == dep.value.toString()
             "not_equals" -> depValue.toString() != dep.value.toString()
             "contains" -> depValue.toString().contains(dep.value.toString())
+            "gt" -> (depValue as? Number)?.toDouble()?.let { it > (dep.value as? Number)?.toDouble() ?: 0.0 } ?: false
+            "lt" -> (depValue as? Number)?.toDouble()?.let { it < (dep.value as? Number)?.toDouble() ?: 0.0 } ?: false
             else -> true
         }
     }
