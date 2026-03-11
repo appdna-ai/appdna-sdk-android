@@ -21,6 +21,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.appdna.sdk.core.NetworkImage
 import ai.appdna.sdk.core.StyleEngine
+import ai.appdna.sdk.core.LottieBlock
+import ai.appdna.sdk.core.LottieBlockView
+import ai.appdna.sdk.core.RiveBlock
+import ai.appdna.sdk.core.RiveBlockView
+import ai.appdna.sdk.core.VideoBlock as CoreVideoBlock
+import ai.appdna.sdk.core.VideoBlockView as CoreVideoBlockView
+import ai.appdna.sdk.core.ConfettiOverlay
+import ai.appdna.sdk.core.HapticEngine
+import ai.appdna.sdk.core.IconView
+import ai.appdna.sdk.core.resolveIcon
+import ai.appdna.sdk.core.applyBlurBackdrop
+import androidx.compose.ui.platform.LocalView
 import kotlinx.coroutines.delay
 
 /**
@@ -113,7 +125,7 @@ private fun BannerMessageView(
                             }
                         }
 
-                        // CTA button
+                        // CTA button with optional icon
                         content.cta_text?.let { ctaText ->
                             Button(
                                 onClick = onCTATap,
@@ -121,6 +133,12 @@ private fun BannerMessageView(
                                 shape = RoundedCornerShape(cornerRadius.dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
+                                // SPEC-085: CTA icon
+                                val ctaIcon = resolveIcon(content.cta_icon)
+                                if (ctaIcon != null) {
+                                    IconView(ref = ctaIcon, defaultSize = 12f)
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
                                 Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                             }
                         }
@@ -133,7 +151,7 @@ private fun BannerMessageView(
                             },
                             modifier = Modifier.size(24.dp),
                         ) {
-                            Text("✕", fontSize = 12.sp, color = Color.Gray)
+                            Text("\u2715", fontSize = 12.sp, color = Color.Gray)
                         }
                     }
 
@@ -170,12 +188,30 @@ private fun ModalMessageView(
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
     val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
     val cornerRadius = content.corner_radius ?: 20
+    val currentView = LocalView.current
+    var showConfetti by remember { mutableStateOf(false) }
+
+    // SPEC-085: Haptic on appear
+    LaunchedEffect(Unit) {
+        HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+        // Auto-trigger confetti on appear
+        if (content.particle_effect?.trigger == "on_appear") {
+            showConfetti = true
+        }
+    }
 
     // Backdrop
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.5f))
+            .then(
+                // SPEC-085: Blur backdrop for glassmorphism
+                if (content.blur_backdrop != null) {
+                    Modifier.applyBlurBackdrop(content.blur_backdrop, 0f)
+                } else {
+                    Modifier.background(Color.Black.copy(alpha = 0.5f))
+                }
+            )
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
@@ -195,21 +231,55 @@ private fun ModalMessageView(
                 // Dismiss button
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
-                        Text("✕", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
+                        Text("\u2715", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
                     }
                 }
 
-                // Optional image
-                content.image_url?.let { imageUrl ->
-                    NetworkImage(
-                        url = imageUrl,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(160.dp)
-                            .clip(RoundedCornerShape(8.dp)),
-                        contentScale = ContentScale.Crop,
+                // SPEC-085: Lottie/Rive hero (preferred over static image)
+                if (content.lottie_url != null) {
+                    LottieBlockView(
+                        block = LottieBlock(
+                            lottie_url = content.lottie_url,
+                            autoplay = true,
+                            loop = true,
+                            height = 160f,
+                        )
                     )
                     Spacer(modifier = Modifier.height(16.dp))
+                } else if (content.rive_url != null) {
+                    RiveBlockView(
+                        block = RiveBlock(
+                            rive_url = content.rive_url,
+                            height = 160f,
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else if (content.video_url != null) {
+                    // SPEC-085: Video hero
+                    CoreVideoBlockView(
+                        block = CoreVideoBlock(
+                            video_url = content.video_url,
+                            video_thumbnail_url = content.video_thumbnail_url ?: content.image_url,
+                            video_height = 160f,
+                            video_corner_radius = 8f,
+                            autoplay = true,
+                            muted = true,
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                } else {
+                    // Fallback: Optional static image
+                    content.image_url?.let { imageUrl ->
+                        NetworkImage(
+                            url = imageUrl,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(160.dp)
+                                .clip(RoundedCornerShape(8.dp)),
+                            contentScale = ContentScale.Crop,
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                    }
                 }
 
                 // Title
@@ -237,23 +307,38 @@ private fun ModalMessageView(
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
-                // CTA button
+                // CTA button with optional icon
                 content.cta_text?.let { ctaText ->
                     Button(
-                        onClick = onCTATap,
+                        onClick = {
+                            // SPEC-085: Haptic on CTA tap
+                            HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+                            onCTATap()
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                         shape = RoundedCornerShape((content.corner_radius ?: 12).dp),
                     ) {
+                        // SPEC-085: CTA icon
+                        val ctaIcon = resolveIcon(content.cta_icon)
+                        if (ctaIcon != null) {
+                            IconView(ref = ctaIcon, defaultSize = 18f)
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
                         Text(ctaText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                     }
                 }
 
-                // Secondary CTA (Gap #18)
+                // Secondary CTA with optional icon (Gap #18)
                 content.secondary_cta_text?.let { secondaryText ->
                     TextButton(onClick = { onDismiss() }) {
+                        val secondaryIcon = resolveIcon(content.secondary_cta_icon)
+                        if (secondaryIcon != null) {
+                            IconView(ref = secondaryIcon, defaultSize = 14f)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
                         Text(
                             text = secondaryText,
                             color = if (textColor != Color.Unspecified)
@@ -273,6 +358,14 @@ private fun ModalMessageView(
                 }
             }
         }
+
+        // SPEC-085: Confetti overlay
+        if (showConfetti && content.particle_effect != null) {
+            ConfettiOverlay(
+                effect = content.particle_effect,
+                trigger = showConfetti,
+            )
+        }
     }
 }
 
@@ -288,6 +381,14 @@ private fun FullscreenMessageView(
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
     val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
     val cornerRadius = content.corner_radius ?: 14
+    val currentView = LocalView.current
+    var showConfetti by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        if (content.particle_effect?.trigger == "on_appear") {
+            showConfetti = true
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -303,16 +404,49 @@ private fun FullscreenMessageView(
         ) {
             Spacer(modifier = Modifier.weight(1f))
 
-            // Optional image
-            content.image_url?.let { imageUrl ->
-                NetworkImage(
-                    url = imageUrl,
-                    modifier = Modifier
-                        .size(300.dp)
-                        .clip(RoundedCornerShape(16.dp)),
-                    contentScale = ContentScale.Fit,
+            // SPEC-085: Lottie/Rive/Video hero (preferred over static image)
+            if (content.lottie_url != null) {
+                LottieBlockView(
+                    block = LottieBlock(
+                        lottie_url = content.lottie_url,
+                        autoplay = true,
+                        loop = true,
+                        height = 280f,
+                    )
                 )
                 Spacer(modifier = Modifier.height(24.dp))
+            } else if (content.rive_url != null) {
+                RiveBlockView(
+                    block = RiveBlock(
+                        rive_url = content.rive_url,
+                        height = 280f,
+                    )
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            } else if (content.video_url != null) {
+                CoreVideoBlockView(
+                    block = CoreVideoBlock(
+                        video_url = content.video_url,
+                        video_thumbnail_url = content.video_thumbnail_url ?: content.image_url,
+                        video_height = 280f,
+                        video_corner_radius = 16f,
+                        autoplay = true,
+                        muted = true,
+                    )
+                )
+                Spacer(modifier = Modifier.height(24.dp))
+            } else {
+                // Fallback: Optional static image
+                content.image_url?.let { imageUrl ->
+                    NetworkImage(
+                        url = imageUrl,
+                        modifier = Modifier
+                            .size(300.dp)
+                            .clip(RoundedCornerShape(16.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                }
             }
 
             // Title
@@ -341,23 +475,36 @@ private fun FullscreenMessageView(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            // CTA button
+            // CTA button with optional icon
             content.cta_text?.let { ctaText ->
                 Button(
-                    onClick = onCTATap,
+                    onClick = {
+                        HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+                        onCTATap()
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                     shape = RoundedCornerShape(cornerRadius.dp),
                 ) {
+                    val ctaIcon = resolveIcon(content.cta_icon)
+                    if (ctaIcon != null) {
+                        IconView(ref = ctaIcon, defaultSize = 18f)
+                        Spacer(modifier = Modifier.width(8.dp))
+                    }
                     Text(ctaText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
 
-            // Secondary CTA (Gap #18)
+            // Secondary CTA with optional icon (Gap #18)
             content.secondary_cta_text?.let { secondaryText ->
                 TextButton(onClick = { onDismiss() }) {
+                    val secondaryIcon = resolveIcon(content.secondary_cta_icon)
+                    if (secondaryIcon != null) {
+                        IconView(ref = secondaryIcon, defaultSize = 14f)
+                        Spacer(modifier = Modifier.width(6.dp))
+                    }
                     Text(
                         text = secondaryText,
                         color = if (textColor != Color.Unspecified)
@@ -388,7 +535,15 @@ private fun FullscreenMessageView(
                 .size(36.dp)
                 .background(Color.LightGray.copy(alpha = 0.5f), CircleShape),
         ) {
-            Text("✕", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
+            Text("\u2715", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
+        }
+
+        // SPEC-085: Confetti overlay
+        if (showConfetti && content.particle_effect != null) {
+            ConfettiOverlay(
+                effect = content.particle_effect,
+                trigger = showConfetti,
+            )
         }
     }
 }
@@ -453,7 +608,7 @@ private fun TooltipMessageView(
                         )
                     }
 
-                    // CTA button
+                    // CTA button with optional icon
                     content.cta_text?.let { ctaText ->
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
@@ -462,13 +617,24 @@ private fun TooltipMessageView(
                             shape = RoundedCornerShape(cornerRadius.dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
+                            // SPEC-085: CTA icon
+                            val ctaIcon = resolveIcon(content.cta_icon)
+                            if (ctaIcon != null) {
+                                IconView(ref = ctaIcon, defaultSize = 12f)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
                             Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
 
-                    // Secondary CTA (Gap #18)
+                    // Secondary CTA with optional icon (Gap #18)
                     content.secondary_cta_text?.let { secondaryText ->
                         TextButton(onClick = { onDismiss() }) {
+                            val secondaryIcon = resolveIcon(content.secondary_cta_icon)
+                            if (secondaryIcon != null) {
+                                IconView(ref = secondaryIcon, defaultSize = 13f)
+                                Spacer(modifier = Modifier.width(4.dp))
+                            }
                             Text(
                                 text = secondaryText,
                                 color = if (textColor != Color.Unspecified)

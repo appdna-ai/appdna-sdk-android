@@ -183,6 +183,12 @@ data class SurveyAppearance(
     val questionTextStyle: TextStyleConfig? = null,
     // SPEC-084: Gap #21 — option card container style token
     val optionStyle: ElementStyleConfig? = null,
+    // SPEC-085: Rich media
+    val introLottieUrl: String? = null,
+    val thankyouLottieUrl: String? = null,
+    val thankyouParticleEffect: ai.appdna.sdk.core.ParticleEffect? = null,
+    val blurBackdrop: ai.appdna.sdk.core.BlurConfig? = null,
+    val haptic: ai.appdna.sdk.core.HapticConfig? = null,
 ) {
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyAppearance {
@@ -192,6 +198,45 @@ data class SurveyAppearance(
             val qtsData = data["question_text_style"] as? Map<String, Any>
             @Suppress("UNCHECKED_CAST")
             val osData = data["option_style"] as? Map<String, Any>
+            // SPEC-085: Parse particle effect
+            @Suppress("UNCHECKED_CAST")
+            val peData = data["thankyou_particle_effect"] as? Map<String, Any>
+            val particleEffect = peData?.let { p ->
+                ai.appdna.sdk.core.ParticleEffect(
+                    type = p["type"] as? String ?: "confetti",
+                    trigger = p["trigger"] as? String ?: "on_flow_complete",
+                    duration_ms = (p["duration_ms"] as? Number)?.toInt() ?: 2500,
+                    intensity = p["intensity"] as? String ?: "medium",
+                    colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
+                )
+            }
+            // SPEC-085: Parse blur config
+            @Suppress("UNCHECKED_CAST")
+            val blurData = data["blur_backdrop"] as? Map<String, Any>
+            val blurConfig = blurData?.let { b ->
+                ai.appdna.sdk.core.BlurConfig(
+                    radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
+                    tint = b["tint"] as? String,
+                    saturation = (b["saturation"] as? Number)?.toFloat(),
+                )
+            }
+            // SPEC-085: Parse haptic config
+            @Suppress("UNCHECKED_CAST")
+            val hapticData = data["haptic"] as? Map<String, Any>
+            val hapticConfig = hapticData?.let { h ->
+                val triggersMap = h["triggers"] as? Map<String, Any>
+                ai.appdna.sdk.core.HapticConfig(
+                    enabled = h["enabled"] as? Boolean ?: false,
+                    triggers = triggersMap?.let { t ->
+                        ai.appdna.sdk.core.HapticTriggers(
+                            on_option_select = t["on_option_select"] as? String,
+                            on_button_tap = t["on_button_tap"] as? String,
+                            on_form_submit = t["on_form_submit"] as? String,
+                            on_success = t["on_success"] as? String,
+                        )
+                    } ?: ai.appdna.sdk.core.HapticTriggers(),
+                )
+            }
             return SurveyAppearance(
                 presentation = data["presentation"] as? String ?: "bottom_sheet",
                 theme = themeData?.let {
@@ -208,6 +253,11 @@ data class SurveyAppearance(
                 cornerRadius = (data["corner_radius"] as? Number)?.toInt(),
                 questionTextStyle = qtsData?.let { parseTextStyleConfig(it) },
                 optionStyle = osData?.let { parseElementStyleConfig(it) },
+                introLottieUrl = data["intro_lottie_url"] as? String,
+                thankyouLottieUrl = data["thankyou_lottie_url"] as? String,
+                thankyouParticleEffect = particleEffect,
+                blurBackdrop = blurConfig,
+                haptic = hapticConfig,
             )
         }
 

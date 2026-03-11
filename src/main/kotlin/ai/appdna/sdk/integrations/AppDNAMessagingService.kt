@@ -59,11 +59,28 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                 else NotificationCompat.PRIORITY_DEFAULT
             )
 
-        // Rich image
+        // SPEC-085: Rich image via RichPushHandler for reliable download with timeout
         data["image_url"]?.let { url ->
             try {
-                val bitmap = BitmapFactory.decodeStream(URL(url).openStream())
-                builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(bitmap))
+                val richBuilder = RichPushHandler.buildRichNotification(
+                    context = this,
+                    channelId = channelId,
+                    title = title,
+                    body = body,
+                    imageUrl = url,
+                    mediaType = data["media_type"],
+                    customSound = data["sound"],
+                )
+                // Copy the style from the rich builder
+                val richNotification = richBuilder.build()
+                richNotification.extras?.let { extras ->
+                    builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(
+                        extras.getParcelable("android.picture")
+                    ))
+                    extras.getParcelable<Bitmap>("android.largeIcon")?.let { icon ->
+                        builder.setLargeIcon(icon)
+                    }
+                }
             } catch (e: Exception) {
                 Log.warning("Failed to download push image: ${e.message}")
             }
@@ -106,7 +123,11 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                     this, action.id.hashCode(), actionIntent,
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-                builder.addAction(0, action.label, pendingIntent)
+                // SPEC-085: Resolve action button icon from drawable resources
+                val iconResId = action.icon?.let { iconName ->
+                    resources.getIdentifier(iconName, "drawable", packageName)
+                } ?: 0
+                builder.addAction(iconResId, action.label, pendingIntent)
             }
         }
 
@@ -128,7 +149,7 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
     }
 
     // SPEC-084: Parse action buttons from push data
-    private data class ActionButton(val id: String, val label: String, val type: String, val value: String?)
+    private data class ActionButton(val id: String, val label: String, val type: String, val value: String?, val icon: String? = null)
 
     private fun parseActionButtons(data: Map<String, String>): List<ActionButton> {
         val buttons = mutableListOf<ActionButton>()
@@ -138,7 +159,8 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
             val label = data["action_${i}_label"] ?: continue
             val type = data["action_${i}_type"] ?: "dismiss"
             val value = data["action_${i}_value"]
-            buttons.add(ActionButton(id, label, type, value))
+            val icon = data["action_${i}_icon"]
+            buttons.add(ActionButton(id, label, type, value, icon))
         }
         return buttons
     }

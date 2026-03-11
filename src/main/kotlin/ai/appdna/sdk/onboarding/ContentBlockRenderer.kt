@@ -18,6 +18,14 @@ import android.content.Intent
 import android.net.Uri
 import ai.appdna.sdk.core.StyleEngine
 import ai.appdna.sdk.core.TextStyleConfig
+import ai.appdna.sdk.core.LottieBlock
+import ai.appdna.sdk.core.LottieBlockView
+import ai.appdna.sdk.core.RiveBlock
+import ai.appdna.sdk.core.RiveBlockView
+import ai.appdna.sdk.core.VideoBlock as CoreVideoBlock
+import ai.appdna.sdk.core.VideoBlockView as CoreVideoBlockView
+import ai.appdna.sdk.core.IconView
+import ai.appdna.sdk.core.resolveIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 
@@ -61,6 +69,19 @@ data class ContentBlock(
     val video_url: String? = null,
     val video_height: Double? = null,
     val video_corner_radius: Double? = null,
+    // SPEC-085: Rich media fields
+    val lottie_url: String? = null,
+    val lottie_json: Map<String, Any>? = null,
+    val lottie_autoplay: Boolean? = null,
+    val lottie_loop: Boolean? = null,
+    val lottie_speed: Float? = null,
+    val rive_url: String? = null,
+    val rive_artboard: String? = null,
+    val rive_state_machine: String? = null,
+    val icon_ref: Any? = null,  // IconReference map or emoji string
+    val video_autoplay: Boolean? = null,
+    val video_loop: Boolean? = null,
+    val video_muted: Boolean? = null,
 )
 
 // MARK: - Content Block Renderer
@@ -101,6 +122,9 @@ private fun RenderBlock(
         "icon" -> IconBlock(block)
         "toggle" -> ToggleBlock(block, toggleValues, loc)
         "video" -> VideoBlock(block)
+        // SPEC-085: Rich media block types
+        "lottie" -> LottieContentBlock(block)
+        "rive" -> RiveContentBlock(block)
     }
 }
 
@@ -253,10 +277,18 @@ private fun IconBlock(block: ContentBlock) {
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = alignment,
     ) {
-        Text(
-            text = block.icon_emoji ?: "",
-            fontSize = (block.icon_size ?: 32.0).sp,
-        )
+        // SPEC-085: Support IconReference (structured icon) or plain emoji
+        val iconRef = resolveIcon(block.icon_ref) ?: resolveIcon(block.icon_emoji)
+        if (iconRef != null) {
+            IconView(
+                ref = iconRef.copy(size = iconRef.size ?: (block.icon_size ?: 32.0).toFloat()),
+            )
+        } else {
+            Text(
+                text = block.icon_emoji ?: "",
+                fontSize = (block.icon_size ?: 32.0).sp,
+            )
+        }
     }
 }
 
@@ -290,30 +322,79 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
 
 @Composable
 private fun VideoBlock(block: ContentBlock) {
-    // Thumbnail with play icon overlay — full video in SPEC-085
     val effectiveHeight = block.video_height ?: block.height ?: 200.0
     val effectiveCornerRadius = block.video_corner_radius ?: block.corner_radius ?: 8.0
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(effectiveHeight.dp)
-            .clip(RoundedCornerShape(effectiveCornerRadius.dp)),
-        contentAlignment = Alignment.Center,
-    ) {
-        ai.appdna.sdk.core.NetworkImage(
-            url = block.video_thumbnail_url ?: block.image_url,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+
+    // SPEC-085: Use core VideoBlockView if video_url is available
+    if (block.video_url != null) {
+        CoreVideoBlockView(
+            block = CoreVideoBlock(
+                video_url = block.video_url,
+                video_thumbnail_url = block.video_thumbnail_url ?: block.image_url,
+                video_height = effectiveHeight.toFloat(),
+                video_corner_radius = effectiveCornerRadius.toFloat(),
+                autoplay = block.video_autoplay,
+                loop = block.video_loop,
+                muted = block.video_muted,
+            )
         )
-        // Play icon overlay
+    } else {
+        // Fallback: thumbnail with play icon overlay
         Box(
             modifier = Modifier
-                .size(56.dp)
-                .clip(androidx.compose.foundation.shape.CircleShape)
-                .background(Color.Black.copy(alpha = 0.5f)),
+                .fillMaxWidth()
+                .height(effectiveHeight.dp)
+                .clip(RoundedCornerShape(effectiveCornerRadius.dp)),
             contentAlignment = Alignment.Center,
         ) {
-            Text("\u25B6", fontSize = 24.sp, color = Color.White)
+            ai.appdna.sdk.core.NetworkImage(
+                url = block.video_thumbnail_url ?: block.image_url,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .clip(androidx.compose.foundation.shape.CircleShape)
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("\u25B6", fontSize = 24.sp, color = Color.White)
+            }
         }
+    }
+}
+
+// SPEC-085: Lottie content block
+@Composable
+private fun LottieContentBlock(block: ContentBlock) {
+    if (block.lottie_url != null || block.lottie_json != null) {
+        LottieBlockView(
+            block = LottieBlock(
+                lottie_url = block.lottie_url,
+                lottie_json = block.lottie_json,
+                autoplay = block.lottie_autoplay ?: true,
+                loop = block.lottie_loop ?: true,
+                speed = block.lottie_speed ?: 1.0f,
+                height = (block.height ?: 160.0).toFloat(),
+                alignment = block.icon_alignment ?: "center",
+            )
+        )
+    }
+}
+
+// SPEC-085: Rive content block
+@Composable
+private fun RiveContentBlock(block: ContentBlock) {
+    if (block.rive_url != null) {
+        RiveBlockView(
+            block = RiveBlock(
+                rive_url = block.rive_url,
+                artboard = block.rive_artboard,
+                state_machine = block.rive_state_machine,
+                height = (block.height ?: 160.0).toFloat(),
+                alignment = block.icon_alignment ?: "center",
+            )
+        )
     }
 }

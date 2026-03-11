@@ -38,6 +38,18 @@ import ai.appdna.sdk.core.StyleEngine
 import ai.appdna.sdk.core.StyleEngine.applyContainerStyle
 import ai.appdna.sdk.core.LocalizationEngine
 import ai.appdna.sdk.core.dismissAnimation
+import ai.appdna.sdk.core.LottieBlock
+import ai.appdna.sdk.core.LottieBlockView
+import ai.appdna.sdk.core.RiveBlock
+import ai.appdna.sdk.core.RiveBlockView
+import ai.appdna.sdk.core.VideoBlock as CoreVideoBlock
+import ai.appdna.sdk.core.VideoBlockView as CoreVideoBlockView
+import ai.appdna.sdk.core.ConfettiOverlay
+import ai.appdna.sdk.core.HapticEngine
+import ai.appdna.sdk.core.HapticType
+import ai.appdna.sdk.core.IconView
+import ai.appdna.sdk.core.resolveIcon
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 
 /**
@@ -141,7 +153,9 @@ fun PaywallScreen(
     var isPurchasing by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(0f) }
+    var showConfetti by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+    val currentView = LocalView.current
 
     fun triggerDismiss() {
         if (config.animation?.dismiss_animation != null) {
@@ -228,7 +242,15 @@ fun PaywallScreen(
                         config = config,
                         selectedPlanId = selectedPlanId,
                         isPurchasing = isPurchasing,
-                        onPlanSelect = { selectedPlanId = it },
+                        onPlanSelect = { planId ->
+                            selectedPlanId = planId
+                            // SPEC-085: Haptic on plan select
+                            HapticEngine.triggerIfEnabled(
+                                currentView,
+                                config.haptic?.triggers?.on_plan_select,
+                                config.haptic,
+                            )
+                        },
                         onCTATap = {
                             val plans = config.sections
                                 .firstOrNull { s -> s.type == "plans" }
@@ -236,6 +258,16 @@ fun PaywallScreen(
                             val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
                             if (plan != null) {
                                 isPurchasing = true
+                                // SPEC-085: Haptic on CTA tap
+                                HapticEngine.triggerIfEnabled(
+                                    currentView,
+                                    config.haptic?.triggers?.on_button_tap,
+                                    config.haptic,
+                                )
+                                // SPEC-085: Confetti on purchase
+                                if (config.particle_effect != null) {
+                                    showConfetti = true
+                                }
                                 onPlanSelected(plan)
                             }
                         },
@@ -245,6 +277,14 @@ fun PaywallScreen(
                 }
                 Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
             }
+        }
+
+        // SPEC-085: Confetti overlay
+        if (showConfetti && config.particle_effect != null) {
+            ConfettiOverlay(
+                effect = config.particle_effect,
+                trigger = showConfetti,
+            )
         }
 
         // Dismiss control
@@ -709,6 +749,46 @@ private fun PaywallSectionView(
         }
         "spacer" -> {
             Spacer(modifier = Modifier.height((section.data?.spacer_height ?: 24f).dp).run { with(StyleEngine) { applyContainerStyle(section.style?.container) } })
+        }
+        // SPEC-085: Lottie section
+        "lottie" -> {
+            section.data?.lottie_url?.let { url ->
+                LottieBlockView(
+                    block = LottieBlock(
+                        lottie_url = url,
+                        loop = section.data.lottie_loop ?: true,
+                        speed = section.data.lottie_speed ?: 1.0f,
+                        height = section.data.height ?: 200f,
+                    )
+                )
+            }
+        }
+        // SPEC-085: Rive section
+        "rive" -> {
+            section.data?.rive_url?.let { url ->
+                RiveBlockView(
+                    block = RiveBlock(
+                        rive_url = url,
+                        state_machine = section.data.rive_state_machine,
+                        height = section.data.height ?: 200f,
+                    )
+                )
+            }
+        }
+        // SPEC-085: Video section
+        "video" -> {
+            section.data?.video_url?.let { url ->
+                CoreVideoBlockView(
+                    block = CoreVideoBlock(
+                        video_url = url,
+                        video_thumbnail_url = section.data.video_thumbnail_url ?: section.data.image_url,
+                        video_height = section.data.height ?: 200f,
+                        video_corner_radius = section.data.corner_radius,
+                        autoplay = section.data.video_autoplay,
+                        loop = section.data.video_loop,
+                    )
+                )
+            }
         }
         "testimonial" -> {
             val quoteStyle = StyleEngine.applyTextStyle(

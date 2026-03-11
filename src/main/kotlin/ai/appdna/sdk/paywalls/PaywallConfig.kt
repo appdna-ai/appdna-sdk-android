@@ -14,6 +14,10 @@ data class PaywallConfig(
     val animation: ai.appdna.sdk.core.AnimationConfig? = null,
     val localizations: Map<String, Map<String, String>>? = null,
     val default_locale: String? = null,
+    // SPEC-085: Rich media
+    val haptic: ai.appdna.sdk.core.HapticConfig? = null,
+    val particle_effect: ai.appdna.sdk.core.ParticleEffect? = null,
+    val video_background_url: String? = null,
 )
 
 data class PaywallLayout(
@@ -67,6 +71,17 @@ data class PaywallSectionData(
     val author_name: String? = null,
     val author_role: String? = null,
     val avatar_url: String? = null,
+
+    // SPEC-085: Rich media section fields
+    val lottie_url: String? = null,
+    val lottie_loop: Boolean? = null,
+    val lottie_speed: Float? = null,
+    val rive_url: String? = null,
+    val rive_state_machine: String? = null,
+    val video_url: String? = null,
+    val video_thumbnail_url: String? = null,
+    val video_autoplay: Boolean? = null,
+    val video_loop: Boolean? = null,
 )
 
 data class PaywallPlan(
@@ -211,6 +226,34 @@ internal object PaywallConfigParser {
             } ?: emptyMap()
         }
 
+        // SPEC-085: Parse haptic config
+        val hapticMap = map["haptic"] as? Map<String, Any>
+        val haptic = hapticMap?.let { h ->
+            val triggersMap = h["triggers"] as? Map<String, Any>
+            ai.appdna.sdk.core.HapticConfig(
+                enabled = h["enabled"] as? Boolean ?: false,
+                triggers = triggersMap?.let { t ->
+                    ai.appdna.sdk.core.HapticTriggers(
+                        on_button_tap = t["on_button_tap"] as? String,
+                        on_plan_select = t["on_plan_select"] as? String,
+                        on_success = t["on_success"] as? String,
+                    )
+                } ?: ai.appdna.sdk.core.HapticTriggers(),
+            )
+        }
+
+        // SPEC-085: Parse particle effect
+        val particleMap = map["particle_effect"] as? Map<String, Any>
+        val particleEffect = particleMap?.let { p ->
+            ai.appdna.sdk.core.ParticleEffect(
+                type = p["type"] as? String ?: "confetti",
+                trigger = p["trigger"] as? String ?: "on_purchase",
+                duration_ms = (p["duration_ms"] as? Number)?.toInt() ?: 2500,
+                intensity = p["intensity"] as? String ?: "medium",
+                colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
+            )
+        }
+
         return PaywallConfig(
             id = map["id"] as? String ?: id,
             name = map["name"] as? String ?: "",
@@ -221,6 +264,9 @@ internal object PaywallConfigParser {
             animation = animation,
             localizations = localizations,
             default_locale = map["default_locale"] as? String,
+            haptic = haptic,
+            particle_effect = particleEffect,
+            video_background_url = map["video_background_url"] as? String,
         )
     }
 
@@ -260,6 +306,16 @@ internal object PaywallConfigParser {
                 author_name = d["author_name"] as? String,
                 author_role = d["author_role"] as? String,
                 avatar_url = d["avatar_url"] as? String,
+                // SPEC-085: Rich media fields
+                lottie_url = d["lottie_url"] as? String,
+                lottie_loop = d["lottie_loop"] as? Boolean,
+                lottie_speed = (d["lottie_speed"] as? Number)?.toFloat(),
+                rive_url = d["rive_url"] as? String,
+                rive_state_machine = d["rive_state_machine"] as? String,
+                video_url = d["video_url"] as? String,
+                video_thumbnail_url = d["video_thumbnail_url"] as? String,
+                video_autoplay = d["video_autoplay"] as? Boolean,
+                video_loop = d["video_loop"] as? Boolean,
             )
         }
 

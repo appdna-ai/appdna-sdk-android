@@ -21,6 +21,12 @@ import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.views.*
 import ai.appdna.sdk.core.FontResolver
 import ai.appdna.sdk.core.StyleEngine
+import ai.appdna.sdk.core.LottieBlock
+import ai.appdna.sdk.core.LottieBlockView
+import ai.appdna.sdk.core.ConfettiOverlay
+import ai.appdna.sdk.core.HapticEngine
+import ai.appdna.sdk.core.applyBlurBackdrop
+import androidx.compose.ui.platform.LocalView
 
 /**
  * Activity to render survey UI using Jetpack Compose.
@@ -109,6 +115,8 @@ fun SurveyScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, SurveyAnswer>() }
+    var showCompletion by remember { mutableStateOf(false) }
+    val currentView = LocalView.current
     val visibleQuestions by remember {
         derivedStateOf {
             config.questions.filter { q ->
@@ -157,6 +165,19 @@ fun SurveyScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // SPEC-085: Intro Lottie animation
+        if (currentIndex == 0 && config.appearance.introLottieUrl != null) {
+            LottieBlockView(
+                block = LottieBlock(
+                    lottie_url = config.appearance.introLottieUrl,
+                    autoplay = true,
+                    loop = false,
+                    height = 120f,
+                )
+            )
+            Spacer(Modifier.height(12.dp))
+        }
+
         // Progress
         if (config.appearance.showProgress && visibleQuestions.isNotEmpty()) {
             LinearProgressIndicator(
@@ -176,6 +197,12 @@ fun SurveyScreen(
             val onAnswer: (SurveyAnswer) -> Unit = { ans ->
                 answers[question.id] = ans
                 onQuestionAnswered?.invoke(question.id, question.type, ans.answer)
+                // SPEC-085: Haptic on option select
+                HapticEngine.triggerIfEnabled(
+                    currentView,
+                    config.appearance.haptic?.triggers?.on_option_select,
+                    config.appearance.haptic,
+                )
             }
 
             // SPEC-084: Gap #20 — resolve question text style from appearance token
@@ -221,6 +248,13 @@ fun SurveyScreen(
             } else {
                 Button(
                     onClick = {
+                        // SPEC-085: Haptic on submit
+                        HapticEngine.triggerIfEnabled(
+                            currentView,
+                            config.appearance.haptic?.triggers?.on_form_submit,
+                            config.appearance.haptic,
+                        )
+                        showCompletion = true
                         val allAnswers = visibleQuestions.mapNotNull { answers[it.id] }
                         onComplete(allAnswers)
                     },
@@ -238,6 +272,27 @@ fun SurveyScreen(
             ) {
                 Text("Not now", color = Color.Gray)
             }
+        }
+
+        // SPEC-085: Thank-you Lottie on completion
+        if (showCompletion && config.appearance.thankyouLottieUrl != null) {
+            Spacer(Modifier.height(8.dp))
+            LottieBlockView(
+                block = LottieBlock(
+                    lottie_url = config.appearance.thankyouLottieUrl,
+                    autoplay = true,
+                    loop = false,
+                    height = 100f,
+                )
+            )
+        }
+
+        // SPEC-085: Confetti on completion
+        if (showCompletion && config.appearance.thankyouParticleEffect != null) {
+            ConfettiOverlay(
+                effect = config.appearance.thankyouParticleEffect,
+                trigger = showCompletion,
+            )
         }
     }
     } // MaterialTheme

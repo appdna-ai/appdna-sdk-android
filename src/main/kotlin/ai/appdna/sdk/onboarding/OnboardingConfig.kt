@@ -1,6 +1,9 @@
 package ai.appdna.sdk.onboarding
 
 import ai.appdna.sdk.core.TextStyleConfig
+import ai.appdna.sdk.core.HapticConfig
+import ai.appdna.sdk.core.HapticTriggers
+import ai.appdna.sdk.core.ParticleEffect
 
 /**
  * Firestore schema types for onboarding flows (Android).
@@ -24,7 +27,10 @@ data class OnboardingFlowConfig(
 data class OnboardingSettings(
     val show_progress: Boolean = true,
     val allow_back: Boolean = true,
-    val skip_to_step: String? = null
+    val skip_to_step: String? = null,
+    // SPEC-085: Rich media config
+    val haptic: HapticConfig? = null,
+    val particle_effect: ParticleEffect? = null,
 )
 
 /**
@@ -278,10 +284,42 @@ internal object OnboardingConfigParser {
         val steps = stepsList.map { parseStep(it) }
 
         val settingsMap = map["settings"] as? Map<String, Any> ?: emptyMap()
+        // SPEC-085: Parse haptic config
+        val hapticMap = settingsMap["haptic"] as? Map<String, Any>
+        val haptic = hapticMap?.let { h ->
+            val triggersMap = h["triggers"] as? Map<String, Any>
+            HapticConfig(
+                enabled = h["enabled"] as? Boolean ?: false,
+                triggers = triggersMap?.let { t ->
+                    HapticTriggers(
+                        on_step_advance = t["on_step_advance"] as? String,
+                        on_button_tap = t["on_button_tap"] as? String,
+                        on_option_select = t["on_option_select"] as? String,
+                        on_toggle = t["on_toggle"] as? String,
+                        on_form_submit = t["on_form_submit"] as? String,
+                        on_error = t["on_error"] as? String,
+                        on_success = t["on_success"] as? String,
+                    )
+                } ?: HapticTriggers(),
+            )
+        }
+        // SPEC-085: Parse particle effect config
+        val particleMap = settingsMap["particle_effect"] as? Map<String, Any>
+        val particleEffect = particleMap?.let { p ->
+            ParticleEffect(
+                type = p["type"] as? String ?: "confetti",
+                trigger = p["trigger"] as? String ?: "on_appear",
+                duration_ms = (p["duration_ms"] as? Number)?.toInt() ?: 2500,
+                intensity = p["intensity"] as? String ?: "medium",
+                colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
+            )
+        }
         val settings = OnboardingSettings(
             show_progress = settingsMap["show_progress"] as? Boolean ?: true,
             allow_back = settingsMap["allow_back"] as? Boolean ?: true,
-            skip_to_step = settingsMap["skip_to_step"] as? String
+            skip_to_step = settingsMap["skip_to_step"] as? String,
+            haptic = haptic,
+            particle_effect = particleEffect,
         )
 
         return OnboardingFlowConfig(
@@ -428,6 +466,19 @@ internal object OnboardingConfigParser {
                     video_url = bm["video_url"] as? String,
                     video_height = (bm["video_height"] as? Number)?.toDouble(),
                     video_corner_radius = (bm["video_corner_radius"] as? Number)?.toDouble(),
+                    // SPEC-085: Rich media fields
+                    lottie_url = bm["lottie_url"] as? String,
+                    lottie_json = bm["lottie_json"] as? Map<String, Any>,
+                    lottie_autoplay = bm["lottie_autoplay"] as? Boolean,
+                    lottie_loop = bm["lottie_loop"] as? Boolean,
+                    lottie_speed = (bm["lottie_speed"] as? Number)?.toFloat(),
+                    rive_url = bm["rive_url"] as? String,
+                    rive_artboard = bm["rive_artboard"] as? String,
+                    rive_state_machine = bm["rive_state_machine"] as? String,
+                    icon_ref = bm["icon_ref"] ?: bm["icon"],
+                    video_autoplay = bm["video_autoplay"] as? Boolean,
+                    video_loop = bm["video_loop"] as? Boolean,
+                    video_muted = bm["video_muted"] as? Boolean,
                 )
             } else null
         }
