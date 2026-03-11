@@ -37,7 +37,8 @@ data class OnboardingStep(
         WELCOME("welcome"),
         QUESTION("question"),
         VALUE_PROP("value_prop"),
-        CUSTOM("custom");
+        CUSTOM("custom"),
+        FORM("form");
 
         companion object {
             fun fromString(value: String): StepType {
@@ -66,7 +67,11 @@ data class StepConfig(
     val items: List<ValuePropItem>? = null,
 
     // custom
-    val layout: Map<String, Any>? = null
+    val layout: Map<String, Any>? = null,
+
+    // form (SPEC-082)
+    val fields: List<FormField>? = null,
+    val validation_mode: String? = null  // "on_submit" or "realtime"
 )
 
 data class QuestionOption(
@@ -90,6 +95,69 @@ data class ValuePropItem(
     val icon: String,
     val title: String,
     val subtitle: String
+)
+
+// MARK: - Form Field Types (SPEC-082)
+
+enum class FormFieldType(val value: String) {
+    TEXT("text"), TEXTAREA("textarea"), NUMBER("number"),
+    EMAIL("email"), PHONE("phone"),
+    DATE("date"), TIME("time"), DATETIME("datetime"),
+    SELECT("select"), SLIDER("slider"), TOGGLE("toggle"),
+    STEPPER("stepper"), SEGMENTED("segmented");
+
+    companion object {
+        fun fromString(value: String): FormFieldType {
+            return entries.find { it.value == value } ?: TEXT
+        }
+    }
+}
+
+data class FormFieldOption(
+    val id: String,
+    val label: String,
+    val icon: String? = null,
+    val value: Any? = null
+)
+
+data class FormFieldValidation(
+    val pattern: String? = null,
+    val pattern_message: String? = null
+)
+
+data class FormFieldDependency(
+    val field_id: String,
+    val operator: String,  // equals, not_equals, contains, not_empty, empty
+    val value: Any? = null
+)
+
+data class FormFieldConfig(
+    val max_length: Int? = null,
+    val keyboard_type: String? = null,
+    val autocapitalize: String? = null,
+    val min_value: Double? = null,
+    val max_value: Double? = null,
+    val step: Double? = null,
+    val unit: String? = null,
+    val decimal_places: Int? = null,
+    val min_date: String? = null,
+    val max_date: String? = null,
+    val picker_style: String? = null,
+    val search_enabled: Boolean? = null,
+    val multi_select: Boolean? = null,
+    val default_value: Any? = null
+)
+
+data class FormField(
+    val id: String,
+    val type: FormFieldType,
+    val label: String,
+    val placeholder: String? = null,
+    val required: Boolean = false,
+    val validation: FormFieldValidation? = null,
+    val options: List<FormFieldOption>? = null,
+    val config: FormFieldConfig? = null,
+    val depends_on: FormFieldDependency? = null
 )
 
 /**
@@ -174,6 +242,69 @@ internal object OnboardingConfigParser {
         val selectionModeStr = configMap["selection_mode"] as? String
         val selectionMode = selectionModeStr?.let { SelectionMode.fromString(it) }
 
+        @Suppress("UNCHECKED_CAST")
+        val fields = (configMap["fields"] as? List<*>)?.mapNotNull { f ->
+            if (f is Map<*, *>) {
+                val fm = f as Map<String, Any>
+                val fieldOptions = (fm["options"] as? List<*>)?.mapNotNull { o ->
+                    if (o is Map<*, *>) {
+                        val om = o as Map<String, Any>
+                        FormFieldOption(
+                            id = om["id"] as? String ?: "",
+                            label = om["label"] as? String ?: "",
+                            icon = om["icon"] as? String,
+                            value = om["value"]
+                        )
+                    } else null
+                }
+                val fieldConfigMap = fm["config"] as? Map<String, Any>
+                val fieldConfig = fieldConfigMap?.let { fc ->
+                    FormFieldConfig(
+                        max_length = (fc["max_length"] as? Number)?.toInt(),
+                        keyboard_type = fc["keyboard_type"] as? String,
+                        autocapitalize = fc["autocapitalize"] as? String,
+                        min_value = (fc["min_value"] as? Number)?.toDouble(),
+                        max_value = (fc["max_value"] as? Number)?.toDouble(),
+                        step = (fc["step"] as? Number)?.toDouble(),
+                        unit = fc["unit"] as? String,
+                        decimal_places = (fc["decimal_places"] as? Number)?.toInt(),
+                        min_date = fc["min_date"] as? String,
+                        max_date = fc["max_date"] as? String,
+                        picker_style = fc["picker_style"] as? String,
+                        search_enabled = fc["search_enabled"] as? Boolean,
+                        multi_select = fc["multi_select"] as? Boolean,
+                        default_value = fc["default_value"]
+                    )
+                }
+                val validationMap = fm["validation"] as? Map<String, Any>
+                val fieldValidation = validationMap?.let { v ->
+                    FormFieldValidation(
+                        pattern = v["pattern"] as? String,
+                        pattern_message = v["pattern_message"] as? String
+                    )
+                }
+                val depMap = fm["depends_on"] as? Map<String, Any>
+                val dependency = depMap?.let { d ->
+                    FormFieldDependency(
+                        field_id = d["field_id"] as? String ?: "",
+                        operator = d["operator"] as? String ?: "not_empty",
+                        value = d["value"]
+                    )
+                }
+                FormField(
+                    id = fm["id"] as? String ?: "",
+                    type = FormFieldType.fromString(fm["type"] as? String ?: "text"),
+                    label = fm["label"] as? String ?: "",
+                    placeholder = fm["placeholder"] as? String,
+                    required = fm["required"] as? Boolean ?: false,
+                    validation = fieldValidation,
+                    options = fieldOptions,
+                    config = fieldConfig,
+                    depends_on = dependency
+                )
+            } else null
+        }
+
         val config = StepConfig(
             title = configMap["title"] as? String,
             subtitle = configMap["subtitle"] as? String,
@@ -183,7 +314,9 @@ internal object OnboardingConfigParser {
             options = options,
             selection_mode = selectionMode,
             items = items,
-            layout = configMap["layout"] as? Map<String, Any>
+            layout = configMap["layout"] as? Map<String, Any>,
+            fields = fields,
+            validation_mode = configMap["validation_mode"] as? String
         )
 
         return OnboardingStep(

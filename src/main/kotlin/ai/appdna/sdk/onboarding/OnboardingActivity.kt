@@ -256,6 +256,7 @@ fun OnboardingStepView(
             OnboardingStep.StepType.QUESTION -> QuestionStep(step.config, onNext)
             OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(step.config, onNext)
             OnboardingStep.StepType.CUSTOM -> CustomStep(step.config, onNext)
+            OnboardingStep.StepType.FORM -> FormStep(step.config, onNext)
         }
 
         // Skip button
