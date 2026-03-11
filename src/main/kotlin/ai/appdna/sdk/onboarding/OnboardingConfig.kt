@@ -127,7 +127,7 @@ data class FormFieldValidation(
 
 data class FormFieldDependency(
     val field_id: String,
-    val operator: String,  // equals, not_equals, contains, not_empty, empty, gt, lt
+    val operator: String,  // equals, not_equals, contains, not_empty, empty, gt, lt, is_set
     val value: Any? = null
 )
 

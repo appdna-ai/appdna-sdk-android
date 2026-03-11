@@ -42,7 +42,7 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
         val dep = field.depends_on ?: return@filter true
         val depValue = values[dep.field_id]
         when (dep.operator) {
-            "not_empty" -> depValue != null && depValue.toString().isNotEmpty()
+            "not_empty", "is_set" -> depValue != null && depValue.toString().isNotEmpty()
             "empty" -> depValue == null || depValue.toString().isEmpty()
             "equals" -> depValue.toString() == dep.value.toString()
             "not_equals" -> depValue.toString() != dep.value.toString()
