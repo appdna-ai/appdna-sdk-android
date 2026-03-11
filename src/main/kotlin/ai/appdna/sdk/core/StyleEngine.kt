@@ -58,6 +58,10 @@ data class BorderStyleConfig(
     val color: String? = null,
     val style: String? = null,
     val radius: Double? = null,
+    val radius_top_left: Double? = null,
+    val radius_top_right: Double? = null,
+    val radius_bottom_left: Double? = null,
+    val radius_bottom_right: Double? = null,
 )
 
 data class ShadowStyleConfig(
@@ -128,8 +132,9 @@ object StyleEngine {
      */
     fun Modifier.applyContainerStyle(style: ElementStyleConfig?): Modifier {
         if (style == null) return this
-        val cornerRadius = (style.corner_radius ?: 0.0).dp
-        val shape = RoundedCornerShape(cornerRadius)
+
+        // Per-corner radius support
+        val shape = resolveShape(style)
 
         var mod = this
         // Padding
@@ -149,8 +154,35 @@ object StyleEngine {
                     val stops = bg.gradient?.stops
                     if (stops != null && stops.size >= 2) {
                         val colors = stops.map { parseColor(it.color) }
-                        mod.background(Brush.verticalGradient(colors), shape)
+                        val brush = when (bg.gradient.type) {
+                            "radial" -> Brush.radialGradient(colors)
+                            else -> {
+                                val angle = bg.gradient.angle ?: 180.0
+                                val rads = Math.toRadians(angle)
+                                val dx = sin(rads).toFloat()
+                                val dy = -cos(rads).toFloat()
+                                Brush.linearGradient(
+                                    colors = colors,
+                                    start = androidx.compose.ui.geometry.Offset(
+                                        (0.5f - dx / 2f) * 1000f,
+                                        (0.5f - dy / 2f) * 1000f,
+                                    ),
+                                    end = androidx.compose.ui.geometry.Offset(
+                                        (0.5f + dx / 2f) * 1000f,
+                                        (0.5f + dy / 2f) * 1000f,
+                                    ),
+                                )
+                            }
+                        }
+                        mod.background(brush, shape)
                     } else mod
+                }
+                "image" -> {
+                    // Image backgrounds are handled at the view level (AsyncImage),
+                    // but we apply the overlay color if present
+                    bg.overlay?.let { overlay ->
+                        mod.background(parseColor(overlay), shape)
+                    } ?: mod
                 }
                 else -> mod
             }
@@ -175,6 +207,28 @@ object StyleEngine {
             )
         }
         return mod
+    }
+
+    /**
+     * Resolve per-corner or uniform corner radius into a Shape.
+     */
+    private fun resolveShape(style: ElementStyleConfig): RoundedCornerShape {
+        val border = style.border
+        val hasPerCorner = border != null && listOf(
+            border.radius_top_left, border.radius_top_right,
+            border.radius_bottom_left, border.radius_bottom_right
+        ).any { it != null }
+
+        return if (hasPerCorner) {
+            RoundedCornerShape(
+                topStart = (border?.radius_top_left ?: style.corner_radius ?: 0.0).dp,
+                topEnd = (border?.radius_top_right ?: style.corner_radius ?: 0.0).dp,
+                bottomStart = (border?.radius_bottom_left ?: style.corner_radius ?: 0.0).dp,
+                bottomEnd = (border?.radius_bottom_right ?: style.corner_radius ?: 0.0).dp,
+            )
+        } else {
+            RoundedCornerShape((style.corner_radius ?: 0.0).dp)
+        }
     }
 
     /**

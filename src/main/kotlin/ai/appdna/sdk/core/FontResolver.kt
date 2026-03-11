@@ -23,7 +23,8 @@ object FontResolver {
             // Serif
             "georgia", "Georgia", "times", "Times New Roman",
             "palatino", "Palatino", "baskerville", "Baskerville",
-            "didot", "Didot" -> FontFamily.Serif
+            "didot", "Didot", "bodoni", "Bodoni 72",
+            "optima", "Optima" -> FontFamily.Serif
             // Monospace
             "courier-new", "Courier New", "menlo", "Menlo" -> FontFamily.Monospace
             // Display / cursive

@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -24,6 +25,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.entryAnimation
+import ai.appdna.sdk.core.sectionStagger
+import ai.appdna.sdk.core.ctaAnimation
+import ai.appdna.sdk.core.planSelectionAnimation
+import ai.appdna.sdk.core.StyleEngine
+import ai.appdna.sdk.core.LocalizationEngine
 
 /**
  * Activity to render paywall UI using Jetpack Compose.
@@ -143,7 +150,16 @@ fun PaywallScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    // Localization helper
+    fun loc(key: String, fallback: String): String {
+        return LocalizationEngine.resolve(key, config.localizations, config.default_locale, fallback)
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .entryAnimation(config.animation?.entry_animation, config.animation?.entry_duration_ms)
+    ) {
         // Background
         PaywallBackground(config.background)
 
@@ -154,45 +170,74 @@ fun PaywallScreen(
                 .verticalScroll(rememberScrollState())
                 .padding((config.layout.padding ?: 20f).dp)
         ) {
-            config.sections.forEach { section ->
-                PaywallSectionView(
-                    section = section,
-                    selectedPlanId = selectedPlanId,
-                    isPurchasing = isPurchasing,
-                    onPlanSelect = { selectedPlanId = it },
-                    onCTATap = {
-                        val plans = config.sections
-                            .firstOrNull { s -> s.type == "plans" }
-                            ?.data?.plans
-                        val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
-                        if (plan != null) {
-                            isPurchasing = true
-                            onPlanSelected(plan)
-                        }
-                    },
-                    onRestore = onRestore
-                )
+            val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
+            config.sections.forEachIndexed { index, section ->
+                Box(
+                    modifier = Modifier.sectionStagger(
+                        config.animation?.section_stagger,
+                        delayMs = staggerDelay * index,
+                    )
+                ) {
+                    PaywallSectionView(
+                        section = section,
+                        config = config,
+                        selectedPlanId = selectedPlanId,
+                        isPurchasing = isPurchasing,
+                        onPlanSelect = { selectedPlanId = it },
+                        onCTATap = {
+                            val plans = config.sections
+                                .firstOrNull { s -> s.type == "plans" }
+                                ?.data?.plans
+                            val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
+                            if (plan != null) {
+                                isPurchasing = true
+                                onPlanSelected(plan)
+                            }
+                        },
+                        onRestore = onRestore,
+                        loc = ::loc,
+                    )
+                }
                 Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
             }
         }
 
-        // Dismiss button
+        // Dismiss control
         if (showDismiss) {
-            IconButton(
-                onClick = { onDismiss(DismissReason.DISMISSED) },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(16.dp)
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.3f))
-            ) {
-                Text(
-                    text = "\u2715",
-                    color = Color.White,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+            val dismissType = config.dismiss?.type ?: "x_button"
+            when (dismissType) {
+                "text_link" -> {
+                    TextButton(
+                        onClick = { onDismiss(DismissReason.DISMISSED) },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 24.dp),
+                    ) {
+                        Text(
+                            text = config.dismiss?.text ?: "No thanks",
+                            color = Color.White.copy(alpha = 0.6f),
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+                else -> { // x_button (default)
+                    IconButton(
+                        onClick = { onDismiss(DismissReason.DISMISSED) },
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(16.dp)
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(Color.Black.copy(alpha = 0.3f))
+                    ) {
+                        Text(
+                            text = "\u2715",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
             }
         }
     }
@@ -226,11 +271,13 @@ private fun PaywallBackground(background: PaywallBackground?) {
 @Composable
 private fun PaywallSectionView(
     section: PaywallSection,
+    config: PaywallConfig,
     selectedPlanId: String?,
     isPurchasing: Boolean,
     onPlanSelect: (String) -> Unit,
     onCTATap: () -> Unit,
-    onRestore: () -> Unit
+    onRestore: () -> Unit,
+    loc: (String, String) -> String,
 ) {
     when (section.type) {
         "header" -> {
@@ -240,7 +287,7 @@ private fun PaywallSectionView(
             ) {
                 section.data?.title?.let {
                     Text(
-                        text = it,
+                        text = loc("section-header.title", it),
                         fontSize = 28.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
@@ -250,7 +297,7 @@ private fun PaywallSectionView(
                 section.data?.subtitle?.let {
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = it,
+                        text = loc("section-header.subtitle", it),
                         fontSize = 16.sp,
                         color = Color.White.copy(alpha = 0.8f),
                         textAlign = TextAlign.Center
@@ -273,6 +320,47 @@ private fun PaywallSectionView(
             }
         }
         "plans" -> {
+            val layoutType = config.layout.type
+            // SPEC-084: Grid / stack plan layouts (carousel deferred — needs HorizontalPager dependency)
+            if (layoutType == "grid") {
+                // 2-column grid
+                val plans = section.data?.plans ?: emptyList()
+                val chunked = plans.chunked(2)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    chunked.forEach { row ->
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            row.forEach { plan ->
+                                val isSelected = selectedPlanId == plan.id
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(vertical = 4.dp)
+                                        .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
+                                        .then(
+                                            if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp)) else Modifier
+                                        )
+                                        .clickable { onPlanSelect(plan.id) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f))
+                                ) {
+                                    Column(modifier = Modifier.padding(12.dp)) {
+                                        Text(text = plan.name, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 14.sp)
+                                        Text(text = plan.price, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                                        plan.badge?.let { Text(text = it, fontSize = 11.sp, color = Color(0xFF22C55E), fontWeight = FontWeight.SemiBold) }
+                                    }
+                                }
+                            }
+                            // Fill empty slot in last row
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = onRestore, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        Text("Restore Purchases", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
+                    }
+                }
+            } else {
+            // Default stack layout
             Column(modifier = Modifier.fillMaxWidth()) {
                 section.data?.plans?.forEach { plan ->
                     val isSelected = selectedPlanId == plan.id
@@ -280,6 +368,7 @@ private fun PaywallSectionView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
+                            .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
                             .then(
                                 if (isSelected) Modifier.border(
                                     2.dp,
@@ -336,6 +425,7 @@ private fun PaywallSectionView(
                     Text("Restore Purchases", color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
                 }
             }
+            }
         }
         "cta" -> {
             Button(
@@ -343,7 +433,8 @@ private fun PaywallSectionView(
                 enabled = !isPurchasing,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp),
+                    .height(56.dp)
+                    .ctaAnimation(config.animation?.cta_animation),
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
             ) {
@@ -355,7 +446,7 @@ private fun PaywallSectionView(
                     )
                 } else {
                     Text(
-                        text = section.data?.cta?.text ?: "Continue",
+                        text = loc("cta.text", section.data?.cta?.text ?: "Continue"),
                         fontWeight = FontWeight.SemiBold,
                         fontSize = 17.sp
                     )
@@ -363,30 +454,53 @@ private fun PaywallSectionView(
             }
         }
         "social_proof" -> {
+            // SPEC-084: Social proof sub-types
+            val subType = section.data?.sub_type ?: "app_rating"
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                section.data?.rating?.let { rating ->
-                    val stars = "\u2605".repeat(rating.toInt())
-                    Text(text = stars, color = Color(0xFFFBBF24), fontSize = 20.sp)
-                    section.data.review_count?.let { count ->
+                when (subType) {
+                    "countdown" -> {
+                        CountdownTimer(seconds = section.data?.countdown_seconds ?: 86400)
+                    }
+                    "trial_badge" -> {
                         Text(
-                            text = "$rating from $count reviews",
-                            color = Color.White.copy(alpha = 0.7f),
-                            fontSize = 13.sp
+                            text = section.data?.text ?: "Free Trial",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF6366F1),
+                            modifier = Modifier
+                                .background(
+                                    Color(0xFF6366F1).copy(alpha = 0.15f),
+                                    RoundedCornerShape(999.dp),
+                                )
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
                         )
                     }
-                }
-                section.data?.testimonial?.let {
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        text = "\"$it\"",
-                        color = Color.White.copy(alpha = 0.8f),
-                        fontSize = 14.sp,
-                        textAlign = TextAlign.Center,
-                        fontWeight = FontWeight.Light
-                    )
+                    else -> { // app_rating
+                        section.data?.rating?.let { rating ->
+                            val stars = "\u2605".repeat(rating.toInt())
+                            Text(text = stars, color = Color(0xFFFBBF24), fontSize = 20.sp)
+                            section.data.review_count?.let { count ->
+                                Text(
+                                    text = "$rating from $count reviews",
+                                    color = Color.White.copy(alpha = 0.7f),
+                                    fontSize = 13.sp
+                                )
+                            }
+                        }
+                        section.data?.testimonial?.let {
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                text = "\"$it\"",
+                                color = Color.White.copy(alpha = 0.8f),
+                                fontSize = 14.sp,
+                                textAlign = TextAlign.Center,
+                                fontWeight = FontWeight.Light
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -463,6 +577,48 @@ private fun PaywallSectionView(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+// SPEC-084: Countdown timer for social proof
+@Composable
+private fun CountdownTimer(seconds: Int) {
+    var remaining by remember { mutableIntStateOf(seconds) }
+
+    LaunchedEffect(Unit) {
+        while (remaining > 0) {
+            kotlinx.coroutines.delay(1000)
+            remaining--
+        }
+    }
+
+    val hours = remaining / 3600
+    val minutes = (remaining % 3600) / 60
+    val secs = remaining % 60
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(hours to "h", minutes to "m", secs to "s").forEachIndexed { index, (value, label) ->
+            if (index > 0) {
+                Text(":", color = Color.White.copy(alpha = 0.6f), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier
+                    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = String.format("%02d", value),
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                )
+                Text(text = label, fontSize = 10.sp, color = Color.White.copy(alpha = 0.6f))
             }
         }
     }

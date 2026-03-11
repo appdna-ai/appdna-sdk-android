@@ -143,10 +143,40 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
     if (anim == "none") return this
 
     val scale by animateFloatAsState(
-        targetValue = if (anim == "scale" && isSelected) 1.03f else 1f,
+        targetValue = if ((anim == "scale" || anim == "border_highlight") && isSelected) 1.03f else 1f,
         animationSpec = spring(dampingRatio = 0.7f),
         label = "plan_scale",
     )
+    val elevation by animateFloatAsState(
+        targetValue = if (anim == "glow" && isSelected) 12f else 0f,
+        animationSpec = tween(300),
+        label = "plan_glow",
+    )
 
-    return this.scale(scale)
+    return this
+        .scale(scale)
+        .shadow(elevation.dp)
+}
+
+// MARK: - Dismiss Animation
+
+@Composable
+fun Modifier.dismissAnimation(animation: String?, dismiss: Boolean): Modifier {
+    val anim = animation ?: "none"
+    if (anim == "none") return this
+
+    val alpha by animateFloatAsState(
+        targetValue = if (dismiss) 0f else 1f,
+        animationSpec = tween(300),
+        label = "dismiss_alpha",
+    )
+    val offsetY by animateFloatAsState(
+        targetValue = if (dismiss && anim == "slide_down") 800f else 0f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "dismiss_offset",
+    )
+
+    return this
+        .alpha(alpha)
+        .offset { IntOffset(0, offsetY.toInt()) }
 }

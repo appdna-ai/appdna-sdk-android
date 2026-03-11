@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.Brush
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.events.EventTracker
 import kotlinx.coroutines.Dispatchers
@@ -620,25 +621,193 @@ fun OnboardingStepView(
     onSkip: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        when (step.type) {
-            OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
-            OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
-            OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
-            OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
-            OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext)
+    val toggleValues = remember { mutableMapOf<String, Boolean>() }
+
+    // SPEC-084: Block-based vs legacy rendering
+    val blocks = effectiveConfig.content_blocks
+    if (!blocks.isNullOrEmpty()) {
+        // Block-based rendering with layout variants
+        BlockBasedStepView(
+            effectiveConfig = effectiveConfig,
+            blocks = blocks,
+            toggleValues = toggleValues,
+            onNext = onNext,
+            onSkip = if (step.config.skip_enabled == true) onSkip else null,
+            modifier = modifier,
+        )
+    } else {
+        // Legacy rendering
+        Column(
+            modifier = modifier
+                .verticalScroll(rememberScrollState())
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            when (step.type) {
+                OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext)
+            }
+
+            // Skip button
+            if (step.config.skip_enabled == true) {
+                Spacer(Modifier.height(16.dp))
+                TextButton(onClick = onSkip) {
+                    Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                }
+            }
+        }
+    }
+}
+
+// SPEC-084: Block-based step view with 5 layout variants
+@Composable
+private fun BlockBasedStepView(
+    effectiveConfig: StepConfig,
+    blocks: List<ContentBlock>,
+    toggleValues: MutableMap<String, Boolean>,
+    onNext: (Map<String, Any>?) -> Unit,
+    onSkip: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val variant = effectiveConfig.layout_variant ?: "no_image"
+
+    fun handleAction(action: String) {
+        when (action) {
+            "next" -> onNext(toggleValues.toMap().mapValues { it.value as Any })
+            "skip" -> onSkip?.invoke()
+            else -> onNext(null)
+        }
+    }
+
+    Box(modifier = modifier) {
+        // Step-level background
+        effectiveConfig.background?.let { bg ->
+            val bgColor = bg.color
+            if (bg.type == "color" && bgColor != null) {
+                Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(bgColor)))
+            }
         }
 
-        // Skip button
-        if (step.config.skip_enabled == true) {
-            Spacer(Modifier.height(16.dp))
-            TextButton(onClick = onSkip) {
+        when (variant) {
+            "image_fullscreen" -> {
+                Box(Modifier.fillMaxSize()) {
+                    // Image background with gradient overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Gray.copy(alpha = 0.3f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("\uD83D\uDDBC", fontSize = 48.sp)
+                    }
+                    // Gradient overlay
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                    startY = 300f,
+                                )
+                            )
+                    )
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.Bottom,
+                    ) {
+                        Spacer(Modifier.height(200.dp))
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    }
+                }
+            }
+            "image_split" -> {
+                Row(Modifier.fillMaxSize()) {
+                    // Image side (40%)
+                    Box(
+                        modifier = Modifier
+                            .weight(0.4f)
+                            .fillMaxHeight()
+                            .background(Color.Gray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("\uD83D\uDDBC", fontSize = 32.sp)
+                    }
+                    // Content side (60%)
+                    Column(
+                        modifier = Modifier
+                            .weight(0.6f)
+                            .verticalScroll(rememberScrollState())
+                            .padding(16.dp),
+                    ) {
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    }
+                }
+            }
+            "image_bottom" -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                ) {
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    Spacer(Modifier.height(16.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Gray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("\uD83D\uDDBC", fontSize = 32.sp) }
+                }
+            }
+            "image_top" -> {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(240.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.Gray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("\uD83D\uDDBC", fontSize = 32.sp) }
+                    Spacer(Modifier.height(16.dp))
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                }
+            }
+            else -> { // no_image
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState())
+                        .padding(20.dp),
+                ) {
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                }
+            }
+        }
+
+        // Skip button at bottom
+        if (onSkip != null) {
+            TextButton(
+                onClick = onSkip,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 16.dp),
+            ) {
                 Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
             }
         }

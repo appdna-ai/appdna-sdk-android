@@ -75,7 +75,17 @@ data class StepConfig(
     val validation_mode: String? = null,  // "on_submit" or "realtime"
 
     // SPEC-083: Populated by applyOverrides from StepConfigOverride.fieldDefaults
-    val field_defaults: Map<String, Any>? = null
+    val field_defaults: Map<String, Any>? = null,
+
+    // SPEC-084: Rendering fidelity
+    val content_blocks: List<ContentBlock>? = null,
+    val layout_variant: String? = null,  // image_top, image_bottom, image_fullscreen, image_split, no_image
+    val background: ai.appdna.sdk.core.BackgroundStyleConfig? = null,
+    val text_style: ai.appdna.sdk.core.TextStyleConfig? = null,
+    val element_style: ai.appdna.sdk.core.ElementStyleConfig? = null,
+    val animation: ai.appdna.sdk.core.AnimationConfig? = null,
+    val localizations: Map<String, Map<String, String>>? = null,
+    val default_locale: String? = null
 )
 
 data class QuestionOption(
@@ -374,6 +384,86 @@ internal object OnboardingConfigParser {
             } else null
         }
 
+        // SPEC-084: Parse content blocks
+        @Suppress("UNCHECKED_CAST")
+        val contentBlocks = (configMap["content_blocks"] as? List<*>)?.mapNotNull { b ->
+            if (b is Map<*, *>) {
+                val bm = b as Map<String, Any>
+                ContentBlock(
+                    id = bm["id"] as? String ?: "",
+                    type = bm["type"] as? String ?: "text",
+                    text = bm["text"] as? String,
+                    level = (bm["level"] as? Number)?.toInt(),
+                    image_url = bm["image_url"] as? String,
+                    corner_radius = (bm["corner_radius"] as? Number)?.toDouble(),
+                    height = (bm["height"] as? Number)?.toDouble(),
+                    action = bm["action"] as? String,
+                    bg_color = bm["bg_color"] as? String,
+                    text_color = bm["text_color"] as? String,
+                    button_corner_radius = (bm["button_corner_radius"] as? Number)?.toDouble(),
+                    spacer_height = (bm["spacer_height"] as? Number)?.toDouble(),
+                    items = (bm["items"] as? List<*>)?.filterIsInstance<String>(),
+                    list_style = bm["list_style"] as? String,
+                    divider_color = bm["divider_color"] as? String,
+                    divider_thickness = (bm["divider_thickness"] as? Number)?.toDouble(),
+                    divider_margin_y = (bm["divider_margin_y"] as? Number)?.toDouble(),
+                    badge_text = bm["badge_text"] as? String,
+                    badge_bg_color = bm["badge_bg_color"] as? String,
+                    badge_text_color = bm["badge_text_color"] as? String,
+                    badge_corner_radius = (bm["badge_corner_radius"] as? Number)?.toDouble(),
+                    icon_emoji = bm["icon_emoji"] as? String,
+                    icon_size = (bm["icon_size"] as? Number)?.toDouble(),
+                    icon_alignment = bm["icon_alignment"] as? String,
+                    toggle_label = bm["toggle_label"] as? String,
+                    toggle_description = bm["toggle_description"] as? String,
+                    toggle_default = bm["toggle_default"] as? Boolean,
+                    video_thumbnail_url = bm["video_thumbnail_url"] as? String,
+                )
+            } else null
+        }
+
+        // SPEC-084: Parse background config
+        @Suppress("UNCHECKED_CAST")
+        val bgMap = configMap["background"] as? Map<String, Any>
+        val background = bgMap?.let { bg ->
+            val gradMap = bg["gradient"] as? Map<String, Any>
+            val gradient = gradMap?.let { g ->
+                val stopsList = (g["stops"] as? List<*>)?.mapNotNull { s ->
+                    if (s is Map<*, *>) {
+                        ai.appdna.sdk.core.GradientStopConfig(
+                            color = (s as Map<String, Any>)["color"] as? String ?: "#000000",
+                            position = ((s as Map<String, Any>)["position"] as? Number)?.toDouble() ?: 0.0,
+                        )
+                    } else null
+                }
+                ai.appdna.sdk.core.GradientConfig(type = g["type"] as? String, angle = (g["angle"] as? Number)?.toDouble(), stops = stopsList)
+            }
+            ai.appdna.sdk.core.BackgroundStyleConfig(
+                type = bg["type"] as? String, color = bg["color"] as? String,
+                gradient = gradient, image_url = bg["image_url"] as? String,
+                image_fit = bg["image_fit"] as? String, overlay = bg["overlay"] as? String,
+            )
+        }
+
+        // SPEC-084: Parse animation config
+        @Suppress("UNCHECKED_CAST")
+        val animMap = configMap["animation"] as? Map<String, Any>
+        val animConfig = animMap?.let { a ->
+            ai.appdna.sdk.core.AnimationConfig(
+                entry_animation = a["entry_animation"] as? String,
+                entry_duration_ms = (a["entry_duration_ms"] as? Number)?.toInt(),
+                section_stagger = a["section_stagger"] as? String,
+                section_stagger_delay_ms = (a["section_stagger_delay_ms"] as? Number)?.toInt(),
+                cta_animation = a["cta_animation"] as? String,
+                plan_selection_animation = a["plan_selection_animation"] as? String,
+                dismiss_animation = a["dismiss_animation"] as? String,
+            )
+        }
+
+        // SPEC-084: Parse localizations
+        @Suppress("UNCHECKED_CAST")
+        val localizations = configMap["localizations"] as? Map<String, Map<String, String>>
+
         val config = StepConfig(
             title = configMap["title"] as? String,
             subtitle = configMap["subtitle"] as? String,
@@ -385,7 +475,13 @@ internal object OnboardingConfigParser {
             items = items,
             layout = configMap["layout"] as? Map<String, Any>,
             fields = fields,
-            validation_mode = configMap["validation_mode"] as? String
+            validation_mode = configMap["validation_mode"] as? String,
+            content_blocks = contentBlocks,
+            layout_variant = configMap["layout_variant"] as? String,
+            background = background,
+            animation = animConfig,
+            localizations = localizations,
+            default_locale = configMap["default_locale"] as? String,
         )
 
         // SPEC-083 P1: Parse hook config
