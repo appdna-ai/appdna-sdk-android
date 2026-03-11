@@ -219,7 +219,8 @@ fun OnboardingFlowHost(
         return config.copy(
             title = override.title ?: config.title,
             subtitle = override.subtitle ?: config.subtitle,
-            cta_text = override.ctaText ?: config.cta_text
+            cta_text = override.ctaText ?: config.cta_text,
+            field_defaults = override.fieldDefaults ?: config.field_defaults
         )
     }
 

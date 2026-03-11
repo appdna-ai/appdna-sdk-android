@@ -31,6 +31,13 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
 
     // Initialize defaults
     LaunchedEffect(fields) {
+        // SPEC-083: Apply fieldDefaults from StepConfigOverride first
+        config.field_defaults?.forEach { (fieldId, value) ->
+            if (values[fieldId] == null) {
+                values[fieldId] = value
+            }
+        }
+        // Then apply per-field default_value (doesn't override hook-injected defaults)
         fields.forEach { field ->
             if (values[field.id] == null) {
                 field.config?.default_value?.let { values[field.id] = it }

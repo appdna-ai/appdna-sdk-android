@@ -71,7 +71,10 @@ data class StepConfig(
 
     // form (SPEC-082)
     val fields: List<FormField>? = null,
-    val validation_mode: String? = null  // "on_submit" or "realtime"
+    val validation_mode: String? = null,  // "on_submit" or "realtime"
+
+    // SPEC-083: Populated by applyOverrides from StepConfigOverride.fieldDefaults
+    val field_defaults: Map<String, Any>? = null
 )
 
 data class QuestionOption(
