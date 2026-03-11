@@ -160,14 +160,64 @@ data class FormField(
     val depends_on: FormFieldDependency? = null
 )
 
+// MARK: - Async Step Hook Types (SPEC-083)
+
+/**
+ * Result of the async step hook called before advancing.
+ */
+sealed class StepAdvanceResult {
+    /** Continue to next step normally. */
+    object Proceed : StepAdvanceResult()
+
+    /** Continue to next step, merging additional data into responses. */
+    data class ProceedWithData(val data: Map<String, Any>) : StepAdvanceResult()
+
+    /** Block advancement. Stay on current step and display error message. */
+    data class Block(val message: String) : StepAdvanceResult()
+
+    /** Skip to a specific step by ID, optionally merging data. */
+    data class SkipTo(val stepId: String, val data: Map<String, Any>? = null) : StepAdvanceResult()
+}
+
+/**
+ * Optional config override for dynamic step content.
+ */
+data class StepConfigOverride(
+    val fieldDefaults: Map<String, Any>? = null,
+    val title: String? = null,
+    val subtitle: String? = null,
+    val ctaText: String? = null,
+    val layoutOverrides: Map<String, Any>? = null
+)
+
 /**
  * Delegate for receiving onboarding flow lifecycle events.
  */
 interface AppDNAOnboardingDelegate {
+    // Observe-only callbacks (unchanged)
     fun onOnboardingStarted(flowId: String) {}
     fun onOnboardingStepChanged(flowId: String, stepId: String, stepIndex: Int, totalSteps: Int) {}
     fun onOnboardingCompleted(flowId: String, responses: Map<String, Any>) {}
     fun onOnboardingDismissed(flowId: String, atStep: Int) {}
+
+    // SPEC-083: Async hook called BEFORE advancing from a step.
+    suspend fun onBeforeStepAdvance(
+        flowId: String,
+        fromStepId: String,
+        stepIndex: Int,
+        stepType: String,
+        responses: Map<String, Any>,
+        stepData: Map<String, Any>?
+    ): StepAdvanceResult = StepAdvanceResult.Proceed
+
+    // SPEC-083: Optional hook to modify step config before rendering.
+    suspend fun onBeforeStepRender(
+        flowId: String,
+        stepId: String,
+        stepIndex: Int,
+        stepType: String,
+        responses: Map<String, Any>
+    ): StepConfigOverride? = null
 }
 
 // MARK: - Parsing helpers

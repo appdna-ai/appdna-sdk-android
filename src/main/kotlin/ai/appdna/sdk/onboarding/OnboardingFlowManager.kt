@@ -44,6 +44,7 @@ internal class OnboardingFlowManager(
         OnboardingActivity.launch(
             context = activity,
             flow = flow,
+            delegate = listener,
             onStepViewed = { stepId, stepIndex ->
                 eventTracker.track("onboarding_step_viewed", mapOf(
                     "flow_id" to flow.id,

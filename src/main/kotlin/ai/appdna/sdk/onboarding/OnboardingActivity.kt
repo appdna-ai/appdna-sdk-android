@@ -23,6 +23,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 /**
  * Activity to render onboarding flow UI using Jetpack Compose.
@@ -38,6 +39,7 @@ class OnboardingActivity : ComponentActivity() {
             return
         }
 
+        val delegate = pendingDelegate
         val onStepViewed = pendingOnStepViewed
         val onStepCompleted = pendingOnStepCompleted
         val onStepSkipped = pendingOnStepSkipped
@@ -48,6 +50,7 @@ class OnboardingActivity : ComponentActivity() {
             MaterialTheme {
                 OnboardingFlowHost(
                     flow = flow,
+                    delegate = delegate,
                     onStepViewed = { stepId, stepIndex ->
                         onStepViewed?.invoke(stepId, stepIndex)
                     },
@@ -72,6 +75,7 @@ class OnboardingActivity : ComponentActivity() {
 
     private fun cleanup() {
         pendingFlow = null
+        pendingDelegate = null
         pendingOnStepViewed = null
         pendingOnStepCompleted = null
         pendingOnStepSkipped = null
@@ -92,6 +96,7 @@ class OnboardingActivity : ComponentActivity() {
 
     companion object {
         private var pendingFlow: OnboardingFlowConfig? = null
+        private var pendingDelegate: AppDNAOnboardingDelegate? = null
         private var pendingOnStepViewed: ((String, Int) -> Unit)? = null
         private var pendingOnStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)? = null
         private var pendingOnStepSkipped: ((String, Int) -> Unit)? = null
@@ -101,6 +106,7 @@ class OnboardingActivity : ComponentActivity() {
         fun launch(
             context: Context,
             flow: OnboardingFlowConfig,
+            delegate: AppDNAOnboardingDelegate? = null,
             onStepViewed: ((String, Int) -> Unit)? = null,
             onStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)? = null,
             onStepSkipped: ((String, Int) -> Unit)? = null,
@@ -108,6 +114,7 @@ class OnboardingActivity : ComponentActivity() {
             onFlowDismissed: ((String, Int) -> Unit)? = null
         ) {
             pendingFlow = flow
+            pendingDelegate = delegate
             pendingOnStepViewed = onStepViewed
             pendingOnStepCompleted = onStepCompleted
             pendingOnStepSkipped = onStepSkipped
@@ -125,6 +132,7 @@ class OnboardingActivity : ComponentActivity() {
 @Composable
 fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
+    delegate: AppDNAOnboardingDelegate? = null,
     onStepViewed: (String, Int) -> Unit,
     onStepCompleted: (String, Int, Map<String, Any>?) -> Unit,
     onStepSkipped: (String, Int) -> Unit,
@@ -133,106 +141,265 @@ fun OnboardingFlowHost(
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val responses = remember { mutableStateMapOf<String, Any>() }
+    val coroutineScope = rememberCoroutineScope()
+
+    // SPEC-083: Hook state
+    var isProcessing by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    var showError by remember { mutableStateOf(false) }
+    val configOverrides = remember { mutableStateMapOf<String, StepConfigOverride>() }
 
     val progress = if (flow.steps.isNotEmpty()) {
         (currentIndex + 1).toFloat() / flow.steps.size
     } else 0f
 
-    // Track step viewed
+    // SPEC-083: Before-render hook + step viewed tracking
     LaunchedEffect(currentIndex) {
         if (currentIndex < flow.steps.size) {
             val step = flow.steps[currentIndex]
+            // Call onBeforeStepRender hook
+            delegate?.let { d ->
+                val override = d.onBeforeStepRender(
+                    flowId = flow.id,
+                    stepId = step.id,
+                    stepIndex = currentIndex,
+                    stepType = step.type.value,
+                    responses = responses.toMap()
+                )
+                if (override != null) {
+                    configOverrides[step.id] = override
+                }
+            }
             onStepViewed(step.id, currentIndex)
         }
     }
 
-    Column(
+    // Auto-dismiss error after 5 seconds
+    LaunchedEffect(showError) {
+        if (showError) {
+            kotlinx.coroutines.delay(5000)
+            showError = false
+            errorMessage = null
+        }
+    }
+
+    // Helper functions
+    fun advanceOrComplete() {
+        if (currentIndex + 1 >= flow.steps.size) {
+            @Suppress("UNCHECKED_CAST")
+            onFlowCompleted(responses.toMap() as Map<String, Any>)
+        } else {
+            currentIndex++
+        }
+    }
+
+    fun skipToStep(targetStepId: String) {
+        val targetIndex = flow.steps.indexOfFirst { it.id == targetStepId }
+        if (targetIndex >= 0) {
+            currentIndex = targetIndex
+        } else {
+            advanceOrComplete()
+        }
+    }
+
+    fun mergeData(extraData: Map<String, Any>, stepId: String) {
+        val existing = responses[stepId]
+        if (existing is Map<*, *>) {
+            @Suppress("UNCHECKED_CAST")
+            val merged = (existing as Map<String, Any>).toMutableMap()
+            merged.putAll(extraData)
+            responses[stepId] = merged
+        } else {
+            responses[stepId] = extraData
+        }
+    }
+
+    fun applyOverrides(config: StepConfig, stepId: String): StepConfig {
+        val override = configOverrides[stepId] ?: return config
+        return config.copy(
+            title = override.title ?: config.title,
+            subtitle = override.subtitle ?: config.subtitle,
+            cta_text = override.ctaText ?: config.cta_text
+        )
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
     ) {
-        // Progress bar
-        if (flow.settings.show_progress) {
-            LinearProgressIndicator(
-                progress = progress,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(4.dp),
-                color = MaterialTheme.colorScheme.primary,
-                trackColor = Color.Gray.copy(alpha = 0.2f)
-            )
-        }
-
-        // Navigation bar
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // Back button
-            if (flow.settings.allow_back && currentIndex > 0) {
-                IconButton(onClick = { currentIndex-- }) {
-                    Text(
-                        text = "\u2190",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-            } else {
-                Spacer(Modifier.size(48.dp))
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Progress bar
+            if (flow.settings.show_progress) {
+                LinearProgressIndicator(
+                    progress = progress,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = Color.Gray.copy(alpha = 0.2f)
+                )
             }
 
-            // Dismiss button
-            IconButton(onClick = {
-                if (currentIndex < flow.steps.size) {
-                    val step = flow.steps[currentIndex]
-                    onFlowDismissed(step.id, currentIndex)
+            // Navigation bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Back button
+                if (flow.settings.allow_back && currentIndex > 0) {
+                    IconButton(
+                        onClick = { currentIndex-- },
+                        enabled = !isProcessing
+                    ) {
+                        Text(
+                            text = "\u2190",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.size(48.dp))
                 }
-            }) {
-                Text(
-                    text = "\u2715",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+
+                // Dismiss button
+                IconButton(
+                    onClick = {
+                        if (currentIndex < flow.steps.size) {
+                            val step = flow.steps[currentIndex]
+                            onFlowDismissed(step.id, currentIndex)
+                        }
+                    },
+                    enabled = !isProcessing
+                ) {
+                    Text(
+                        text = "\u2715",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                    )
+                }
+            }
+
+            // Step content
+            if (currentIndex < flow.steps.size) {
+                val step = flow.steps[currentIndex]
+                val effectiveConfig = applyOverrides(step.config, step.id)
+
+                OnboardingStepView(
+                    step = step,
+                    effectiveConfig = effectiveConfig,
+                    onNext = { data ->
+                        if (data != null) {
+                            responses[step.id] = data
+                        }
+                        onStepCompleted(step.id, currentIndex, data)
+
+                        // SPEC-083: Call async hook before advancing
+                        if (delegate != null) {
+                            isProcessing = true
+                            coroutineScope.launch {
+                                val result = delegate.onBeforeStepAdvance(
+                                    flowId = flow.id,
+                                    fromStepId = step.id,
+                                    stepIndex = currentIndex,
+                                    stepType = step.type.value,
+                                    responses = responses.toMap(),
+                                    stepData = data
+                                )
+                                isProcessing = false
+
+                                when (result) {
+                                    is StepAdvanceResult.Proceed -> advanceOrComplete()
+                                    is StepAdvanceResult.ProceedWithData -> {
+                                        mergeData(result.data, step.id)
+                                        advanceOrComplete()
+                                    }
+                                    is StepAdvanceResult.Block -> {
+                                        errorMessage = result.message
+                                        showError = true
+                                    }
+                                    is StepAdvanceResult.SkipTo -> {
+                                        result.data?.let { mergeData(it, step.id) }
+                                        skipToStep(result.stepId)
+                                    }
+                                }
+                            }
+                        } else {
+                            advanceOrComplete()
+                        }
+                    },
+                    onSkip = {
+                        onStepSkipped(step.id, currentIndex)
+                        advanceOrComplete()
+                    },
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
                 )
             }
         }
 
-        // Step content
-        if (currentIndex < flow.steps.size) {
-            val step = flow.steps[currentIndex]
-            OnboardingStepView(
-                step = step,
-                onNext = { data ->
-                    if (data != null) {
-                        responses[step.id] = data
-                    }
-                    onStepCompleted(step.id, currentIndex, data)
-                    // Advance or complete
-                    if (currentIndex + 1 >= flow.steps.size) {
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(responses.toMap() as Map<String, Any>)
-                    } else {
-                        currentIndex++
-                    }
-                },
-                onSkip = {
-                    onStepSkipped(step.id, currentIndex)
-                    // Advance or complete
-                    if (currentIndex + 1 >= flow.steps.size) {
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(responses.toMap() as Map<String, Any>)
-                    } else {
-                        currentIndex++
-                    }
-                },
+        // SPEC-083: Error banner
+        if (showError && errorMessage != null) {
+            Row(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
-            )
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = if (flow.settings.show_progress) 56.dp else 52.dp)
+                    .background(Color.Red, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = errorMessage ?: "",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(
+                    onClick = { showError = false; errorMessage = null },
+                    modifier = Modifier.size(24.dp)
+                ) {
+                    Text("\u2715", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
+                }
+            }
+        }
+
+        // SPEC-083: Loading overlay
+        if (isProcessing) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.5f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.Black.copy(alpha = 0.7f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(32.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(32.dp)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Processing...",
+                            color = Color.White,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -240,6 +407,7 @@ fun OnboardingFlowHost(
 @Composable
 fun OnboardingStepView(
     step: OnboardingStep,
+    effectiveConfig: StepConfig,
     onNext: (Map<String, Any>?) -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier
@@ -252,11 +420,11 @@ fun OnboardingStepView(
         verticalArrangement = Arrangement.Center
     ) {
         when (step.type) {
-            OnboardingStep.StepType.WELCOME -> WelcomeStep(step.config, onNext)
-            OnboardingStep.StepType.QUESTION -> QuestionStep(step.config, onNext)
-            OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(step.config, onNext)
-            OnboardingStep.StepType.CUSTOM -> CustomStep(step.config, onNext)
-            OnboardingStep.StepType.FORM -> FormStep(step.config, onNext)
+            OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
+            OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
+            OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
+            OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
+            OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext)
         }
 
         // Skip button
