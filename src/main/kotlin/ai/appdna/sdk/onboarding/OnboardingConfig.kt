@@ -31,7 +31,8 @@ data class OnboardingSettings(
 data class OnboardingStep(
     val id: String,
     val type: StepType,
-    val config: StepConfig
+    val config: StepConfig,
+    val hook: StepHookConfig? = null
 ) {
     enum class StepType(val value: String) {
         WELCOME("welcome"),
@@ -191,6 +192,21 @@ data class StepConfigOverride(
     val subtitle: String? = null,
     val ctaText: String? = null,
     val layoutOverrides: Map<String, Any>? = null
+)
+
+// MARK: - Step Hook Config (SPEC-083 P1)
+
+/**
+ * Server-side webhook configuration for a step.
+ */
+data class StepHookConfig(
+    val enabled: Boolean,
+    val webhook_url: String,
+    val timeout_ms: Int = 10000,
+    val loading_text: String? = null,
+    val error_text: String? = null,
+    val retry_count: Int = 0,
+    val headers: Map<String, String>? = null
 )
 
 /**
@@ -372,10 +388,30 @@ internal object OnboardingConfigParser {
             validation_mode = configMap["validation_mode"] as? String
         )
 
+        // SPEC-083 P1: Parse hook config
+        @Suppress("UNCHECKED_CAST")
+        val hookMap = map["hook"] as? Map<String, Any>
+        val hook = hookMap?.let { h ->
+            val enabled = h["enabled"] as? Boolean ?: false
+            val webhookUrl = h["webhook_url"] as? String ?: ""
+            if (enabled && webhookUrl.isNotEmpty()) {
+                StepHookConfig(
+                    enabled = true,
+                    webhook_url = webhookUrl,
+                    timeout_ms = (h["timeout_ms"] as? Number)?.toInt() ?: 10000,
+                    loading_text = h["loading_text"] as? String,
+                    error_text = h["error_text"] as? String,
+                    retry_count = (h["retry_count"] as? Number)?.toInt() ?: 0,
+                    headers = h["headers"] as? Map<String, String>
+                )
+            } else null
+        }
+
         return OnboardingStep(
             id = map["id"] as? String ?: "",
             type = OnboardingStep.StepType.fromString(typeStr),
-            config = config
+            config = config,
+            hook = hook
         )
     }
 }

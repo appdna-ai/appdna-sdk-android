@@ -441,6 +441,21 @@ object AppDNA {
         }
     }
 
+    // MARK: - Internal accessors (used by onboarding hooks)
+
+    internal fun getCurrentUserId(): String? {
+        return identityManager?.currentIdentity?.userId
+            ?: identityManager?.currentIdentity?.anonId
+    }
+
+    internal fun getCurrentAppId(): String? {
+        return bootstrapAppId
+    }
+
+    internal fun getRemoteConfigFlag(key: String): String? {
+        return remoteConfigManager?.getConfig(key) as? String
+    }
+
     // MARK: - Internal bootstrap
 
     private suspend fun performBootstrap(

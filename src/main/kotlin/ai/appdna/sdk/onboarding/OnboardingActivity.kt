@@ -23,7 +23,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.events.EventTracker
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.SocketTimeoutException
+import java.net.URL
 
 /**
  * Activity to render onboarding flow UI using Jetpack Compose.
@@ -40,6 +49,7 @@ class OnboardingActivity : ComponentActivity() {
         }
 
         val delegate = pendingDelegate
+        val eventTracker = pendingEventTracker
         val onStepViewed = pendingOnStepViewed
         val onStepCompleted = pendingOnStepCompleted
         val onStepSkipped = pendingOnStepSkipped
@@ -51,6 +61,7 @@ class OnboardingActivity : ComponentActivity() {
                 OnboardingFlowHost(
                     flow = flow,
                     delegate = delegate,
+                    eventTracker = eventTracker,
                     onStepViewed = { stepId, stepIndex ->
                         onStepViewed?.invoke(stepId, stepIndex)
                     },
@@ -76,6 +87,7 @@ class OnboardingActivity : ComponentActivity() {
     private fun cleanup() {
         pendingFlow = null
         pendingDelegate = null
+        pendingEventTracker = null
         pendingOnStepViewed = null
         pendingOnStepCompleted = null
         pendingOnStepSkipped = null
@@ -88,7 +100,6 @@ class OnboardingActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         super.onBackPressed()
         pendingFlow?.let { flow ->
-            // Treat back press as dismiss
             pendingOnFlowDismissed?.invoke(flow.steps.firstOrNull()?.id ?: "", 0)
         }
         cleanup()
@@ -97,6 +108,7 @@ class OnboardingActivity : ComponentActivity() {
     companion object {
         private var pendingFlow: OnboardingFlowConfig? = null
         private var pendingDelegate: AppDNAOnboardingDelegate? = null
+        private var pendingEventTracker: EventTracker? = null
         private var pendingOnStepViewed: ((String, Int) -> Unit)? = null
         private var pendingOnStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)? = null
         private var pendingOnStepSkipped: ((String, Int) -> Unit)? = null
@@ -107,6 +119,7 @@ class OnboardingActivity : ComponentActivity() {
             context: Context,
             flow: OnboardingFlowConfig,
             delegate: AppDNAOnboardingDelegate? = null,
+            eventTracker: EventTracker? = null,
             onStepViewed: ((String, Int) -> Unit)? = null,
             onStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)? = null,
             onStepSkipped: ((String, Int) -> Unit)? = null,
@@ -115,6 +128,7 @@ class OnboardingActivity : ComponentActivity() {
         ) {
             pendingFlow = flow
             pendingDelegate = delegate
+            pendingEventTracker = eventTracker
             pendingOnStepViewed = onStepViewed
             pendingOnStepCompleted = onStepCompleted
             pendingOnStepSkipped = onStepSkipped
@@ -133,6 +147,7 @@ class OnboardingActivity : ComponentActivity() {
 fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
     delegate: AppDNAOnboardingDelegate? = null,
+    eventTracker: EventTracker? = null,
     onStepViewed: (String, Int) -> Unit,
     onStepCompleted: (String, Int, Map<String, Any>?) -> Unit,
     onStepSkipped: (String, Int) -> Unit,
@@ -145,6 +160,7 @@ fun OnboardingFlowHost(
 
     // SPEC-083: Hook state
     var isProcessing by remember { mutableStateOf(false) }
+    var loadingText by remember { mutableStateOf("Processing...") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showError by remember { mutableStateOf(false) }
     val configOverrides = remember { mutableStateMapOf<String, StepConfigOverride>() }
@@ -153,11 +169,20 @@ fun OnboardingFlowHost(
         (currentIndex + 1).toFloat() / flow.steps.size
     } else 0f
 
+    // Hook event tracking helper
+    fun trackHookEvent(event: String, step: OnboardingStep, extra: Map<String, Any> = emptyMap()) {
+        val props = mutableMapOf<String, Any>(
+            "flow_id" to flow.id,
+            "step_id" to step.id,
+        )
+        props.putAll(extra)
+        eventTracker?.track(event, props)
+    }
+
     // SPEC-083: Before-render hook + step viewed tracking
     LaunchedEffect(currentIndex) {
         if (currentIndex < flow.steps.size) {
             val step = flow.steps[currentIndex]
-            // Call onBeforeStepRender hook
             delegate?.let { d ->
                 val override = d.onBeforeStepRender(
                     flowId = flow.id,
@@ -224,6 +249,31 @@ fun OnboardingFlowHost(
         )
     }
 
+    fun handleHookResult(result: StepAdvanceResult, step: OnboardingStep) {
+        when (result) {
+            is StepAdvanceResult.Proceed -> advanceOrComplete()
+            is StepAdvanceResult.ProceedWithData -> {
+                mergeData(result.data, step.id)
+                advanceOrComplete()
+            }
+            is StepAdvanceResult.Block -> {
+                errorMessage = result.message
+                showError = true
+            }
+            is StepAdvanceResult.SkipTo -> {
+                result.data?.let { mergeData(it, step.id) }
+                skipToStep(result.stepId)
+            }
+        }
+    }
+
+    fun resultName(result: StepAdvanceResult): String = when (result) {
+        is StepAdvanceResult.Proceed -> "proceed"
+        is StepAdvanceResult.ProceedWithData -> "proceed_with_data"
+        is StepAdvanceResult.Block -> "block"
+        is StepAdvanceResult.SkipTo -> "skip_to"
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -250,7 +300,6 @@ fun OnboardingFlowHost(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Back button
                 if (flow.settings.allow_back && currentIndex > 0) {
                     IconButton(
                         onClick = { currentIndex-- },
@@ -267,7 +316,6 @@ fun OnboardingFlowHost(
                     Spacer(Modifier.size(48.dp))
                 }
 
-                // Dismiss button
                 IconButton(
                     onClick = {
                         if (currentIndex < flow.steps.size) {
@@ -300,9 +348,14 @@ fun OnboardingFlowHost(
                         }
                         onStepCompleted(step.id, currentIndex, data)
 
-                        // SPEC-083: Call async hook before advancing
+                        // SPEC-083: Determine hook type — client delegate takes priority
                         if (delegate != null) {
+                            // Client-side hook
+                            loadingText = step.hook?.loading_text ?: "Processing..."
                             isProcessing = true
+                            val startTime = System.currentTimeMillis()
+                            trackHookEvent("onboarding_hook_started", step, mapOf("hook_type" to "client"))
+
                             coroutineScope.launch {
                                 val result = delegate.onBeforeStepAdvance(
                                     flowId = flow.id,
@@ -312,23 +365,56 @@ fun OnboardingFlowHost(
                                     responses = responses.toMap(),
                                     stepData = data
                                 )
+                                val durationMs = System.currentTimeMillis() - startTime
                                 isProcessing = false
+                                trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                    "hook_type" to "client",
+                                    "result" to resultName(result),
+                                    "duration_ms" to durationMs,
+                                ))
+                                handleHookResult(result, step)
+                            }
+                        } else if (step.hook?.enabled == true) {
+                            // Server-side hook (P1)
+                            val hookConfig = step.hook!!
+                            loadingText = hookConfig.loading_text ?: "Processing..."
+                            isProcessing = true
+                            val startTime = System.currentTimeMillis()
+                            trackHookEvent("onboarding_hook_started", step, mapOf(
+                                "hook_type" to "server",
+                                "webhook_url" to hookConfig.webhook_url,
+                            ))
 
-                                when (result) {
-                                    is StepAdvanceResult.Proceed -> advanceOrComplete()
-                                    is StepAdvanceResult.ProceedWithData -> {
-                                        mergeData(result.data, step.id)
-                                        advanceOrComplete()
+                            coroutineScope.launch {
+                                val result = executeWebhook(
+                                    flow = flow,
+                                    step = step,
+                                    data = data,
+                                    responses = responses.toMap(),
+                                    hookConfig = hookConfig,
+                                    currentIndex = currentIndex,
+                                    attempt = 0,
+                                    onRetry = { attemptNum ->
+                                        trackHookEvent("onboarding_hook_retry", step, mapOf(
+                                            "attempt_number" to attemptNum
+                                        ))
+                                    },
+                                    onError = { errorType, errorMsg ->
+                                        trackHookEvent("onboarding_hook_error", step, mapOf(
+                                            "hook_type" to "server",
+                                            "error_type" to errorType,
+                                            "error_message" to errorMsg,
+                                        ))
                                     }
-                                    is StepAdvanceResult.Block -> {
-                                        errorMessage = result.message
-                                        showError = true
-                                    }
-                                    is StepAdvanceResult.SkipTo -> {
-                                        result.data?.let { mergeData(it, step.id) }
-                                        skipToStep(result.stepId)
-                                    }
-                                }
+                                )
+                                val durationMs = System.currentTimeMillis() - startTime
+                                isProcessing = false
+                                trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                    "hook_type" to "server",
+                                    "result" to resultName(result),
+                                    "duration_ms" to durationMs,
+                                ))
+                                handleHookResult(result, step)
                             }
                         } else {
                             advanceOrComplete()
@@ -394,7 +480,7 @@ fun OnboardingFlowHost(
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            "Processing...",
+                            loadingText,
                             color = Color.White,
                             fontSize = 14.sp
                         )
@@ -402,6 +488,127 @@ fun OnboardingFlowHost(
                 }
             }
         }
+    }
+}
+
+// MARK: - Server-side webhook execution (SPEC-083 P1)
+
+@Suppress("UNCHECKED_CAST")
+private suspend fun executeWebhook(
+    flow: OnboardingFlowConfig,
+    step: OnboardingStep,
+    data: Map<String, Any>?,
+    responses: Map<String, Any>,
+    hookConfig: StepHookConfig,
+    currentIndex: Int,
+    attempt: Int,
+    onRetry: (Int) -> Unit,
+    onError: (String, String) -> Unit
+): StepAdvanceResult = withContext(Dispatchers.IO) {
+    try {
+        val url = URL(hookConfig.webhook_url)
+        val conn = url.openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = hookConfig.timeout_ms
+        conn.readTimeout = hookConfig.timeout_ms
+        conn.doOutput = true
+
+        // Apply custom headers with variable interpolation
+        hookConfig.headers?.forEach { (key, value) ->
+            conn.setRequestProperty(key, interpolateVariables(value))
+        }
+
+        // Build request body
+        val body = JSONObject().apply {
+            put("flow_id", flow.id)
+            put("step_id", step.id)
+            put("step_index", currentIndex)
+            put("step_type", step.type.value)
+            put("step_data", JSONObject(data ?: emptyMap<String, Any>()))
+            put("responses", JSONObject(responses))
+            put("user_id", AppDNA.getCurrentUserId() ?: "")
+            put("app_id", AppDNA.getCurrentAppId() ?: "")
+        }
+
+        OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+
+        val responseCode = conn.responseCode
+        if (responseCode in 200..299) {
+            val responseBody = conn.inputStream.bufferedReader().readText()
+            return@withContext parseWebhookResponse(responseBody, hookConfig)
+        }
+
+        throw java.io.IOException("HTTP $responseCode")
+
+    } catch (e: SocketTimeoutException) {
+        val maxRetries = minOf(hookConfig.retry_count, 3)
+        if (attempt < maxRetries) {
+            onRetry(attempt + 1)
+            val delay = Math.pow(2.0, attempt.toDouble()).toLong() * 1000
+            kotlinx.coroutines.delay(delay)
+            return@withContext executeWebhook(
+                flow, step, data, responses, hookConfig,
+                currentIndex, attempt + 1, onRetry, onError
+            )
+        }
+        onError("timeout", "Request timed out")
+        StepAdvanceResult.Block(hookConfig.error_text ?: "Request timed out. Please try again.")
+
+    } catch (e: Exception) {
+        val maxRetries = minOf(hookConfig.retry_count, 3)
+        if (attempt < maxRetries) {
+            onRetry(attempt + 1)
+            val delay = Math.pow(2.0, attempt.toDouble()).toLong() * 1000
+            kotlinx.coroutines.delay(delay)
+            return@withContext executeWebhook(
+                flow, step, data, responses, hookConfig,
+                currentIndex, attempt + 1, onRetry, onError
+            )
+        }
+        onError("network", e.message ?: "Network error")
+        StepAdvanceResult.Block(hookConfig.error_text ?: "Network error. Please check your connection.")
+    }
+}
+
+@Suppress("UNCHECKED_CAST")
+private fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfig): StepAdvanceResult {
+    return try {
+        val json = JSONObject(responseBody)
+        val action = json.optString("action", "proceed")
+        val message = json.optString("message", null as String?)
+        val targetStepId = json.optString("target_step_id", null as String?)
+
+        val responseData: Map<String, Any>? = if (json.has("data") && !json.isNull("data")) {
+            val dataObj = json.getJSONObject("data")
+            val map = mutableMapOf<String, Any>()
+            dataObj.keys().forEach { key -> map[key] = dataObj.get(key) }
+            map
+        } else null
+
+        when (action) {
+            "proceed" -> {
+                if (responseData != null) StepAdvanceResult.ProceedWithData(responseData)
+                else StepAdvanceResult.Proceed
+            }
+            "proceed_with_data" -> StepAdvanceResult.ProceedWithData(responseData ?: emptyMap())
+            "block" -> StepAdvanceResult.Block(message ?: hookConfig.error_text ?: "Request blocked by server.")
+            "skip_to" -> {
+                if (targetStepId != null) StepAdvanceResult.SkipTo(targetStepId, responseData)
+                else StepAdvanceResult.Proceed
+            }
+            else -> StepAdvanceResult.Proceed
+        }
+    } catch (e: Exception) {
+        StepAdvanceResult.Block(hookConfig.error_text ?: "Invalid server response.")
+    }
+}
+
+private fun interpolateVariables(value: String): String {
+    val pattern = Regex("\\{\\{([^}]+)\\}\\}")
+    return pattern.replace(value) { match ->
+        val varName = match.groupValues[1]
+        AppDNA.getRemoteConfigFlag(varName) ?: ""
     }
 }
 
@@ -445,41 +652,21 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         modifier = Modifier.fillMaxWidth()
     ) {
         Spacer(Modifier.height(48.dp))
-
         config.title?.let {
-            Text(
-                text = it,
-                fontSize = 28.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+            Text(text = it, fontSize = 28.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
-
         config.subtitle?.let {
             Spacer(Modifier.height(12.dp))
-            Text(
-                text = it,
-                fontSize = 16.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
+            Text(text = it, fontSize = 16.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
-
         Spacer(Modifier.height(48.dp))
-
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Text(
-                text = config.cta_text ?: "Get Started",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 17.sp
-            )
+            Text(text = config.cta_text ?: "Get Started", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
@@ -489,29 +676,14 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
     val selectedOptions = remember { mutableStateListOf<String>() }
     val isMulti = config.selection_mode == SelectionMode.MULTI
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(
-                text = it,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
-
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = it,
-                fontSize = 15.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
+            Text(text = it, fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
-
         Spacer(Modifier.height(24.dp))
 
         config.options?.forEach { option ->
@@ -521,158 +693,82 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                     .fillMaxWidth()
                     .padding(vertical = 4.dp)
                     .then(
-                        if (isSelected) Modifier.border(
-                            2.dp,
-                            MaterialTheme.colorScheme.primary,
-                            RoundedCornerShape(12.dp)
-                        ) else Modifier
+                        if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                        else Modifier
                     )
                     .clickable {
                         if (isMulti) {
-                            if (isSelected) selectedOptions.remove(option.id)
-                            else selectedOptions.add(option.id)
+                            if (isSelected) selectedOptions.remove(option.id) else selectedOptions.add(option.id)
                         } else {
-                            selectedOptions.clear()
-                            selectedOptions.add(option.id)
+                            selectedOptions.clear(); selectedOptions.add(option.id)
                         }
                     },
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    option.icon?.let {
-                        Text(text = it, fontSize = 20.sp)
-                        Spacer(Modifier.width(12.dp))
-                    }
+                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
                     Text(text = option.label, fontSize = 16.sp)
                 }
             }
         }
 
         Spacer(Modifier.height(24.dp))
-
         Button(
-            onClick = {
-                val data = mapOf("selected" to selectedOptions.toList())
-                onNext(data)
-            },
+            onClick = { onNext(mapOf("selected" to selectedOptions.toList())) },
             enabled = selectedOptions.isNotEmpty(),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(
-                text = config.cta_text ?: "Continue",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 17.sp
-            )
+            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
 
 @Composable
 private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(
-                text = it,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
-
         Spacer(Modifier.height(24.dp))
-
         config.items?.forEach { item ->
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                verticalAlignment = Alignment.Top
-            ) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
                 Text(text = item.icon, fontSize = 28.sp)
                 Spacer(Modifier.width(16.dp))
                 Column {
-                    Text(
-                        text = item.title,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 16.sp
-                    )
-                    Text(
-                        text = item.subtitle,
-                        fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-                    )
+                    Text(text = item.title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(text = item.subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                 }
             }
         }
-
         Spacer(Modifier.height(32.dp))
-
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(
-                text = config.cta_text ?: "Continue",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 17.sp
-            )
+            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
 
 @Composable
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
-    ) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(
-                text = it,
-                fontSize = 24.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center
-            )
+            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
-
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
-            Text(
-                text = it,
-                fontSize = 15.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
+            Text(text = it, fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
-
         Spacer(Modifier.height(32.dp))
-
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(52.dp),
+            modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(
-                text = config.cta_text ?: "Continue",
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 17.sp
-            )
+            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
