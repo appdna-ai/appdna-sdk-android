@@ -194,12 +194,34 @@ internal class SurveyManager(
             SurveySentiment.NEUTRAL -> actions.onNeutral
         } ?: return
 
+        val surveyId = currentSurveyId ?: config.name
+
+        // SPEC-084: Gap #22 — Wire follow-up actions with event tracking so the host app
+        // can respond to each follow-up regardless of native SDK availability.
         when (action.action) {
-            "prompt_review" -> ReviewPromptManager.triggerReview(context)
-            "show_feedback_form" -> presentFeedbackForm(action.message)
+            "prompt_review" -> {
+                // Attempt the native Google Play In-App Review flow first.
+                ReviewPromptManager.triggerReview(context)
+                // Also fire a trackable event so the host app can handle the case where
+                // the native review flow is unavailable (e.g., emulator, debug builds).
+                eventTracker.track("survey_followup_prompt_review", mapOf(
+                    "survey_id" to surveyId,
+                    "sentiment" to sentiment.name.lowercase(),
+                ))
+            }
+            "show_feedback_form" -> {
+                // Present the built-in feedback dialog.
+                presentFeedbackForm(action.message)
+                // Fire a trackable event for host app awareness.
+                eventTracker.track("survey_followup_feedback_form", mapOf(
+                    "survey_id" to surveyId,
+                    "sentiment" to sentiment.name.lowercase(),
+                ))
+            }
             "trigger_winback" -> {
-                // SPEC-084: Fire custom event for downstream handling
-                eventTracker.track("survey_winback_triggered", mapOf(
+                // Fire a trackable event for the host app to launch a winback campaign.
+                eventTracker.track("survey_followup_winback", mapOf(
+                    "survey_id" to surveyId,
                     "sentiment" to sentiment.name.lowercase(),
                     "message" to (action.message ?: ""),
                 ))

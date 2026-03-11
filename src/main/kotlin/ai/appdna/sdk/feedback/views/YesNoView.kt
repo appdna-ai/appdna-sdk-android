@@ -10,19 +10,22 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
+import androidx.compose.ui.text.TextStyle
 
 @Composable
 fun YesNoView(
     question: SurveyQuestion,
     answer: SurveyAnswer?,
-    onAnswer: (SurveyAnswer) -> Unit
+    onAnswer: (SurveyAnswer) -> Unit,
+    // SPEC-084: Gap #20 — question text style token
+    questionTextStyle: TextStyle = TextStyle.Default
 ) {
     val selected = answer?.answer as? String
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = question.text,
-            style = MaterialTheme.typography.titleMedium,
+            style = questionTextStyle.takeIf { it != TextStyle.Default } ?: MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 24.dp)
         )

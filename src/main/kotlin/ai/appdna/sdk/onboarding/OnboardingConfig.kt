@@ -1,5 +1,7 @@
 package ai.appdna.sdk.onboarding
 
+import ai.appdna.sdk.core.TextStyleConfig
+
 /**
  * Firestore schema types for onboarding flows (Android).
  * Mirrors the iOS OnboardingConfig.swift.
@@ -395,9 +397,12 @@ internal object OnboardingConfigParser {
                     text = bm["text"] as? String,
                     level = (bm["level"] as? Number)?.toInt(),
                     image_url = bm["image_url"] as? String,
+                    alt = bm["alt"] as? String,
                     corner_radius = (bm["corner_radius"] as? Number)?.toDouble(),
                     height = (bm["height"] as? Number)?.toDouble(),
+                    variant = bm["variant"] as? String,
                     action = bm["action"] as? String,
+                    action_value = bm["action_value"] as? String,
                     bg_color = bm["bg_color"] as? String,
                     text_color = bm["text_color"] as? String,
                     button_corner_radius = (bm["button_corner_radius"] as? Number)?.toDouble(),
@@ -418,6 +423,11 @@ internal object OnboardingConfigParser {
                     toggle_description = bm["toggle_description"] as? String,
                     toggle_default = bm["toggle_default"] as? Boolean,
                     video_thumbnail_url = bm["video_thumbnail_url"] as? String,
+                    // SPEC-084: per-block text style + video source fields
+                    style = (bm["style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    video_url = bm["video_url"] as? String,
+                    video_height = (bm["video_height"] as? Number)?.toDouble(),
+                    video_corner_radius = (bm["video_corner_radius"] as? Number)?.toDouble(),
                 )
             } else null
         }
@@ -464,6 +474,12 @@ internal object OnboardingConfigParser {
         @Suppress("UNCHECKED_CAST")
         val localizations = configMap["localizations"] as? Map<String, Map<String, String>>
 
+        // SPEC-084: Parse step-level text_style and element_style
+        @Suppress("UNCHECKED_CAST")
+        val textStyle = (configMap["text_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) }
+        @Suppress("UNCHECKED_CAST")
+        val elementStyle = (configMap["element_style"] as? Map<String, Any>)?.let { parseElementStyleConfig(it) }
+
         val config = StepConfig(
             title = configMap["title"] as? String,
             subtitle = configMap["subtitle"] as? String,
@@ -479,6 +495,8 @@ internal object OnboardingConfigParser {
             content_blocks = contentBlocks,
             layout_variant = configMap["layout_variant"] as? String,
             background = background,
+            text_style = textStyle,
+            element_style = elementStyle,
             animation = animConfig,
             localizations = localizations,
             default_locale = configMap["default_locale"] as? String,
@@ -508,6 +526,84 @@ internal object OnboardingConfigParser {
             type = OnboardingStep.StepType.fromString(typeStr),
             config = config,
             hook = hook
+        )
+    }
+
+    /**
+     * Parse a raw map from Firestore into a TextStyleConfig.
+     * Used for per-block style overrides on ContentBlock.style (SPEC-084).
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseTextStyleConfig(map: Map<String, Any>): TextStyleConfig {
+        return TextStyleConfig(
+            font_family = map["font_family"] as? String,
+            font_size = (map["font_size"] as? Number)?.toDouble(),
+            font_weight = (map["font_weight"] as? Number)?.toInt(),
+            color = map["color"] as? String,
+            alignment = map["alignment"] as? String,
+            line_height = (map["line_height"] as? Number)?.toDouble(),
+            letter_spacing = (map["letter_spacing"] as? Number)?.toDouble(),
+            opacity = (map["opacity"] as? Number)?.toDouble(),
+        )
+    }
+
+    /**
+     * Parse a raw map into an ElementStyleConfig.
+     * Used for step-level element_style (SPEC-084).
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseElementStyleConfig(map: Map<String, Any>): ai.appdna.sdk.core.ElementStyleConfig {
+        val bgMap = map["background"] as? Map<String, Any>
+        val bg = bgMap?.let {
+            val gradMap = it["gradient"] as? Map<String, Any>
+            val grad = gradMap?.let { g ->
+                val stops = (g["stops"] as? List<Map<String, Any>>)?.map { s ->
+                    ai.appdna.sdk.core.GradientStopConfig(
+                        color = s["color"] as? String ?: "#000000",
+                        position = (s["position"] as? Number)?.toDouble() ?: 0.0,
+                    )
+                }
+                ai.appdna.sdk.core.GradientConfig(type = g["type"] as? String, angle = (g["angle"] as? Number)?.toDouble(), stops = stops)
+            }
+            ai.appdna.sdk.core.BackgroundStyleConfig(
+                type = it["type"] as? String, color = it["color"] as? String,
+                gradient = grad, image_url = it["image_url"] as? String,
+                image_fit = it["image_fit"] as? String, overlay = it["overlay"] as? String,
+            )
+        }
+        val borderMap = map["border"] as? Map<String, Any>
+        val border = borderMap?.let {
+            ai.appdna.sdk.core.BorderStyleConfig(
+                width = (it["width"] as? Number)?.toDouble(), color = it["color"] as? String,
+                style = it["style"] as? String, radius = (it["radius"] as? Number)?.toDouble(),
+                radius_top_left = (it["radius_top_left"] as? Number)?.toDouble(),
+                radius_top_right = (it["radius_top_right"] as? Number)?.toDouble(),
+                radius_bottom_left = (it["radius_bottom_left"] as? Number)?.toDouble(),
+                radius_bottom_right = (it["radius_bottom_right"] as? Number)?.toDouble(),
+            )
+        }
+        val shadowMap = map["shadow"] as? Map<String, Any>
+        val shadow = shadowMap?.let {
+            ai.appdna.sdk.core.ShadowStyleConfig(
+                x = (it["x"] as? Number)?.toDouble(), y = (it["y"] as? Number)?.toDouble(),
+                blur = (it["blur"] as? Number)?.toDouble(), spread = (it["spread"] as? Number)?.toDouble(),
+                color = it["color"] as? String,
+            )
+        }
+        val paddingMap = map["padding"] as? Map<String, Any>
+        val padding = paddingMap?.let {
+            ai.appdna.sdk.core.SpacingConfig(
+                top = (it["top"] as? Number)?.toDouble(), right = (it["right"] as? Number)?.toDouble(),
+                bottom = (it["bottom"] as? Number)?.toDouble(), left = (it["left"] as? Number)?.toDouble(),
+            )
+        }
+        val tsMap = map["text_style"] as? Map<String, Any>
+        val textStyle = tsMap?.let { parseTextStyleConfig(it) }
+        return ai.appdna.sdk.core.ElementStyleConfig(
+            background = bg, border = border, shadow = shadow, padding = padding,
+            corner_radius = (map["corner_radius"] as? Number)?.toDouble(),
+            opacity = (map["opacity"] as? Number)?.toDouble(),
+            text_style = textStyle,
         )
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -18,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.NetworkImage
 import ai.appdna.sdk.core.StyleEngine
 import kotlinx.coroutines.delay
 
@@ -85,53 +87,70 @@ private fun BannerMessageView(
                 colors = CardDefaults.cardColors(containerColor = bgColor),
                 elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // Text content
-                    Column(modifier = Modifier.weight(1f)) {
-                        content.title?.let {
-                            Text(
-                                text = it,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = textColor,
-                            )
-                        }
-                        content.body?.let {
-                            Text(
-                                text = it,
-                                fontSize = 12.sp,
-                                color = if (textColor != Color.Unspecified)
-                                    textColor.copy(alpha = 0.7f)
-                                else Color.Gray,
-                            )
-                        }
-                    }
-
-                    // CTA button
-                    content.cta_text?.let { ctaText ->
-                        Button(
-                            onClick = onCTATap,
-                            colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                            shape = RoundedCornerShape(cornerRadius.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                        ) {
-                            Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-
-                    // Dismiss button
-                    IconButton(
-                        onClick = {
-                            isVisible = false
-                            onDismiss()
-                        },
-                        modifier = Modifier.size(24.dp),
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        Text("✕", fontSize = 12.sp, color = Color.Gray)
+                        // Text content
+                        Column(modifier = Modifier.weight(1f)) {
+                            content.title?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = textColor,
+                                )
+                            }
+                            content.body?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = 12.sp,
+                                    color = if (textColor != Color.Unspecified)
+                                        textColor.copy(alpha = 0.7f)
+                                    else Color.Gray,
+                                )
+                            }
+                        }
+
+                        // CTA button
+                        content.cta_text?.let { ctaText ->
+                            Button(
+                                onClick = onCTATap,
+                                colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                                shape = RoundedCornerShape(cornerRadius.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+
+                        // Dismiss button
+                        IconButton(
+                            onClick = {
+                                isVisible = false
+                                onDismiss()
+                            },
+                            modifier = Modifier.size(24.dp),
+                        ) {
+                            Text("✕", fontSize = 12.sp, color = Color.Gray)
+                        }
+                    }
+
+                    // Secondary CTA (Gap #18)
+                    content.secondary_cta_text?.let { secondaryText ->
+                        TextButton(
+                            onClick = { onDismiss() },
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 0.dp),
+                        ) {
+                            Text(
+                                text = secondaryText,
+                                color = if (textColor != Color.Unspecified)
+                                    textColor.copy(alpha = 0.6f)
+                                else Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                 }
             }
@@ -181,18 +200,15 @@ private fun ModalMessageView(
                 }
 
                 // Optional image
-                content.image_url?.let {
-                    // Placeholder for AsyncImage — use Coil in real implementation
-                    Box(
+                content.image_url?.let { imageUrl ->
+                    NetworkImage(
+                        url = imageUrl,
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(160.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Color.LightGray),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("📷", fontSize = 32.sp)
-                    }
+                            .clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.Crop,
+                    )
                     Spacer(modifier = Modifier.height(16.dp))
                 }
 
@@ -232,6 +248,19 @@ private fun ModalMessageView(
                         shape = RoundedCornerShape((content.corner_radius ?: 12).dp),
                     ) {
                         Text(ctaText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    }
+                }
+
+                // Secondary CTA (Gap #18)
+                content.secondary_cta_text?.let { secondaryText ->
+                    TextButton(onClick = { onDismiss() }) {
+                        Text(
+                            text = secondaryText,
+                            color = if (textColor != Color.Unspecified)
+                                textColor.copy(alpha = 0.6f)
+                            else Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                            fontSize = 13.sp,
+                        )
                     }
                 }
 
@@ -275,16 +304,14 @@ private fun FullscreenMessageView(
             Spacer(modifier = Modifier.weight(1f))
 
             // Optional image
-            content.image_url?.let {
-                Box(
+            content.image_url?.let { imageUrl ->
+                NetworkImage(
+                    url = imageUrl,
                     modifier = Modifier
                         .size(300.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color.LightGray),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text("📷", fontSize = 48.sp)
-                }
+                        .clip(RoundedCornerShape(16.dp)),
+                    contentScale = ContentScale.Fit,
+                )
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
@@ -325,6 +352,19 @@ private fun FullscreenMessageView(
                     shape = RoundedCornerShape(cornerRadius.dp),
                 ) {
                     Text(ctaText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                }
+            }
+
+            // Secondary CTA (Gap #18)
+            content.secondary_cta_text?.let { secondaryText ->
+                TextButton(onClick = { onDismiss() }) {
+                    Text(
+                        text = secondaryText,
+                        color = if (textColor != Color.Unspecified)
+                            textColor.copy(alpha = 0.6f)
+                        else Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                    )
                 }
             }
 
@@ -374,55 +414,81 @@ private fun TooltipMessageView(
             .clickable(onClick = onDismiss),
         contentAlignment = Alignment.Center,
     ) {
-        Card(
-            modifier = Modifier
-                .widthIn(max = 280.dp)
-                .clickable(enabled = false, onClick = {}),
-            shape = RoundedCornerShape(cornerRadius.dp),
-            colors = CardDefaults.cardColors(containerColor = bgColor),
-            elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clickable(enabled = false, onClick = {}),
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
+            Card(
+                modifier = Modifier
+                    .widthIn(max = 280.dp),
+                shape = RoundedCornerShape(cornerRadius.dp),
+                colors = CardDefaults.cardColors(containerColor = bgColor),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
             ) {
-                // Title
-                content.title?.let {
-                    Text(
-                        text = it,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        color = textColor,
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                }
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    // Title
+                    content.title?.let {
+                        Text(
+                            text = it,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            color = textColor,
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                    }
 
-                // Body
-                content.body?.let {
-                    Text(
-                        text = it,
-                        fontSize = 12.sp,
-                        textAlign = TextAlign.Center,
-                        color = if (textColor != Color.Unspecified)
-                            textColor.copy(alpha = 0.7f)
-                        else Color.Gray,
-                    )
-                }
+                    // Body
+                    content.body?.let {
+                        Text(
+                            text = it,
+                            fontSize = 12.sp,
+                            textAlign = TextAlign.Center,
+                            color = if (textColor != Color.Unspecified)
+                                textColor.copy(alpha = 0.7f)
+                            else Color.Gray,
+                        )
+                    }
 
-                // CTA button
-                content.cta_text?.let { ctaText ->
-                    Spacer(modifier = Modifier.height(12.dp))
-                    Button(
-                        onClick = onCTATap,
-                        colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                        shape = RoundedCornerShape(cornerRadius.dp),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                    ) {
-                        Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    // CTA button
+                    content.cta_text?.let { ctaText ->
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = onCTATap,
+                            colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                            shape = RoundedCornerShape(cornerRadius.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    // Secondary CTA (Gap #18)
+                    content.secondary_cta_text?.let { secondaryText ->
+                        TextButton(onClick = { onDismiss() }) {
+                            Text(
+                                text = secondaryText,
+                                color = if (textColor != Color.Unspecified)
+                                    textColor.copy(alpha = 0.6f)
+                                else Color(0xFF1A1A1A).copy(alpha = 0.6f),
+                                fontSize = 13.sp,
+                            )
+                        }
                     }
                 }
             }
+
+            // Pointer arrow (Gap #17)
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .rotate(45f)
+                    .offset(y = (-6).dp)
+                    .background(bgColor),
+            )
         }
     }
 }

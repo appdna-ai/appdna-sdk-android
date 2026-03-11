@@ -15,6 +15,12 @@ object FontResolver {
             "system", "-apple-system", "BlinkMacSystemFont", "sans-serif", "Roboto" -> FontFamily.Default
             "system-serif", "serif" -> FontFamily.Serif
             "system-mono", "monospace", "SF Mono" -> FontFamily.Monospace
+            // Android built-in font variants
+            "sans-serif-light" -> FontFamily.Default
+            "sans-serif-medium" -> FontFamily.Default
+            "sans-serif-condensed" -> FontFamily.Default
+            "serif-monospace" -> FontFamily.Monospace
+            "casual" -> FontFamily.Cursive
             // Sans-Serif mapped to Android equivalents
             "helvetica-neue", "Helvetica Neue", "avenir", "Avenir",
             "gill-sans", "Gill Sans", "verdana", "Verdana",
@@ -31,6 +37,12 @@ object FontResolver {
             "snell", "Snell Roundhand" -> FontFamily.Cursive
             "chalkboard", "Chalkboard SE", "noteworthy", "Noteworthy" -> FontFamily.Cursive
             "copperplate", "Copperplate" -> FontFamily.Serif
+            // Niche fonts → best Android equivalent
+            "sf-compact", "SF Compact Text" -> FontFamily.Default
+            "cochin", "Cochin", "iowan", "Iowan Old Style" -> FontFamily.Serif
+            "courier", "Courier" -> FontFamily.Monospace
+            "papyrus", "Papyrus", "marker-felt", "Marker Felt" -> FontFamily.Cursive
+            "academy-engraved", "Academy Engraved LET" -> FontFamily.Serif
             else -> FontFamily.Default
         }
     }

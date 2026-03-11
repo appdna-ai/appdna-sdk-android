@@ -23,9 +23,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.LocalizationEngine
+import ai.appdna.sdk.core.entryAnimation
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.events.EventTracker
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -335,9 +340,18 @@ fun OnboardingFlowHost(
                 }
             }
 
-            // Step content
+            // Step content with animated transitions
             if (currentIndex < flow.steps.size) {
-                val step = flow.steps[currentIndex]
+                AnimatedContent(
+                    targetState = currentIndex,
+                    transitionSpec = {
+                        (slideInHorizontally { it } + fadeIn()) togetherWith
+                            (slideOutHorizontally { -it } + fadeOut())
+                    },
+                    label = "step_transition",
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                ) { stepIdx ->
+                val step = flow.steps[stepIdx]
                 val effectiveConfig = applyOverrides(step.config, step.id)
 
                 OnboardingStepView(
@@ -425,10 +439,9 @@ fun OnboardingFlowHost(
                         onStepSkipped(step.id, currentIndex)
                         advanceOrComplete()
                     },
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
+                    modifier = Modifier.fillMaxSize()
                 )
+                }
             }
         }
 
@@ -639,6 +652,7 @@ fun OnboardingStepView(
         // Legacy rendering
         Column(
             modifier = modifier
+                .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
                 .verticalScroll(rememberScrollState())
                 .padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -675,6 +689,11 @@ private fun BlockBasedStepView(
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
+    // SPEC-084: Localization helper for step text
+    fun loc(key: String, fallback: String): String {
+        return LocalizationEngine.resolve(key, effectiveConfig.localizations, effectiveConfig.default_locale, fallback)
+    }
+
     fun handleAction(action: String) {
         when (action) {
             "next" -> onNext(toggleValues.toMap().mapValues { it.value as Any })
@@ -683,12 +702,52 @@ private fun BlockBasedStepView(
         }
     }
 
-    Box(modifier = modifier) {
-        // Step-level background
+    Box(modifier = modifier.entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)) {
+        // Step-level background (color, gradient, image)
         effectiveConfig.background?.let { bg ->
-            val bgColor = bg.color
-            if (bg.type == "color" && bgColor != null) {
-                Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(bgColor)))
+            when (bg.type) {
+                "color" -> bg.color?.let {
+                    Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(it)))
+                }
+                "gradient" -> bg.gradient?.stops?.let { stops ->
+                    if (stops.size >= 2) {
+                        val colors = stops.map { ai.appdna.sdk.core.StyleEngine.parseColor(it.color) }
+                        val brush = when (bg.gradient.type) {
+                            "radial" -> Brush.radialGradient(colors)
+                            else -> {
+                                val angle = bg.gradient.angle ?: 180.0
+                                val rads = Math.toRadians(angle)
+                                val dx = sin(rads).toFloat()
+                                val dy = -cos(rads).toFloat()
+                                Brush.linearGradient(
+                                    colors = colors,
+                                    start = Offset(
+                                        (0.5f - dx / 2f) * 1000f,
+                                        (0.5f - dy / 2f) * 1000f,
+                                    ),
+                                    end = Offset(
+                                        (0.5f + dx / 2f) * 1000f,
+                                        (0.5f + dy / 2f) * 1000f,
+                                    ),
+                                )
+                            }
+                        }
+                        Box(Modifier.fillMaxSize().background(brush))
+                    }
+                }
+                "image" -> {
+                    Box(Modifier.fillMaxSize()) {
+                        ai.appdna.sdk.core.NetworkImage(
+                            url = bg.image_url,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                        bg.overlay?.let { overlay ->
+                            Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(overlay)))
+                        }
+                    }
+                }
+                else -> {}
             }
         }
 
@@ -696,14 +755,11 @@ private fun BlockBasedStepView(
             "image_fullscreen" -> {
                 Box(Modifier.fillMaxSize()) {
                     // Image background with gradient overlay
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(Color.Gray.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("\uD83D\uDDBC", fontSize = 48.sp)
-                    }
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = effectiveConfig.image_url,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
                     // Gradient overlay
                     Box(
                         modifier = Modifier
@@ -723,22 +779,18 @@ private fun BlockBasedStepView(
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                         Spacer(Modifier.height(200.dp))
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
                     }
                 }
             }
             "image_split" -> {
                 Row(Modifier.fillMaxSize()) {
                     // Image side (40%)
-                    Box(
-                        modifier = Modifier
-                            .weight(0.4f)
-                            .fillMaxHeight()
-                            .background(Color.Gray.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("\uD83D\uDDBC", fontSize = 32.sp)
-                    }
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = effectiveConfig.image_url,
+                        modifier = Modifier.weight(0.4f).fillMaxHeight(),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    )
                     // Content side (60%)
                     Column(
                         modifier = Modifier
@@ -746,7 +798,7 @@ private fun BlockBasedStepView(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
                     }
                 }
             }
@@ -757,16 +809,13 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
                     Spacer(Modifier.height(16.dp))
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(240.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Gray.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("\uD83D\uDDBC", fontSize = 32.sp) }
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = effectiveConfig.image_url,
+                        modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
                 }
             }
             "image_top" -> {
@@ -776,16 +825,13 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(240.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Color.Gray.copy(alpha = 0.2f)),
-                        contentAlignment = Alignment.Center,
-                    ) { Text("\uD83D\uDDBC", fontSize = 32.sp) }
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = effectiveConfig.image_url,
+                        modifier = Modifier.fillMaxWidth().height(240.dp).clip(RoundedCornerShape(12.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
                     Spacer(Modifier.height(16.dp))
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
                 }
             }
             else -> { // no_image
@@ -795,7 +841,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
                 }
             }
         }

@@ -2,6 +2,14 @@ package ai.appdna.sdk.feedback
 
 import org.json.JSONObject
 import org.json.JSONArray
+import ai.appdna.sdk.core.TextStyleConfig
+import ai.appdna.sdk.core.ElementStyleConfig
+import ai.appdna.sdk.core.BackgroundStyleConfig
+import ai.appdna.sdk.core.BorderStyleConfig
+import ai.appdna.sdk.core.ShadowStyleConfig
+import ai.appdna.sdk.core.SpacingConfig
+import ai.appdna.sdk.core.GradientConfig
+import ai.appdna.sdk.core.GradientStopConfig
 
 /**
  * Firestore schema types for surveys (SPEC-023).
@@ -171,11 +179,19 @@ data class SurveyAppearance(
     val showProgress: Boolean,
     // SPEC-084: Style engine integration
     val cornerRadius: Int? = null,
+    // SPEC-084: Gap #20 — question text style token
+    val questionTextStyle: TextStyleConfig? = null,
+    // SPEC-084: Gap #21 — option card container style token
+    val optionStyle: ElementStyleConfig? = null,
 ) {
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyAppearance {
             @Suppress("UNCHECKED_CAST")
             val themeData = data["theme"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val qtsData = data["question_text_style"] as? Map<String, Any>
+            @Suppress("UNCHECKED_CAST")
+            val osData = data["option_style"] as? Map<String, Any>
             return SurveyAppearance(
                 presentation = data["presentation"] as? String ?: "bottom_sheet",
                 theme = themeData?.let {
@@ -190,6 +206,88 @@ data class SurveyAppearance(
                 dismissAllowed = data["dismiss_allowed"] as? Boolean ?: true,
                 showProgress = data["show_progress"] as? Boolean ?: false,
                 cornerRadius = (data["corner_radius"] as? Number)?.toInt(),
+                questionTextStyle = qtsData?.let { parseTextStyleConfig(it) },
+                optionStyle = osData?.let { parseElementStyleConfig(it) },
+            )
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        private fun parseTextStyleConfig(data: Map<String, Any>): TextStyleConfig {
+            return TextStyleConfig(
+                font_family = data["font_family"] as? String,
+                font_size = (data["font_size"] as? Number)?.toDouble(),
+                font_weight = (data["font_weight"] as? Number)?.toInt(),
+                color = data["color"] as? String,
+                alignment = data["alignment"] as? String,
+                line_height = (data["line_height"] as? Number)?.toDouble(),
+                letter_spacing = (data["letter_spacing"] as? Number)?.toDouble(),
+                opacity = (data["opacity"] as? Number)?.toDouble(),
+            )
+        }
+
+        @Suppress("UNCHECKED_CAST")
+        private fun parseElementStyleConfig(data: Map<String, Any>): ElementStyleConfig {
+            val bgData = data["background"] as? Map<String, Any>
+            val borderData = data["border"] as? Map<String, Any>
+            val shadowData = data["shadow"] as? Map<String, Any>
+            val paddingData = data["padding"] as? Map<String, Any>
+            return ElementStyleConfig(
+                background = bgData?.let {
+                    val stopsRaw = (it["gradient"] as? Map<String, Any>)
+                        ?.let { g -> (g["stops"] as? List<*>)?.mapNotNull { s ->
+                            val sm = s as? Map<String, Any> ?: return@mapNotNull null
+                            GradientStopConfig(
+                                color = sm["color"] as? String ?: "#000000",
+                                position = (sm["position"] as? Number)?.toDouble() ?: 0.0,
+                            )
+                        }}
+                    val gradData = it["gradient"] as? Map<String, Any>
+                    BackgroundStyleConfig(
+                        type = it["type"] as? String,
+                        color = it["color"] as? String,
+                        gradient = gradData?.let { g ->
+                            GradientConfig(
+                                type = g["type"] as? String,
+                                angle = (g["angle"] as? Number)?.toDouble(),
+                                stops = stopsRaw,
+                            )
+                        },
+                        image_url = it["image_url"] as? String,
+                        image_fit = it["image_fit"] as? String,
+                        overlay = it["overlay"] as? String,
+                    )
+                },
+                border = borderData?.let {
+                    BorderStyleConfig(
+                        width = (it["width"] as? Number)?.toDouble(),
+                        color = it["color"] as? String,
+                        style = it["style"] as? String,
+                        radius = (it["radius"] as? Number)?.toDouble(),
+                        radius_top_left = (it["radius_top_left"] as? Number)?.toDouble(),
+                        radius_top_right = (it["radius_top_right"] as? Number)?.toDouble(),
+                        radius_bottom_left = (it["radius_bottom_left"] as? Number)?.toDouble(),
+                        radius_bottom_right = (it["radius_bottom_right"] as? Number)?.toDouble(),
+                    )
+                },
+                shadow = shadowData?.let {
+                    ShadowStyleConfig(
+                        x = (it["x"] as? Number)?.toDouble(),
+                        y = (it["y"] as? Number)?.toDouble(),
+                        blur = (it["blur"] as? Number)?.toDouble(),
+                        spread = (it["spread"] as? Number)?.toDouble(),
+                        color = it["color"] as? String,
+                    )
+                },
+                padding = paddingData?.let {
+                    SpacingConfig(
+                        top = (it["top"] as? Number)?.toDouble(),
+                        right = (it["right"] as? Number)?.toDouble(),
+                        bottom = (it["bottom"] as? Number)?.toDouble(),
+                        left = (it["left"] as? Number)?.toDouble(),
+                    )
+                },
+                corner_radius = (data["corner_radius"] as? Number)?.toDouble(),
+                opacity = (data["opacity"] as? Number)?.toDouble(),
             )
         }
     }

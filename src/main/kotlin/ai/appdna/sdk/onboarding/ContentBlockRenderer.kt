@@ -14,7 +14,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.content.Intent
+import android.net.Uri
 import ai.appdna.sdk.core.StyleEngine
+import ai.appdna.sdk.core.TextStyleConfig
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 
 // MARK: - Content Block data class
 
@@ -24,9 +29,12 @@ data class ContentBlock(
     val text: String? = null,
     val level: Int? = null,
     val image_url: String? = null,
+    val alt: String? = null,
     val corner_radius: Double? = null,
     val height: Double? = null,
+    val variant: String? = null,
     val action: String? = null,
+    val action_value: String? = null,
     val bg_color: String? = null,
     val text_color: String? = null,
     val button_corner_radius: Double? = null,
@@ -47,6 +55,12 @@ data class ContentBlock(
     val toggle_description: String? = null,
     val toggle_default: Boolean? = null,
     val video_thumbnail_url: String? = null,
+    // SPEC-084: per-block text style override
+    val style: TextStyleConfig? = null,
+    // SPEC-084: video source URL, height, and corner radius
+    val video_url: String? = null,
+    val video_height: Double? = null,
+    val video_corner_radius: Double? = null,
 )
 
 // MARK: - Content Block Renderer
@@ -56,13 +70,14 @@ fun ContentBlockRendererView(
     blocks: List<ContentBlock>,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,
+    loc: ((String, String) -> String)? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         blocks.forEach { block ->
-            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues)
+            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, loc = loc)
         }
     }
 }
@@ -72,66 +87,94 @@ private fun RenderBlock(
     block: ContentBlock,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,
+    loc: ((String, String) -> String)? = null,
 ) {
     when (block.type) {
-        "heading" -> HeadingBlock(block)
-        "text" -> TextBlock(block)
+        "heading" -> HeadingBlock(block, loc)
+        "text" -> TextBlock(block, loc)
         "image" -> ImageBlock(block)
-        "button" -> ButtonBlock(block, onAction)
+        "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
-        "list" -> ListBlock(block)
+        "list" -> ListBlock(block, loc)
         "divider" -> DividerBlock(block)
-        "badge" -> BadgeBlock(block)
+        "badge" -> BadgeBlock(block, loc)
         "icon" -> IconBlock(block)
-        "toggle" -> ToggleBlock(block, toggleValues)
+        "toggle" -> ToggleBlock(block, toggleValues, loc)
         "video" -> VideoBlock(block)
     }
 }
 
 @Composable
-private fun HeadingBlock(block: ContentBlock) {
-    val fontSize = when (block.level ?: 1) {
-        1 -> 28.sp
-        2 -> 22.sp
-        3 -> 18.sp
-        else -> 28.sp
-    }
-    Text(
-        text = block.text ?: "",
-        fontSize = fontSize,
+private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val text = block.text ?: ""
+    val baseStyle = TextStyle(
+        fontSize = when (block.level ?: 1) { 1 -> 28.sp; 2 -> 22.sp; else -> 18.sp },
         fontWeight = FontWeight.Bold,
+        color = Color.Unspecified,
+    )
+    val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
+    Text(
+        text = loc?.invoke("block.${block.id}.text", text) ?: text,
+        style = effectiveStyle,
         modifier = Modifier.fillMaxWidth(),
     )
 }
 
 @Composable
-private fun TextBlock(block: ContentBlock) {
+private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val text = block.text ?: ""
+    val baseStyle = TextStyle(fontSize = 16.sp, color = Color.Unspecified)
+    val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     Text(
-        text = block.text ?: "",
-        fontSize = 16.sp,
+        text = loc?.invoke("block.${block.id}.text", text) ?: text,
+        style = effectiveStyle,
         modifier = Modifier.fillMaxWidth(),
     )
 }
 
 @Composable
 private fun ImageBlock(block: ContentBlock) {
-    // Placeholder — real image loading needs Coil/Glide
-    Box(
+    ai.appdna.sdk.core.NetworkImage(
+        url = block.image_url,
         modifier = Modifier
             .fillMaxWidth()
             .height((block.height ?: 200.0).dp)
-            .clip(RoundedCornerShape((block.corner_radius ?: 0.0).dp))
-            .background(Color.Gray.copy(alpha = 0.2f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text("\uD83D\uDDBC", fontSize = 32.sp) // Image emoji placeholder
-    }
+            .clip(RoundedCornerShape((block.corner_radius ?: 0.0).dp)),
+        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        contentDescription = block.alt,
+    )
 }
 
 @Composable
-private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit) {
+private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
+    val text = block.text ?: "Continue"
+    val baseStyle = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+    val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
+    val context = LocalContext.current
     Button(
-        onClick = { onAction(block.action ?: "next") },
+        onClick = {
+            val action = block.action ?: "next"
+            when (action) {
+                "link" -> {
+                    block.action_value?.let { url ->
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            // Malformed URL or no browser available — fall through to advance
+                        }
+                    }
+                    onAction("next")
+                }
+                "permission" -> {
+                    // P1: Requires runtime permission request infrastructure.
+                    // action_value will specify the permission type (e.g. "camera", "notifications").
+                    // For now, advance the step as a safe fallback.
+                    onAction("next")
+                }
+                else -> onAction(action)
+            }
+        },
         modifier = Modifier.fillMaxWidth().height(52.dp),
         shape = RoundedCornerShape((block.button_corner_radius ?: 12.0).dp),
         colors = ButtonDefaults.buttonColors(
@@ -139,15 +182,15 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit) {
         ),
     ) {
         Text(
-            text = block.text ?: "Continue",
-            fontWeight = FontWeight.SemiBold,
+            text = loc?.invoke("block.${block.id}.text", text) ?: text,
+            style = effectiveStyle,
             color = StyleEngine.parseColor(block.text_color ?: "#FFFFFF"),
         )
     }
 }
 
 @Composable
-private fun ListBlock(block: ContentBlock) {
+private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         block.items?.forEachIndexed { index, item ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -161,7 +204,10 @@ private fun ListBlock(block: ContentBlock) {
                             .background(Color.Gray),
                     )
                 }
-                Text(text = item, fontSize = 16.sp)
+                Text(
+                    text = loc?.invoke("block.${block.id}.item.$index", item) ?: item,
+                    style = if (block.style != null) StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp), block.style) else TextStyle(fontSize = 16.sp),
+                )
             }
         }
     }
@@ -180,9 +226,10 @@ private fun DividerBlock(block: ContentBlock) {
 }
 
 @Composable
-private fun BadgeBlock(block: ContentBlock) {
+private fun BadgeBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val text = block.badge_text ?: ""
     Text(
-        text = block.badge_text ?: "",
+        text = loc?.invoke("block.${block.id}.badge", text) ?: text,
         fontSize = 12.sp,
         fontWeight = FontWeight.SemiBold,
         color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
@@ -214,7 +261,7 @@ private fun IconBlock(block: ContentBlock) {
 }
 
 @Composable
-private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Boolean>) {
+private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Boolean>, loc: ((String, String) -> String)? = null) {
     var checked by remember { mutableStateOf(toggleValues[block.id] ?: (block.toggle_default ?: false)) }
 
     Column {
@@ -222,8 +269,9 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
+            val label = block.toggle_label ?: ""
             Text(
-                text = block.toggle_label ?: "",
+                text = loc?.invoke("block.${block.id}.label", label) ?: label,
                 modifier = Modifier.weight(1f),
             )
             Switch(
@@ -235,22 +283,37 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
             )
         }
         block.toggle_description?.let {
-            Text(text = it, fontSize = 12.sp, color = Color.Gray)
+            Text(text = loc?.invoke("block.${block.id}.description", it) ?: it, fontSize = 12.sp, color = Color.Gray)
         }
     }
 }
 
 @Composable
 private fun VideoBlock(block: ContentBlock) {
-    // Thumbnail with play icon — full video in SPEC-085
+    // Thumbnail with play icon overlay — full video in SPEC-085
+    val effectiveHeight = block.video_height ?: block.height ?: 200.0
+    val effectiveCornerRadius = block.video_corner_radius ?: block.corner_radius ?: 8.0
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height((block.height ?: 200.0).dp)
-            .clip(RoundedCornerShape((block.corner_radius ?: 8.0).dp))
-            .background(Color.Gray.copy(alpha = 0.2f)),
+            .height(effectiveHeight.dp)
+            .clip(RoundedCornerShape(effectiveCornerRadius.dp)),
         contentAlignment = Alignment.Center,
     ) {
-        Text("\u25B6", fontSize = 48.sp, color = Color.White.copy(alpha = 0.9f))
+        ai.appdna.sdk.core.NetworkImage(
+            url = block.video_thumbnail_url ?: block.image_url,
+            modifier = Modifier.fillMaxSize(),
+            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        )
+        // Play icon overlay
+        Box(
+            modifier = Modifier
+                .size(56.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Color.Black.copy(alpha = 0.5f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text("\u25B6", fontSize = 24.sp, color = Color.White)
+        }
     }
 }

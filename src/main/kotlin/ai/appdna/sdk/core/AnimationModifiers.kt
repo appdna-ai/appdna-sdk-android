@@ -2,7 +2,9 @@ package ai.appdna.sdk.core
 
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -143,7 +145,7 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
     if (anim == "none") return this
 
     val scale by animateFloatAsState(
-        targetValue = if ((anim == "scale" || anim == "border_highlight") && isSelected) 1.03f else 1f,
+        targetValue = if (anim == "scale" && isSelected) 1.03f else 1f,
         animationSpec = spring(dampingRatio = 0.7f),
         label = "plan_scale",
     )
@@ -152,10 +154,14 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
         animationSpec = tween(300),
         label = "plan_glow",
     )
+    val borderMod = if (anim == "border_highlight" && isSelected) {
+        Modifier.border(2.5.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp))
+    } else Modifier
 
     return this
         .scale(scale)
         .shadow(elevation.dp)
+        .then(borderMod)
 }
 
 // MARK: - Dismiss Animation
@@ -175,8 +181,14 @@ fun Modifier.dismissAnimation(animation: String?, dismiss: Boolean): Modifier {
         animationSpec = tween(300, easing = FastOutSlowInEasing),
         label = "dismiss_offset",
     )
+    val scale by animateFloatAsState(
+        targetValue = if (dismiss && anim == "scale_out") 0.8f else 1f,
+        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        label = "dismiss_scale",
+    )
 
     return this
         .alpha(alpha)
+        .graphicsLayer { scaleX = scale; scaleY = scale }
         .offset { IntOffset(0, offsetY.toInt()) }
 }

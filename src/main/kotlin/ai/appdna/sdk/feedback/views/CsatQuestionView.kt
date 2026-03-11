@@ -17,12 +17,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
+import androidx.compose.ui.text.TextStyle
 
 @Composable
 fun CsatQuestionView(
     question: SurveyQuestion,
     answer: SurveyAnswer?,
-    onAnswer: (SurveyAnswer) -> Unit
+    onAnswer: (SurveyAnswer) -> Unit,
+    // SPEC-084: Gap #20 — question text style token
+    questionTextStyle: TextStyle = TextStyle.Default
 ) {
     val maxRating = question.csatConfig?.maxRating ?: 5
     val style = question.csatConfig?.style ?: "star"
@@ -31,7 +34,7 @@ fun CsatQuestionView(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = question.text,
-            style = MaterialTheme.typography.titleMedium,
+            style = questionTextStyle.takeIf { it != TextStyle.Default } ?: MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 16.dp)
         )

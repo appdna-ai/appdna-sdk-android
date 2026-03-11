@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.views.*
+import ai.appdna.sdk.core.FontResolver
+import ai.appdna.sdk.core.StyleEngine
 
 /**
  * Activity to render survey UI using Jetpack Compose.
@@ -121,6 +123,8 @@ fun SurveyScreen(
     val textColor = config.appearance.theme?.textColor?.let { parseColor(it) } ?: Color(0xFF1A1A1A)
     val accentColor = config.appearance.theme?.accentColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
     val buttonColor = config.appearance.theme?.buttonColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
+    val fontFamily = config.appearance.theme?.fontFamily?.let { FontResolver.resolve(it) }
+    val containerRadius = (config.appearance.cornerRadius ?: 0).dp
 
     val canAdvance = if (currentIndex < visibleQuestions.size) {
         val q = visibleQuestions[currentIndex]
@@ -132,10 +136,23 @@ fun SurveyScreen(
         onBackground = textColor
     )
 
-    MaterialTheme(colorScheme = customColors) {
+    val customTypography = fontFamily?.let { ff ->
+        val base = MaterialTheme.typography
+        base.copy(
+            bodyLarge = base.bodyLarge.copy(fontFamily = ff),
+            bodyMedium = base.bodyMedium.copy(fontFamily = ff),
+            bodySmall = base.bodySmall.copy(fontFamily = ff),
+            titleLarge = base.titleLarge.copy(fontFamily = ff),
+            titleMedium = base.titleMedium.copy(fontFamily = ff),
+            labelLarge = base.labelLarge.copy(fontFamily = ff),
+        )
+    } ?: MaterialTheme.typography
+
+    MaterialTheme(colorScheme = customColors, typography = customTypography) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .clip(RoundedCornerShape(topStart = containerRadius, topEnd = containerRadius))
             .background(bgColor)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -161,15 +178,22 @@ fun SurveyScreen(
                 onQuestionAnswered?.invoke(question.id, question.type, ans.answer)
             }
 
+            // SPEC-084: Gap #20 — resolve question text style from appearance token
+            val questionTextStyle = StyleEngine.applyTextStyle(
+                MaterialTheme.typography.titleMedium,
+                config.appearance.questionTextStyle
+            )
+
             when (question.type) {
-                "nps" -> NpsQuestionView(question, answer, onAnswer)
-                "csat" -> CsatQuestionView(question, answer, onAnswer)
-                "rating" -> RatingQuestionView(question, answer, onAnswer)
-                "single_choice" -> SingleChoiceView(question, answer, onAnswer)
-                "multi_choice" -> MultiChoiceView(question, answer, onAnswer)
-                "free_text" -> FreeTextView(question, answer, onAnswer)
-                "yes_no" -> YesNoView(question, answer, onAnswer)
-                "emoji_scale" -> EmojiScaleView(question, answer, onAnswer)
+                "nps" -> NpsQuestionView(question, answer, onAnswer, questionTextStyle)
+                "csat" -> CsatQuestionView(question, answer, onAnswer, questionTextStyle)
+                "rating" -> RatingQuestionView(question, answer, onAnswer, questionTextStyle)
+                // SPEC-084: Gap #21 — pass optionStyle to choice views
+                "single_choice" -> SingleChoiceView(question, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
+                "multi_choice" -> MultiChoiceView(question, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
+                "free_text" -> FreeTextView(question, answer, onAnswer, questionTextStyle)
+                "yes_no" -> YesNoView(question, answer, onAnswer, questionTextStyle)
+                "emoji_scale" -> EmojiScaleView(question, answer, onAnswer, questionTextStyle)
             }
         }
 

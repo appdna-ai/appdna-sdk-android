@@ -9,16 +9,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
+import ai.appdna.sdk.core.ElementStyleConfig
+import ai.appdna.sdk.core.StyleEngine
 
 @Composable
 fun MultiChoiceView(
     question: SurveyQuestion,
     answer: SurveyAnswer?,
-    onAnswer: (SurveyAnswer) -> Unit
+    onAnswer: (SurveyAnswer) -> Unit,
+    // SPEC-084: Gap #20 — question text style token
+    questionTextStyle: TextStyle = TextStyle.Default,
+    // SPEC-084: Gap #21 — option card container style token
+    optionStyle: ElementStyleConfig? = null
 ) {
     @Suppress("UNCHECKED_CAST")
     val selectedIds = (answer?.answer as? List<String>) ?: emptyList()
@@ -26,41 +33,70 @@ fun MultiChoiceView(
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = question.text,
-            style = MaterialTheme.typography.titleMedium,
+            style = questionTextStyle.takeIf { it != TextStyle.Default } ?: MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
         question.options?.forEach { option ->
             val isSelected = option.id in selectedIds
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .clickable {
-                        val updated = if (isSelected) {
-                            selectedIds - option.id
-                        } else {
-                            selectedIds + option.id
-                        }
-                        onAnswer(SurveyAnswer(question.id, updated))
+            if (optionStyle != null) {
+                // SPEC-084: Gap #21 — apply full style engine token to option card
+                Surface(
+                    modifier = with(StyleEngine) {
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .applyContainerStyle(optionStyle)
+                            .clickable {
+                                val updated = if (isSelected) selectedIds - option.id else selectedIds + option.id
+                                onAnswer(SurveyAnswer(question.id, updated))
+                            }
                     },
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    color = Color.Transparent
                 ) {
-                    Checkbox(
-                        checked = isSelected,
-                        onCheckedChange = { checked ->
-                            val updated = if (checked) selectedIds + option.id else selectedIds - option.id
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { checked ->
+                                val updated = if (checked) selectedIds + option.id else selectedIds - option.id
+                                onAnswer(SurveyAnswer(question.id, updated))
+                            }
+                        )
+                        option.icon?.let { Text(it, modifier = Modifier.padding(end = 8.dp)) }
+                        Text(option.text)
+                    }
+                }
+            } else {
+                // Default: original border-only card style
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                        .clickable {
+                            val updated = if (isSelected) selectedIds - option.id else selectedIds + option.id
                             onAnswer(SurveyAnswer(question.id, updated))
-                        }
-                    )
-                    option.icon?.let { Text(it, modifier = Modifier.padding(end = 8.dp)) }
-                    Text(option.text)
+                        },
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = isSelected,
+                            onCheckedChange = { checked ->
+                                val updated = if (checked) selectedIds + option.id else selectedIds - option.id
+                                onAnswer(SurveyAnswer(question.id, updated))
+                            }
+                        )
+                        option.icon?.let { Text(it, modifier = Modifier.padding(end = 8.dp)) }
+                        Text(option.text)
+                    }
                 }
             }
         }

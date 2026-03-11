@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -86,6 +87,7 @@ data class ElementStyleConfig(
     val padding: SpacingConfig? = null,
     val corner_radius: Double? = null,
     val opacity: Double? = null,
+    val text_style: TextStyleConfig? = null,
 )
 
 data class SectionStyleConfig(
@@ -116,7 +118,11 @@ object StyleEngine {
             fontFamily = FontResolver.resolve(config.font_family),
             fontSize = (config.font_size ?: 16.0).sp,
             fontWeight = FontResolver.fontWeight(config.font_weight),
-            color = config.color?.let { parseColor(it) } ?: Color.Unspecified,
+            color = config.color?.let { c ->
+                val base = parseColor(c)
+                val opacity = config.opacity ?: 1.0
+                base.copy(alpha = base.alpha * opacity.toFloat())
+            } ?: Color.Unspecified,
             textAlign = when (config.alignment) {
                 "center" -> TextAlign.Center
                 "right" -> TextAlign.End
@@ -205,6 +211,10 @@ object StyleEngine {
                 elevation = ((s.blur ?: 0.0) / 2).dp,
                 shape = shape,
             )
+        }
+        // Opacity
+        style.opacity?.let { alpha ->
+            mod = mod.alpha(alpha.toFloat())
         }
         return mod
     }
