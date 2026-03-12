@@ -189,6 +189,8 @@ data class SurveyAppearance(
     val thankyouParticleEffect: ai.appdna.sdk.core.ParticleEffect? = null,
     val blurBackdrop: ai.appdna.sdk.core.BlurConfig? = null,
     val haptic: ai.appdna.sdk.core.HapticConfig? = null,
+    // SPEC-088: Configurable thank-you text for interpolation
+    val thankYouText: String? = null,
 ) {
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyAppearance {
@@ -258,6 +260,7 @@ data class SurveyAppearance(
                 thankyouParticleEffect = particleEffect,
                 blurBackdrop = blurConfig,
                 haptic = hapticConfig,
+                thankYouText = data["thank_you_text"] as? String,
             )
         }
 

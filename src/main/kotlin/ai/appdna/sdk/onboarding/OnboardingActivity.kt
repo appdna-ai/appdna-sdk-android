@@ -260,6 +260,8 @@ fun OnboardingFlowHost(
             is StepAdvanceResult.Proceed -> advanceOrComplete()
             is StepAdvanceResult.ProceedWithData -> {
                 mergeData(result.data, step.id)
+                // SPEC-088: Persist computed data for cross-module access
+                ai.appdna.sdk.core.SessionDataStore.instance?.mergeComputedData(result.data)
                 advanceOrComplete()
             }
             is StepAdvanceResult.Block -> {
@@ -267,7 +269,11 @@ fun OnboardingFlowHost(
                 showError = true
             }
             is StepAdvanceResult.SkipTo -> {
-                result.data?.let { mergeData(it, step.id) }
+                result.data?.let { data ->
+                    mergeData(data, step.id)
+                    // SPEC-088: Persist computed data for cross-module access
+                    ai.appdna.sdk.core.SessionDataStore.instance?.mergeComputedData(data)
+                }
                 skipToStep(result.stepId)
             }
         }
@@ -619,11 +625,9 @@ private fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfi
 }
 
 private fun interpolateVariables(value: String): String {
-    val pattern = Regex("\\{\\{([^}]+)\\}\\}")
-    return pattern.replace(value) { match ->
-        val varName = match.groupValues[1]
-        AppDNA.getRemoteConfigFlag(varName) ?: ""
-    }
+    // SPEC-088: Delegate to shared TemplateEngine
+    val ctx = ai.appdna.sdk.core.TemplateEngine.buildContext()
+    return ai.appdna.sdk.core.TemplateEngine.interpolate(value, ctx)
 }
 
 @Composable

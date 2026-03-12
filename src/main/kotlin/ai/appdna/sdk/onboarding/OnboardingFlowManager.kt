@@ -78,6 +78,8 @@ internal class OnboardingFlowManager(
                     "total_duration_ms" to durationMs,
                     "responses" to responses
                 ))
+                // SPEC-088: Persist onboarding responses for cross-module access
+                ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses)
                 listener?.onOnboardingCompleted(flowId = flow.id, responses = responses)
             },
             onFlowDismissed = { lastStepId, lastStepIndex ->

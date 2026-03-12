@@ -47,11 +47,22 @@ fun InAppMessageView(
     onCTATap: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    // SPEC-088: Interpolate text fields via TemplateEngine before rendering
+    val ctx = ai.appdna.sdk.core.TemplateEngine.buildContext()
+    val e = ai.appdna.sdk.core.TemplateEngine
+    val interpolated = config.content.copy(
+        title = config.content.title?.let { e.interpolate(it, ctx) },
+        body = config.content.body?.let { e.interpolate(it, ctx) },
+        cta_text = config.content.cta_text?.let { e.interpolate(it, ctx) },
+        secondary_cta_text = config.content.secondary_cta_text?.let { e.interpolate(it, ctx) },
+        dismiss_text = config.content.dismiss_text?.let { e.interpolate(it, ctx) },
+    )
+
     when (config.message_type) {
-        MessageType.BANNER -> BannerMessageView(config.content, onCTATap, onDismiss)
-        MessageType.MODAL -> ModalMessageView(config.content, onCTATap, onDismiss)
-        MessageType.FULLSCREEN -> FullscreenMessageView(config.content, onCTATap, onDismiss)
-        MessageType.TOOLTIP -> TooltipMessageView(config.content, onCTATap, onDismiss)
+        MessageType.BANNER -> BannerMessageView(interpolated, onCTATap, onDismiss)
+        MessageType.MODAL -> ModalMessageView(interpolated, onCTATap, onDismiss)
+        MessageType.FULLSCREEN -> FullscreenMessageView(interpolated, onCTATap, onDismiss)
+        MessageType.TOOLTIP -> TooltipMessageView(interpolated, onCTATap, onDismiss)
     }
 }
 

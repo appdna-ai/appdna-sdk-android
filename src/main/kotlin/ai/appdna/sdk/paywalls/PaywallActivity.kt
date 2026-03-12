@@ -187,9 +187,11 @@ fun PaywallScreen(
         }
     }
 
-    // Localization helper
+    // Localization helper + SPEC-088: Template variable interpolation
+    val templateContext = ai.appdna.sdk.core.TemplateEngine.buildContext()
     fun loc(key: String, fallback: String): String {
-        return LocalizationEngine.resolve(key, config.localizations, config.default_locale, fallback)
+        val localized = LocalizationEngine.resolve(key, config.localizations, config.default_locale, fallback)
+        return ai.appdna.sdk.core.TemplateEngine.interpolate(localized, templateContext)
     }
 
     Box(
@@ -843,10 +845,10 @@ private fun PaywallSectionView(
                     }
                     Column {
                         section.data?.author_name?.let {
-                            Text(it, style = authorNameStyle)
+                            Text(loc("testimonial.author_name", it), style = authorNameStyle)
                         }
                         section.data?.author_role?.let {
-                            Text(it, style = authorRoleStyle)
+                            Text(loc("testimonial.author_role", it), style = authorRoleStyle)
                         }
                     }
                 }

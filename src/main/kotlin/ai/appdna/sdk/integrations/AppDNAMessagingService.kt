@@ -45,8 +45,14 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
     protected open fun buildNotification(message: RemoteMessage): android.app.Notification {
         val data = message.data
         val channelId = data["channel_id"] ?: DEFAULT_CHANNEL_ID
-        val title = data["title"] ?: message.notification?.title ?: ""
-        val body = data["body"] ?: message.notification?.body ?: ""
+        // SPEC-088: Interpolate push title and body via TemplateEngine
+        val pushCtx = ai.appdna.sdk.core.TemplateEngine.buildContext()
+        val title = ai.appdna.sdk.core.TemplateEngine.interpolate(
+            data["title"] ?: message.notification?.title ?: "", pushCtx
+        )
+        val body = ai.appdna.sdk.core.TemplateEngine.interpolate(
+            data["body"] ?: message.notification?.body ?: "", pushCtx
+        )
         val pushId = data["push_id"] ?: ""
 
         val builder = NotificationCompat.Builder(this, channelId)
@@ -109,7 +115,7 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
             )
         }
 
-        // SPEC-084: Action buttons
+        // SPEC-084: Action buttons + SPEC-088: Interpolate action button labels
         parseActionButtons(data).forEach { action ->
             val actionIntent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
                 putExtra("push_id", pushId)
@@ -127,7 +133,8 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                 val iconResId = action.icon?.let { iconName ->
                     resources.getIdentifier(iconName, "drawable", packageName)
                 } ?: 0
-                builder.addAction(iconResId, action.label, pendingIntent)
+                val interpolatedLabel = ai.appdna.sdk.core.TemplateEngine.interpolate(action.label, pushCtx)
+                builder.addAction(iconResId, interpolatedLabel, pendingIntent)
             }
         }
 

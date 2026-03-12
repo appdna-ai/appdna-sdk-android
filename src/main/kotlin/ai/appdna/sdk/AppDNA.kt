@@ -121,6 +121,9 @@ object AppDNA {
             // 1. Initialize storage
             val storage = LocalStorage(appContext)
 
+            // SPEC-088: Initialize cross-module session data store
+            ai.appdna.sdk.core.SessionDataStore.initialize(appContext)
+
             // 2. Initialize identity
             val identityMgr = IdentityManager(storage)
             this.identityManager = identityMgr
@@ -368,6 +371,33 @@ object AppDNA {
         pushTokenManager?.onNewToken(token)
     }
 
+    // MARK: - Public API: Session Data (SPEC-088)
+
+    /**
+     * Store a key-value pair in the cross-module session data store.
+     * Available to all modules via `{{session.key}}` template variables.
+     */
+    @JvmStatic
+    fun setSessionData(key: String, value: Any) {
+        ai.appdna.sdk.core.SessionDataStore.instance?.setSessionData(key, value)
+    }
+
+    /**
+     * Retrieve a session data value by key.
+     */
+    @JvmStatic
+    fun getSessionData(key: String): Any? {
+        return ai.appdna.sdk.core.SessionDataStore.instance?.getSessionData(key)
+    }
+
+    /**
+     * Clear all app-defined session data.
+     */
+    @JvmStatic
+    fun clearSessionData() {
+        ai.appdna.sdk.core.SessionDataStore.instance?.clearSessionData()
+    }
+
     // MARK: - Public API: Privacy
 
     /**
@@ -441,7 +471,7 @@ object AppDNA {
         }
     }
 
-    // MARK: - Internal accessors (used by onboarding hooks)
+    // MARK: - Internal accessors (used by onboarding hooks, SPEC-088)
 
     internal fun getCurrentUserId(): String? {
         return identityManager?.currentIdentity?.userId
@@ -454,6 +484,11 @@ object AppDNA {
 
     internal fun getRemoteConfigFlag(key: String): String? {
         return remoteConfigManager?.getConfig(key) as? String
+    }
+
+    /** Internal reference to identity for TemplateEngine (SPEC-088). */
+    internal fun getIdentityRef(): DeviceIdentity? {
+        return identityManager?.currentIdentity
     }
 
     // MARK: - Internal bootstrap

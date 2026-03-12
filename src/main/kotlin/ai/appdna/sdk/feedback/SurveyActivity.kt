@@ -211,16 +211,30 @@ fun SurveyScreen(
                 config.appearance.questionTextStyle
             )
 
-            when (question.type) {
-                "nps" -> NpsQuestionView(question, answer, onAnswer, questionTextStyle)
-                "csat" -> CsatQuestionView(question, answer, onAnswer, questionTextStyle)
-                "rating" -> RatingQuestionView(question, answer, onAnswer, questionTextStyle)
+            // SPEC-088: Interpolate question text, option text, NPS labels
+            val tCtx = ai.appdna.sdk.core.TemplateEngine.buildContext()
+            val te = ai.appdna.sdk.core.TemplateEngine
+            val q = question.copy(
+                text = te.interpolate(question.text, tCtx),
+                npsConfig = question.npsConfig?.copy(
+                    lowLabel = question.npsConfig.lowLabel?.let { te.interpolate(it, tCtx) },
+                    highLabel = question.npsConfig.highLabel?.let { te.interpolate(it, tCtx) }
+                ),
+                options = question.options?.map { opt ->
+                    opt.copy(text = te.interpolate(opt.text, tCtx))
+                }
+            )
+
+            when (q.type) {
+                "nps" -> NpsQuestionView(q, answer, onAnswer, questionTextStyle)
+                "csat" -> CsatQuestionView(q, answer, onAnswer, questionTextStyle)
+                "rating" -> RatingQuestionView(q, answer, onAnswer, questionTextStyle)
                 // SPEC-084: Gap #21 — pass optionStyle to choice views
-                "single_choice" -> SingleChoiceView(question, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
-                "multi_choice" -> MultiChoiceView(question, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
-                "free_text" -> FreeTextView(question, answer, onAnswer, questionTextStyle)
-                "yes_no" -> YesNoView(question, answer, onAnswer, questionTextStyle)
-                "emoji_scale" -> EmojiScaleView(question, answer, onAnswer, questionTextStyle)
+                "single_choice" -> SingleChoiceView(q, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
+                "multi_choice" -> MultiChoiceView(q, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
+                "free_text" -> FreeTextView(q, answer, onAnswer, questionTextStyle)
+                "yes_no" -> YesNoView(q, answer, onAnswer, questionTextStyle)
+                "emoji_scale" -> EmojiScaleView(q, answer, onAnswer, questionTextStyle)
             }
         }
 
@@ -274,16 +288,30 @@ fun SurveyScreen(
             }
         }
 
-        // SPEC-085: Thank-you Lottie on completion
-        if (showCompletion && config.appearance.thankyouLottieUrl != null) {
-            Spacer(Modifier.height(8.dp))
-            LottieBlockView(
-                block = LottieBlock(
-                    lottie_url = config.appearance.thankyouLottieUrl,
-                    autoplay = true,
-                    loop = false,
-                    height = 100f,
+        // SPEC-085: Thank-you Lottie on completion + SPEC-088: Interpolated thank-you text
+        if (showCompletion) {
+            if (config.appearance.thankyouLottieUrl != null) {
+                Spacer(Modifier.height(8.dp))
+                LottieBlockView(
+                    block = LottieBlock(
+                        lottie_url = config.appearance.thankyouLottieUrl,
+                        autoplay = true,
+                        loop = false,
+                        height = 100f,
+                    )
                 )
+            }
+            val thankCtx = ai.appdna.sdk.core.TemplateEngine.buildContext()
+            val thankText = ai.appdna.sdk.core.TemplateEngine.interpolate(
+                config.appearance.thankYouText ?: "Thank you!", thankCtx
+            )
+            Text(
+                text = thankText,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.Bold,
+                    color = textColor,
+                ),
+                modifier = Modifier.padding(top = 12.dp),
             )
         }
 
