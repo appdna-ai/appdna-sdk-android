@@ -28,6 +28,7 @@ import ai.appdna.sdk.core.entryAnimation
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.geometry.Offset
 import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.core.interpolated
 import ai.appdna.sdk.events.EventTracker
 import kotlin.math.cos
 import kotlin.math.sin
@@ -367,6 +368,9 @@ fun OnboardingFlowHost(
                         if (data != null) {
                             responses[step.id] = data
                         }
+                        // SPEC-087: Persist responses incrementally so TemplateEngine has fresh data for next step
+                        @Suppress("UNCHECKED_CAST")
+                        ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses.toMap() as Map<String, Map<String, Any>>)
                         onStepCompleted(step.id, currentIndex, data)
 
                         // SPEC-083: Determine hook type — client delegate takes priority
@@ -694,8 +698,10 @@ private fun BlockBasedStepView(
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
     // SPEC-084: Localization helper for step text
+    // SPEC-087: Also interpolates {{variables}} after localization
     fun loc(key: String, fallback: String): String {
-        return LocalizationEngine.resolve(key, effectiveConfig.localizations, effectiveConfig.default_locale, fallback)
+        val localized = LocalizationEngine.resolve(key, effectiveConfig.localizations, effectiveConfig.default_locale, fallback)
+        return localized.interpolated()
     }
 
     fun handleAction(action: String) {
@@ -872,11 +878,11 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
     ) {
         Spacer(Modifier.height(48.dp))
         config.title?.let {
-            Text(text = it, fontSize = 28.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(text = it.interpolated(), fontSize = 28.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         config.subtitle?.let {
             Spacer(Modifier.height(12.dp))
-            Text(text = it, fontSize = 16.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+            Text(text = it.interpolated(), fontSize = 16.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
         Spacer(Modifier.height(48.dp))
         Button(
@@ -885,7 +891,7 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
             shape = RoundedCornerShape(14.dp),
             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
         ) {
-            Text(text = config.cta_text ?: "Get Started", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(text = (config.cta_text ?: "Get Started").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
@@ -897,11 +903,11 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
-            Text(text = it, fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+            Text(text = it.interpolated(), fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
         Spacer(Modifier.height(24.dp))
 
@@ -926,7 +932,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             ) {
                 Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
-                    Text(text = option.label, fontSize = 16.sp)
+                    Text(text = option.label.interpolated(), fontSize = 16.sp)
                 }
             }
         }
@@ -938,7 +944,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
@@ -947,7 +953,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         Spacer(Modifier.height(24.dp))
         config.items?.forEach { item ->
@@ -955,8 +961,8 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
                 Text(text = item.icon, fontSize = 28.sp)
                 Spacer(Modifier.width(16.dp))
                 Column {
-                    Text(text = item.title, fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(text = item.subtitle, fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                    Text(text = item.title.interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    Text(text = item.subtitle.interpolated(), fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                 }
             }
         }
@@ -966,7 +972,7 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }
@@ -975,11 +981,11 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it, fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
         }
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
-            Text(text = it, fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+            Text(text = it.interpolated(), fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
         Spacer(Modifier.height(32.dp))
         Button(
@@ -987,7 +993,7 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)
         ) {
-            Text(text = config.cta_text ?: "Continue", fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+            Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
     }
 }

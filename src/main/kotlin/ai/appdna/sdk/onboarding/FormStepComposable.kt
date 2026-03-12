@@ -17,6 +17,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.interpolated
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -78,7 +79,7 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
             // Header
             config.title?.let {
                 Text(
-                    text = it,
+                    text = it.interpolated(),
                     fontSize = 22.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -87,7 +88,7 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
             config.subtitle?.let {
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = it,
+                    text = it.interpolated(),
                     fontSize = 15.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                 )
@@ -100,7 +101,7 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
                 if (field.type != FormFieldType.TOGGLE) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = field.label,
+                            text = field.label.interpolated(),
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -163,7 +164,7 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
             shape = RoundedCornerShape(14.dp)
         ) {
             Text(
-                text = config.cta_text ?: "Continue",
+                text = (config.cta_text ?: "Continue").interpolated(),
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 17.sp
             )
@@ -188,7 +189,7 @@ private fun FormFieldControl(
                 value = values[field.id]?.toString() ?: "",
                 onValueChange = { values[field.id] = it; errors.remove(field.id) },
                 modifier = Modifier.fillMaxWidth(),
-                placeholder = field.placeholder?.let { { Text(it) } },
+                placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
                 isError = errors.containsKey(field.id),
                 singleLine = true
@@ -202,7 +203,7 @@ private fun FormFieldControl(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(min = 80.dp),
-                placeholder = field.placeholder?.let { { Text(it) } },
+                placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 isError = errors.containsKey(field.id),
                 maxLines = 5
             )
@@ -217,7 +218,7 @@ private fun FormFieldControl(
                         errors.remove(field.id)
                     },
                     modifier = Modifier.weight(1f),
-                    placeholder = field.placeholder?.let { { Text(it) } },
+                    placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     isError = errors.containsKey(field.id),
                     singleLine = true
@@ -281,7 +282,7 @@ private fun FormFieldControl(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text(field.label, fontSize = 16.sp)
+                Text(field.label.interpolated(), fontSize = 16.sp)
                 Switch(
                     checked = values[field.id] as? Boolean ?: false,
                     onCheckedChange = { values[field.id] = it }
@@ -338,7 +339,7 @@ private fun FormFieldControl(
                                 count = options.size
                             )
                         ) {
-                            Text(option.label, fontSize = 13.sp)
+                            Text(option.label.interpolated(), fontSize = 13.sp)
                         }
                     }
                 }
@@ -452,7 +453,7 @@ private fun SelectField(
             modifier = Modifier
                 .fillMaxWidth()
                 .menuAnchor(),
-            placeholder = field.placeholder?.let { { Text(it) } },
+            placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
             isError = errors.containsKey(field.id)
         )
@@ -462,7 +463,7 @@ private fun SelectField(
         ) {
             options.forEach { option ->
                 DropdownMenuItem(
-                    text = { Text(option.label) },
+                    text = { Text(option.label.interpolated()) },
                     onClick = {
                         values[field.id] = option.id
                         errors.remove(field.id)

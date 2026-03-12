@@ -78,7 +78,7 @@ object TemplateEngine {
                 context.remoteConfig(parts[1])
             }
 
-            "onboarding" -> {
+            "onboarding", "responses" -> {
                 // onboarding.stepId.fieldId
                 if (parts.size < 3) {
                     // Try two-part path with dot in remaining
@@ -136,4 +136,13 @@ object TemplateEngine {
         }
         return info
     }
+}
+
+/**
+ * SPEC-087: Convenience extension to interpolate {{variables}} in onboarding text fields.
+ */
+fun String.interpolated(): String {
+    if (!this.contains("{{")) return this
+    val ctx = TemplateEngine.buildContext()
+    return TemplateEngine.interpolate(this, ctx)
 }
