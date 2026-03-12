@@ -6,7 +6,7 @@ import android.content.SharedPreferences
 /**
  * SharedPreferences wrapper for persistent SDK data.
  */
-internal class LocalStorage(context: Context) {
+internal class LocalStorage(val context: Context) {
     private val prefs: SharedPreferences =
         context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
 

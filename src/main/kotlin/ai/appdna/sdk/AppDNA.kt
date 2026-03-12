@@ -80,6 +80,9 @@ object AppDNA {
     private var surveyManager: SurveyManager? = null
     private var webEntitlementManager: WebEntitlementManager? = null
     private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
+    // SPEC-067: Scale Layer 1 components
+    private var eventDatabase: ai.appdna.sdk.storage.EventDatabase? = null
+    private var connectivityMonitor: ai.appdna.sdk.network.ConnectivityMonitor? = null
     private var appContext: Context? = null
     private var bootstrapOrgId: String? = null
     private var bootstrapAppId: String? = null
@@ -136,9 +139,18 @@ object AppDNA {
             val tracker = EventTracker(identityMgr, appVersion)
             this.eventTracker = tracker
 
+            // SPEC-067: Initialize EventDatabase (SQLite) and ConnectivityMonitor
+            val eventDb = ai.appdna.sdk.storage.EventDatabase(appContext)
+            eventDb.migrateFromSharedPreferences(storage) // One-time migration
+            this.eventDatabase = eventDb
+
+            val connMonitor = ai.appdna.sdk.network.ConnectivityMonitor(appContext)
+            this.connectivityMonitor = connMonitor
+
             val eq = EventQueue(
                 apiClient = client,
-                storage = storage,
+                eventDatabase = eventDb,
+                connectivityMonitor = connMonitor,
                 batchSize = options.batchSize,
                 flushInterval = options.flushInterval
             )
@@ -247,6 +259,14 @@ object AppDNA {
      */
     fun getRemoteConfig(key: String): Any? {
         return remoteConfigManager?.getConfig(key)
+    }
+
+    /**
+     * SPEC-067: Force an immediate config refresh, bypassing the cache TTL.
+     */
+    @JvmStatic
+    fun forceRefreshConfig() {
+        remoteConfigManager?.forceRefresh()
     }
 
     /**
@@ -584,6 +604,16 @@ object AppDNA {
     fun shutdown() {
         synchronized(this) {
             eventQueue?.shutdown()
+            // SPEC-067: Schedule background upload for remaining events
+            val ctx = appContext
+            val key = apiKey
+            val db = eventDatabase
+            if (ctx != null && key != null && db != null) {
+                ai.appdna.sdk.background.EventUploadWorker.scheduleIfNeeded(
+                    ctx, key, environment.baseUrl, db
+                )
+            }
+            connectivityMonitor?.shutdown()
             webEntitlementManager?.stopObserving()
             scope.cancel()
             isConfigured = false

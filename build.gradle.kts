@@ -68,6 +68,9 @@ dependencies {
     // Google Play Install Referrer (for deferred deep links)
     implementation("com.android.installreferrer:installreferrer:2.2")
 
+    // SPEC-067: WorkManager for background event upload
+    implementation("androidx.work:work-runtime-ktx:2.9.0")
+
     // RevenueCat (optional — conditionally used)
     compileOnly("com.revenuecat.purchases:purchases:7.0.0")
 

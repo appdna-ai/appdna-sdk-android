@@ -2,6 +2,8 @@ package ai.appdna.sdk.events
 
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.network.ApiClient
+import ai.appdna.sdk.network.ConnectivityMonitor
+import ai.appdna.sdk.storage.EventDatabase
 import ai.appdna.sdk.storage.LocalStorage
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -10,25 +12,33 @@ import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Manages in-memory + disk event queue with automatic flushing.
+ * SPEC-067: Adaptive batch sizing, gzip compression, SQLite persistence.
  */
 internal class EventQueue(
     private val apiClient: ApiClient,
-    private val storage: LocalStorage,
+    private val eventDatabase: EventDatabase,
+    private val connectivityMonitor: ConnectivityMonitor?,
     private val batchSize: Int,
     private val flushInterval: Long // seconds
 ) {
     private val queue = CopyOnWriteArrayList<JSONObject>()
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var flushJob: Job? = null
-    private val maxStoredEvents = 10_000
+
+    /** SPEC-067: Returns adaptive batch size based on network conditions. */
+    private val effectiveBatchSize: Int
+        get() = connectivityMonitor?.adaptiveBatchSize ?: batchSize
 
     init {
-        // Load persisted events
-        val stored = storage.getEventQueue()
+        // Load persisted events from SQLite
+        val stored = eventDatabase.loadAll()
         for (json in stored) {
             try {
                 queue.add(JSONObject(json))
             } catch (_: Exception) {}
+        }
+        if (stored.isNotEmpty()) {
+            Log.info("Loaded ${stored.size} persisted events from SQLite")
         }
 
         // Start auto-flush timer
@@ -36,16 +46,28 @@ internal class EventQueue(
     }
 
     /**
+     * Secondary constructor for backward compatibility during migration.
+     */
+    constructor(
+        apiClient: ApiClient,
+        storage: LocalStorage,
+        batchSize: Int,
+        flushInterval: Long
+    ) : this(apiClient, EventDatabase(storage.context), null, batchSize, flushInterval) {
+        // This constructor exists for backward compat; prefer the primary constructor
+    }
+
+    /**
      * Add an event to the queue.
      */
     fun enqueue(event: JSONObject) {
-        if (queue.size >= maxStoredEvents) {
-            queue.removeAt(0)
-        }
         queue.add(event)
-        persistQueue()
+        // SPEC-067: Persist to SQLite
+        eventDatabase.insertEvent(event.toString())
 
-        if (queue.size >= batchSize) {
+        // SPEC-067: Check adaptive threshold
+        val currentBatchSize = effectiveBatchSize
+        if (currentBatchSize > 0 && queue.size >= currentBatchSize) {
             flush()
         }
     }
@@ -60,27 +82,33 @@ internal class EventQueue(
     private suspend fun performFlush() {
         if (queue.isEmpty()) return
 
-        val batch = ArrayList(queue)
+        // SPEC-067: Skip flush if no network
+        val currentBatchSize = effectiveBatchSize
+        if (currentBatchSize == 0) {
+            Log.debug("No network — skipping flush, ${queue.size} events queued")
+            return
+        }
+
+        // Take a batch up to adaptive size
+        val batch = ArrayList(queue.take(currentBatchSize.coerceAtMost(queue.size)))
         val batchArray = JSONArray()
         for (event in batch) {
             batchArray.put(event)
         }
 
         val body = JSONObject().apply {
-            put("events", batchArray)
+            put("batch", batchArray)
         }.toString()
 
-        val result = apiClient.post("/api/v1/ingest/events", body)
+        // SPEC-067: Use gzip-compressed POST
+        val result = apiClient.postCompressed("/api/v1/ingest/events", body)
         if (result != null) {
             queue.removeAll(batch.toSet())
-            persistQueue()
-            Log.debug("Flushed ${batch.size} events")
+            // Remove from SQLite — load batch IDs and remove
+            val dbBatch = eventDatabase.loadBatch(batch.size)
+            eventDatabase.removeByIds(dbBatch.map { it.first })
+            Log.debug("Flushed ${batch.size} events (gzip compressed)")
         }
-    }
-
-    private fun persistQueue() {
-        val events = queue.map { it.toString() }
-        storage.setEventQueue(events)
     }
 
     private fun startAutoFlush() {
@@ -94,6 +122,6 @@ internal class EventQueue(
 
     fun shutdown() {
         flushJob?.cancel()
-        persistQueue()
+        // Events are already persisted to SQLite on enqueue
     }
 }

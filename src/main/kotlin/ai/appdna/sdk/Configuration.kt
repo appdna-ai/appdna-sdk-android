@@ -27,8 +27,8 @@ data class AppDNAOptions(
     val flushInterval: Long = 30L,
     /** Number of events per flush batch. Default: 20. */
     val batchSize: Int = 20,
-    /** Remote config cache TTL in seconds. Default: 300 (5 min). */
-    val configTTL: Long = 300L,
+    /** Remote config cache TTL in seconds. Default: 3600 (1 hour). SPEC-067. */
+    val configTTL: Long = 3600L,
     /** Log verbosity. Default: WARNING. */
     val logLevel: LogLevel = LogLevel.WARNING
 )

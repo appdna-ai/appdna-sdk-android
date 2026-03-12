@@ -60,6 +60,15 @@ internal class RemoteConfigManager(
         return onboardingFlows[activeId]
     }
 
+    /**
+     * SPEC-067: Force an immediate config refresh, bypassing the cache TTL.
+     * Use this when you need configs to update immediately (e.g., after a user action).
+     */
+    fun forceRefresh() {
+        Log.info("Force refreshing remote config (bypassing TTL)")
+        fetchConfigs()
+    }
+
     fun fetchConfigs() {
         val path = firestorePath ?: run {
             Log.warning("No Firestore path available — serving cached config only")
