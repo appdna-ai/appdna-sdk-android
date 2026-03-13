@@ -1,6 +1,8 @@
 plugins {
     id("com.android.library") version "8.2.0"
     id("org.jetbrains.kotlin.android") version "1.9.22"
+    id("maven-publish")
+    id("signing")
 }
 
 android {
@@ -29,6 +31,70 @@ android {
 
     composeOptions {
         kotlinCompilerExtensionVersion = "1.5.8"
+    }
+}
+
+// Read version from gradle.properties
+val sdkVersion: String by project
+
+afterEvaluate {
+    publishing {
+        publications {
+            create<MavenPublication>("release") {
+                from(components["release"])
+
+                groupId = "ai.appdna"
+                artifactId = "sdk-android"
+                version = sdkVersion
+
+                pom {
+                    name.set("AppDNA Android SDK")
+                    description.set("AppDNA SDK for Android — analytics, experiments, paywalls, onboarding, surveys, and more.")
+                    url.set("https://github.com/appdna-ai/appdna-sdk-android")
+
+                    licenses {
+                        license {
+                            name.set("MIT License")
+                            url.set("https://opensource.org/licenses/MIT")
+                        }
+                    }
+
+                    developers {
+                        developer {
+                            id.set("appdna-ai")
+                            name.set("AppDNA")
+                            email.set("sdk@appdna.ai")
+                        }
+                    }
+
+                    scm {
+                        connection.set("scm:git:git://github.com/appdna-ai/appdna-sdk-android.git")
+                        developerConnection.set("scm:git:ssh://github.com/appdna-ai/appdna-sdk-android.git")
+                        url.set("https://github.com/appdna-ai/appdna-sdk-android")
+                    }
+                }
+            }
+        }
+
+        repositories {
+            maven {
+                name = "MavenCentral"
+                url = uri("https://central.sonatype.com/api/v1/publisher/upload")
+                credentials {
+                    username = System.getenv("MAVEN_CENTRAL_USERNAME") ?: ""
+                    password = System.getenv("MAVEN_CENTRAL_PASSWORD") ?: ""
+                }
+            }
+        }
+    }
+
+    signing {
+        val signingKey = System.getenv("GPG_SIGNING_KEY")
+        val signingPassword = System.getenv("GPG_SIGNING_PASSWORD")
+        if (signingKey != null && signingPassword != null) {
+            useInMemoryPgpKeys(signingKey, signingPassword)
+        }
+        sign(publishing.publications["release"])
     }
 }
 
