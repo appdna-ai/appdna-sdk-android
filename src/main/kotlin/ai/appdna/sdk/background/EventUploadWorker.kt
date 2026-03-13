@@ -7,6 +7,8 @@ import ai.appdna.sdk.storage.EventDatabase
 import androidx.work.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
@@ -96,14 +98,6 @@ internal class EventUploadWorker(
             Log.error("Background upload error: ${e.message}")
             return@withContext Result.retry()
         }
-    }
-
-    private fun ByteArray.toRequestBody(mediaType: okhttp3.MediaType): okhttp3.RequestBody {
-        return okhttp3.RequestBody.create(mediaType, this)
-    }
-
-    private fun String.toMediaType(): okhttp3.MediaType {
-        return okhttp3.MediaType.parse(this)!!
     }
 
     companion object {

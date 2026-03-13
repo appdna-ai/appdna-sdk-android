@@ -81,7 +81,7 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                 val richNotification = richBuilder.build()
                 richNotification.extras?.let { extras ->
                     builder.setStyle(NotificationCompat.BigPictureStyle().bigPicture(
-                        extras.getParcelable("android.picture")
+                        extras.getParcelable("android.picture") as? Bitmap
                     ))
                     extras.getParcelable<Bitmap>("android.largeIcon")?.let { icon ->
                         builder.setLargeIcon(icon)

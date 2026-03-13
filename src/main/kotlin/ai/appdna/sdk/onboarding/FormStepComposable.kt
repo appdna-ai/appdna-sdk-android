@@ -329,17 +329,28 @@ private fun FormFieldControl(
             val options = field.options ?: emptyList()
             val selected = values[field.id]?.toString() ?: options.firstOrNull()?.id ?: ""
             if (options.isNotEmpty()) {
-                SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(0.dp)
+                ) {
                     options.forEachIndexed { index, option ->
-                        SegmentedButton(
-                            selected = selected == option.id,
+                        val isSelected = selected == option.id
+                        val shape = when {
+                            options.size == 1 -> RoundedCornerShape(8.dp)
+                            index == 0 -> RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
+                            index == options.size - 1 -> RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
+                            else -> RoundedCornerShape(0.dp)
+                        }
+                        OutlinedButton(
                             onClick = { values[field.id] = option.id },
-                            shape = SegmentedButtonDefaults.itemShape(
-                                index = index,
-                                count = options.size
+                            modifier = Modifier.weight(1f),
+                            shape = shape,
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
                             )
                         ) {
-                            Text(option.label.interpolated(), fontSize = 13.sp)
+                            Text(option.label.interpolated(), fontSize = 13.sp, maxLines = 1)
                         }
                     }
                 }

@@ -122,7 +122,7 @@ class OnboardingActivity : ComponentActivity() {
         private var pendingOnFlowCompleted: ((Map<String, Any>) -> Unit)? = null
         private var pendingOnFlowDismissed: ((String, Int) -> Unit)? = null
 
-        fun launch(
+        internal fun launch(
             context: Context,
             flow: OnboardingFlowConfig,
             delegate: AppDNAOnboardingDelegate? = null,
@@ -151,7 +151,7 @@ class OnboardingActivity : ComponentActivity() {
 }
 
 @Composable
-fun OnboardingFlowHost(
+internal fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
     delegate: AppDNAOnboardingDelegate? = null,
     eventTracker: EventTracker? = null,

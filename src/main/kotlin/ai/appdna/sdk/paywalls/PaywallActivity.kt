@@ -51,6 +51,7 @@ import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.resolveIcon
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
+import kotlinx.coroutines.launch
 
 /**
  * Activity to render paywall UI using Jetpack Compose.
