@@ -106,10 +106,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Firebase Firestore for remote config
-    implementation("com.google.firebase:firebase-firestore-ktx:24.10.0")
+    implementation("com.google.firebase:firebase-firestore:25.1.1")
 
     // Firebase Cloud Messaging for push notifications
-    implementation("com.google.firebase:firebase-messaging-ktx:23.4.0")
+    implementation("com.google.firebase:firebase-messaging:24.1.0")
 
     // OkHttp for event ingestion
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
