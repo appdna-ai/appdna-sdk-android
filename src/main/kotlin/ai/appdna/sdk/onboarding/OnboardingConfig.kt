@@ -126,7 +126,8 @@ enum class FormFieldType(val value: String) {
     EMAIL("email"), PHONE("phone"),
     DATE("date"), TIME("time"), DATETIME("datetime"),
     SELECT("select"), SLIDER("slider"), TOGGLE("toggle"),
-    STEPPER("stepper"), SEGMENTED("segmented");
+    STEPPER("stepper"), SEGMENTED("segmented"),
+    LOCATION("location");
 
     companion object {
         fun fromString(value: String): FormFieldType {
