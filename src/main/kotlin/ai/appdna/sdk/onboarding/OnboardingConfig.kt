@@ -415,7 +415,12 @@ internal object OnboardingConfigParser {
                         picker_style = fc["picker_style"] as? String,
                         search_enabled = fc["search_enabled"] as? Boolean,
                         multi_select = fc["multi_select"] as? Boolean,
-                        default_value = fc["default_value"]
+                        default_value = fc["default_value"],
+                        location_type = fc["location_type"] as? String,
+                        location_bias_country = fc["location_bias_country"] as? String,
+                        location_language = fc["location_language"] as? String,
+                        location_placeholder = fc["location_placeholder"] as? String,
+                        location_min_chars = (fc["location_min_chars"] as? Number)?.toInt()
                     )
                 }
                 val validationMap = fm["validation"] as? Map<String, Any>
