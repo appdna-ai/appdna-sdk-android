@@ -349,9 +349,6 @@ private fun FormFieldControl(
                 isError = errors.containsKey(field.id),
                 singleLine = true
             )
-            errors[field.id]?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
-            }
         }
         FormFieldType.SEGMENTED -> {
             val options = field.options ?: emptyList()
