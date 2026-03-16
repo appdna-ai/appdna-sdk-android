@@ -17,6 +17,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.LocationOn
 import ai.appdna.sdk.core.interpolated
 import java.text.SimpleDateFormat
 import java.util.*
@@ -325,6 +327,32 @@ private fun FormFieldControl(
             }
         }
 
+        FormFieldType.LOCATION -> {
+            // Location autocomplete field (SPEC-089)
+            // Renders as a text field with search icon — autocomplete UI is handled
+            // by LocationFieldComposable when the full implementation is available.
+            // For now, renders as a text input that the backend will geocode.
+            val textValue = values[field.id]?.toString() ?: ""
+            OutlinedTextField(
+                value = textValue,
+                onValueChange = { values[field.id] = it },
+                label = { Text(field.label.interpolated()) },
+                placeholder = { Text(field.config?.location_placeholder ?: "Search for a location...") },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                isError = errors.containsKey(field.id),
+                singleLine = true
+            )
+            errors[field.id]?.let {
+                Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+            }
+        }
         FormFieldType.SEGMENTED -> {
             val options = field.options ?: emptyList()
             val selected = values[field.id]?.toString() ?: options.firstOrNull()?.id ?: ""

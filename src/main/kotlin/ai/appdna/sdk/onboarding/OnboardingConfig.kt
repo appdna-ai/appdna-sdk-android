@@ -136,6 +136,22 @@ enum class FormFieldType(val value: String) {
     }
 }
 
+/** Structured location data from geocoding autocomplete (SPEC-089). */
+data class LocationData(
+    val formatted_address: String = "",
+    val city: String = "",
+    val state: String = "",
+    val state_code: String = "",
+    val country: String = "",
+    val country_code: String = "",
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val timezone: String = "UTC",
+    val timezone_offset: Int = 0,
+    val postal_code: String? = null,
+    val raw_query: String = ""
+)
+
 data class FormFieldOption(
     val id: String,
     val label: String,
@@ -168,7 +184,13 @@ data class FormFieldConfig(
     val picker_style: String? = null,
     val search_enabled: Boolean? = null,
     val multi_select: Boolean? = null,
-    val default_value: Any? = null
+    val default_value: Any? = null,
+    // Location (SPEC-089)
+    val location_type: String? = null,
+    val location_bias_country: String? = null,
+    val location_language: String? = null,
+    val location_placeholder: String? = null,
+    val location_min_chars: Int? = null
 )
 
 data class FormField(
