@@ -48,7 +48,7 @@ class EventSchemaTest {
         // Device
         val device = envelope.getJSONObject("device")
         assertEquals("android", device.getString("platform"))
-        assertEquals("1.0.0", device.getString("sdk_version"))
+        assertEquals("1.0.3", device.getString("sdk_version"))
         assertEquals("1.0.0", device.getString("app_version"))
 
         // Context
