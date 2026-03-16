@@ -33,7 +33,7 @@ import org.json.JSONObject
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.1.0"
+    const val sdkVersion = "1.0.3"
 
     // Module namespaces (v1.0)
     /** Push notification module. */

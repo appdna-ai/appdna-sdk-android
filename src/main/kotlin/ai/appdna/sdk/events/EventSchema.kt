@@ -12,7 +12,7 @@ import java.util.UUID
  */
 internal object EventSchema {
     const val SCHEMA_VERSION = 1
-    const val SDK_VERSION = "1.1.0"
+    const val SDK_VERSION = "1.0.3"
 
     /**
      * Build an event envelope JSON matching the iOS format.
