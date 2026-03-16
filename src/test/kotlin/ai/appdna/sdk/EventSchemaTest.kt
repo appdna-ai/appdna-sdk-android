@@ -19,7 +19,7 @@ class EventSchemaTest {
 
     @Test
     fun testSdkVersion() {
-        assertEquals("1.0.0", EventSchema.SDK_VERSION)
+        assertEquals("1.1.0", EventSchema.SDK_VERSION)
     }
 
     @Test
