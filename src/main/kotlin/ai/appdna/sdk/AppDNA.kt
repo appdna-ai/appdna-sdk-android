@@ -23,6 +23,7 @@ import ai.appdna.sdk.paywalls.PaywallManager
 import ai.appdna.sdk.storage.LocalStorage
 import ai.appdna.sdk.webentitlements.WebEntitlement
 import ai.appdna.sdk.webentitlements.WebEntitlementManager
+import com.google.firebase.FirebaseApp
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
@@ -114,6 +115,11 @@ object AppDNA {
             Log.level = options.logLevel
 
             Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
+
+            // Validate Firebase is configured (required for remote config via Firestore)
+            if (FirebaseApp.getApps(context).isEmpty()) {
+                Log.error("⚠️ Firebase not configured. Ensure google-services.json is in your app module and the Google Services plugin is applied. Remote config (paywalls, experiments, flags) will not work. See docs: https://docs.appdna.ai/sdks/android/installation")
+            }
 
             this.appContext = context.applicationContext
             val appContext = this.appContext!!
