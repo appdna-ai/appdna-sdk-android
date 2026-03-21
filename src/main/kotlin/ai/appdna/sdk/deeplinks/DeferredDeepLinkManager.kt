@@ -6,7 +6,7 @@ import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
-import com.google.firebase.firestore.FirebaseFirestore
+import ai.appdna.sdk.AppDNA
 
 /**
  * A resolved deferred deep link.
@@ -55,7 +55,14 @@ internal class DeferredDeepLinkManager(
         val path = "orgs/$orgId/apps/$appId/config/deferred_deep_links/$visitorId"
         Log.debug("DeferredDeepLink: checking $path")
 
-        FirebaseFirestore.getInstance().document(path).get()
+        val db = AppDNA.firestoreDB
+        if (db == null) {
+            Log.warning("DeferredDeepLink: Firestore not available")
+            markLaunched()
+            callback(null)
+            return
+        }
+        db.document(path).get()
             .addOnSuccessListener { snapshot ->
                 markLaunched()
 

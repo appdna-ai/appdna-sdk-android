@@ -3,7 +3,7 @@ package ai.appdna.sdk.webentitlements
 import android.content.Context
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
-import com.google.firebase.firestore.FirebaseFirestore
+import ai.appdna.sdk.AppDNA
 import com.google.firebase.firestore.ListenerRegistration
 import org.json.JSONObject
 
@@ -95,7 +95,11 @@ internal class WebEntitlementManager(
         val path = "orgs/$orgId/apps/$appId/users/$userId/web_entitlements"
         Log.debug("WebEntitlementManager: observing $path")
 
-        listener = FirebaseFirestore.getInstance().document(path)
+        val db = AppDNA.firestoreDB ?: run {
+            Log.warning("WebEntitlementManager: Firestore not available — skipping real-time sync")
+            return
+        }
+        listener = db.document(path)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.error("WebEntitlement listener error: ${error.message}")

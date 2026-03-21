@@ -2,7 +2,7 @@ package ai.appdna.sdk.billing
 
 import android.content.Context
 import ai.appdna.sdk.Log
-import com.google.firebase.firestore.FirebaseFirestore
+import ai.appdna.sdk.AppDNA
 import com.google.firebase.firestore.ListenerRegistration
 import org.json.JSONArray
 import org.json.JSONObject
@@ -123,7 +123,11 @@ internal class EntitlementCache(
         val path = "orgs/$orgId/apps/$appId/users/$userId/entitlements"
         Log.debug("EntitlementCache: observing Firestore at $path")
 
-        firestoreListener = FirebaseFirestore.getInstance()
+        val db = AppDNA.firestoreDB ?: run {
+            Log.warning("EntitlementCache: Firestore not available — skipping real-time sync")
+            return
+        }
+        firestoreListener = db
             .collection(path)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {

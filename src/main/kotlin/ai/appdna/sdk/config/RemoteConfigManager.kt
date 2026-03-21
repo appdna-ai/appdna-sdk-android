@@ -6,7 +6,7 @@ import ai.appdna.sdk.onboarding.OnboardingFlowConfig
 import ai.appdna.sdk.paywalls.PaywallConfig
 import ai.appdna.sdk.paywalls.PaywallConfigParser
 import ai.appdna.sdk.storage.LocalStorage
-import com.google.firebase.firestore.FirebaseFirestore
+import ai.appdna.sdk.AppDNA
 import org.json.JSONObject
 
 /**
@@ -75,7 +75,10 @@ internal class RemoteConfigManager(
             return
         }
 
-        val db = FirebaseFirestore.getInstance()
+        val db = AppDNA.firestoreDB ?: run {
+            Log.warning("Firestore not available — serving cached config only")
+            return
+        }
         val basePath = "$path/config"
 
         // Fetch flags

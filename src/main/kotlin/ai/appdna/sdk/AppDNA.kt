@@ -24,6 +24,8 @@ import ai.appdna.sdk.storage.LocalStorage
 import ai.appdna.sdk.webentitlements.WebEntitlement
 import ai.appdna.sdk.webentitlements.WebEntitlementManager
 import com.google.firebase.FirebaseApp
+import com.google.firebase.FirebaseOptions
+import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.*
 import org.json.JSONObject
 
@@ -61,6 +63,14 @@ object AppDNA {
     /** Current config bundle version reported in events. */
     @JvmStatic var currentBundleVersion: Int = 0
         internal set
+
+    /**
+     * Firestore instance used by the SDK.
+     * Uses a secondary Firebase app ("appdna") if google-services-appdna.json is found in assets,
+     * otherwise falls back to the default Firebase app's Firestore instance.
+     */
+    internal var firestoreDB: FirebaseFirestore? = null
+        private set
 
     // Internal managers
     private var apiKey: String? = null
@@ -116,9 +126,24 @@ object AppDNA {
 
             Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
 
-            // Validate Firebase is configured (required for remote config via Firestore)
-            if (FirebaseApp.getApps(context).isEmpty()) {
-                Log.error("⚠️ Firebase not configured. Ensure google-services.json is in your app module and the Google Services plugin is applied. Remote config (paywalls, experiments, flags) will not work. See docs: https://docs.appdna.ai/sdks/android/installation")
+            // Configure Firebase for Firestore config access.
+            // Priority: secondary app from google-services-appdna.json in assets > default FirebaseApp.
+            val secondaryOptions = loadSecondaryFirebaseOptions(context)
+            if (secondaryOptions != null) {
+                val existingApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
+                if (existingApp == null) {
+                    FirebaseApp.initializeApp(context, secondaryOptions, "appdna")
+                }
+                val secondaryApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
+                if (secondaryApp != null) {
+                    firestoreDB = FirebaseFirestore.getInstance(secondaryApp)
+                    Log.info("Using secondary Firebase app 'appdna' for Firestore (google-services-appdna.json)")
+                }
+            } else if (FirebaseApp.getApps(context).isNotEmpty()) {
+                firestoreDB = FirebaseFirestore.getInstance()
+                Log.info("Using default Firebase app for Firestore")
+            } else {
+                Log.error("Firebase not configured. Either add google-services-appdna.json to assets or configure Firebase via google-services.json. Remote config (paywalls, experiments, flags) will not work. See docs: https://docs.appdna.ai/sdks/android/installation")
             }
 
             this.appContext = context.applicationContext
@@ -601,6 +626,50 @@ object AppDNA {
             Log.info("Loaded bundled config (version $bundleVersion)")
         } catch (_: Exception) {
             Log.debug("No bundled config found at appdna-config.json — using remote/cached only")
+        }
+    }
+
+    /**
+     * Load FirebaseOptions from google-services-appdna.json in app assets.
+     * Returns null if the file is not found or cannot be parsed.
+     */
+    private fun loadSecondaryFirebaseOptions(context: Context): FirebaseOptions? {
+        return try {
+            val inputStream = context.assets.open("google-services-appdna.json")
+            val json = inputStream.bufferedReader().use { it.readText() }
+            val config = JSONObject(json)
+
+            // google-services.json format has project_info and client arrays
+            val projectInfo = config.getJSONObject("project_info")
+            val projectId = projectInfo.getString("project_id")
+            val storageBucket = projectInfo.optString("storage_bucket", "$projectId.appspot.com")
+
+            // Find the first client entry
+            val clients = config.getJSONArray("client")
+            if (clients.length() == 0) return null
+            val client = clients.getJSONObject(0)
+
+            val clientInfo = client.getJSONObject("client_info")
+            val mobileSdkAppId = clientInfo.getString("mobilesdk_app_id")
+
+            // API key from api_key array
+            val apiKeys = client.getJSONArray("api_key")
+            val apiKey = if (apiKeys.length() > 0) {
+                apiKeys.getJSONObject(0).getString("current_key")
+            } else null
+
+            val builder = FirebaseOptions.Builder()
+                .setProjectId(projectId)
+                .setApplicationId(mobileSdkAppId)
+                .setStorageBucket(storageBucket)
+
+            if (apiKey != null) {
+                builder.setApiKey(apiKey)
+            }
+
+            builder.build()
+        } catch (_: Exception) {
+            null
         }
     }
 
