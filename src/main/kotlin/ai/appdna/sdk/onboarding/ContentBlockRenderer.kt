@@ -34,6 +34,16 @@ import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.resolveIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.Star
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.foundation.text.ClickableText
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -272,6 +282,105 @@ data class ContentBlock(
     val horizontal_align: String? = null,
     val vertical_offset: Double? = null,
     val horizontal_offset: Double? = null,
+    // SPEC-089d: page_indicator fields
+    val dot_count: Int? = null,
+    val active_index: Int? = null,
+    val active_color: String? = null,
+    val inactive_color: String? = null,
+    val dot_size: Double? = null,
+    val dot_spacing: Double? = null,
+    val active_dot_width: Double? = null,
+    // SPEC-089d: social_login fields
+    val providers: List<SocialProvider>? = null,
+    val button_style: String? = null,
+    val button_height: Double? = null,
+    val spacing: Double? = null,
+    val show_divider: Boolean? = null,
+    val divider_text: String? = null,
+    // SPEC-089d: countdown_timer fields
+    val target_type: String? = null,
+    val duration_seconds: Int? = null,
+    val target_datetime: String? = null,
+    val show_days: Boolean? = null,
+    val show_hours: Boolean? = null,
+    val show_minutes: Boolean? = null,
+    val show_seconds: Boolean? = null,
+    val labels: CountdownLabels? = null,
+    val on_expire_action: String? = null,
+    val expired_text: String? = null,
+    val accent_color: String? = null,
+    val font_size: Double? = null,
+    val alignment: String? = null,
+    // SPEC-089d: rating fields
+    val field_id: String? = null,
+    val max_stars: Int? = null,
+    val default_value: Double? = null,
+    val star_size: Double? = null,
+    val active_rating_color: String? = null,
+    val inactive_rating_color: String? = null,
+    val allow_half: Boolean? = null,
+    val label: String? = null,
+    // SPEC-089d: rich_text fields
+    val content: String? = null,
+    val base_style: TextStyleConfig? = null,
+    val link_color: String? = null,
+    val max_lines: Int? = null,
+    // SPEC-089d: progress_bar fields
+    val segment_count: Int? = null,
+    val active_segments: Int? = null,
+    val fill_color: String? = null,
+    val track_color: String? = null,
+    val segment_gap: Double? = null,
+    val show_label: Boolean? = null,
+    val label_style: TextStyleConfig? = null,
+    // SPEC-089d: timeline fields
+    val timeline_items: List<TimelineItem>? = null,
+    val line_color: String? = null,
+    val completed_color: String? = null,
+    val current_color: String? = null,
+    val upcoming_color: String? = null,
+    val show_line: Boolean? = null,
+    val compact: Boolean? = null,
+    val title_style: TextStyleConfig? = null,
+    val subtitle_style: TextStyleConfig? = null,
+    // SPEC-089d: animated_loading fields
+    val loading_items: List<LoadingItem>? = null,
+    val progress_color: String? = null,
+    val check_color: String? = null,
+    val total_duration_ms: Int? = null,
+    val auto_advance: Boolean? = null,
+    val show_percentage: Boolean? = null,
+)
+
+/** Social login provider config (SPEC-089d §3.4). */
+data class SocialProvider(
+    val type: String,
+    val label: String? = null,
+    val enabled: Boolean = true,
+)
+
+/** Countdown labels config (SPEC-089d §3.7). */
+data class CountdownLabels(
+    val days: String? = null,
+    val hours: String? = null,
+    val minutes: String? = null,
+    val seconds: String? = null,
+)
+
+/** Timeline item config (SPEC-089d §3.5). */
+data class TimelineItem(
+    val id: String,
+    val title: String,
+    val subtitle: String? = null,
+    val icon: String? = null,
+    val status: String = "upcoming",  // completed | current | upcoming
+)
+
+/** Animated loading item config (SPEC-089d §3.6). */
+data class LoadingItem(
+    val label: String,
+    val duration_ms: Int = 1000,
+    val icon: String? = null,
 )
 
 // MARK: - Content Block Renderer
@@ -281,6 +390,7 @@ fun ContentBlockRendererView(
     blocks: List<ContentBlock>,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
 ) {
     Column(
@@ -288,7 +398,7 @@ fun ContentBlockRendererView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         blocks.forEach { block ->
-            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, loc = loc)
+            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
         }
     }
 }
@@ -298,6 +408,7 @@ private fun RenderBlock(
     block: ContentBlock,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
 ) {
     // SPEC-089d: Wrap every block with block_style + 2D positioning modifiers
@@ -320,12 +431,12 @@ private fun RenderBlock(
             contentAlignment = blockAlignment,
         ) {
             Box(modifier = contentModifier) {
-                RenderBlockContent(block, onAction, toggleValues, loc)
+                RenderBlockContent(block, onAction, toggleValues, inputValues, loc)
             }
         }
     } else {
         Box(modifier = contentModifier) {
-            RenderBlockContent(block, onAction, toggleValues, loc)
+            RenderBlockContent(block, onAction, toggleValues, inputValues, loc)
         }
     }
 }
@@ -335,6 +446,7 @@ private fun RenderBlockContent(
     block: ContentBlock,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
 ) {
     when (block.type) {
@@ -352,18 +464,19 @@ private fun RenderBlockContent(
         // SPEC-085: Rich media block types
         "lottie" -> LottieContentBlock(block)
         "rive" -> RiveContentBlock(block)
-        // SPEC-089d Phase A: New onboarding block types (stubs)
-        "page_indicator" -> StubBlockPlaceholder("page_indicator")
+        // SPEC-089d Phase A: Implemented onboarding block types
+        "page_indicator" -> PageIndicatorBlock(block)
+        "social_login" -> SocialLoginBlock(block, onAction, loc)
+        "countdown_timer" -> CountdownTimerBlock(block, onAction)
+        "rating" -> RatingBlock(block, inputValues, loc)
+        "rich_text" -> RichTextBlock(block, loc)
+        "progress_bar" -> ProgressBarBlock(block, loc)
+        "timeline" -> TimelineBlock(block, loc)
+        "animated_loading" -> AnimatedLoadingBlock(block, onAction)
+        // SPEC-089d Phase A: Remaining stubs
         "wheel_picker" -> StubBlockPlaceholder("wheel_picker")
         "pulsing_avatar" -> StubBlockPlaceholder("pulsing_avatar")
-        "social_login" -> StubBlockPlaceholder("social_login")
-        "timeline" -> StubBlockPlaceholder("timeline")
-        "animated_loading" -> StubBlockPlaceholder("animated_loading")
         "star_background" -> StubBlockPlaceholder("star_background")
-        "countdown_timer" -> StubBlockPlaceholder("countdown_timer")
-        "rating" -> StubBlockPlaceholder("rating")
-        "rich_text" -> StubBlockPlaceholder("rich_text")
-        "progress_bar" -> StubBlockPlaceholder("progress_bar")
         // SPEC-089d Phase F: Container & advanced block types (stubs)
         "stack" -> StubBlockPlaceholder("stack")
         "custom_view" -> StubBlockPlaceholder("custom_view")
@@ -649,6 +762,869 @@ private fun RiveContentBlock(block: ContentBlock) {
                 alignment = block.icon_alignment ?: "center",
             )
         )
+    }
+}
+
+// MARK: - Page Indicator Block (SPEC-089d AC-012)
+
+/**
+ * Renders a row of indicator dots. Active dot can be wider (pill) if active_dot_width is set.
+ * SDK auto-binds active_index to current step index when inside an onboarding flow.
+ */
+@Composable
+private fun PageIndicatorBlock(block: ContentBlock) {
+    val dotCount = block.dot_count ?: 3
+    val activeIndex = block.active_index ?: 0
+    val activeColor = StyleEngine.parseColor(block.active_color ?: "#6366F1")
+    val inactiveColor = StyleEngine.parseColor(block.inactive_color ?: "#D1D5DB")
+    val dotSize = (block.dot_size ?: 8.0).dp
+    val dotSpacing = (block.dot_spacing ?: 8.0).dp
+    val activeDotWidth = block.active_dot_width?.dp
+
+    val hAlign = when (block.alignment ?: block.icon_alignment) {
+        "left" -> Arrangement.Start
+        "right" -> Arrangement.End
+        else -> Arrangement.Center
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = hAlign,
+    ) {
+        for (i in 0 until dotCount) {
+            if (i > 0) Spacer(modifier = Modifier.width(dotSpacing))
+            val isActive = i == activeIndex
+            if (isActive && activeDotWidth != null) {
+                // Pill shape for active dot
+                Box(
+                    modifier = Modifier
+                        .size(width = activeDotWidth, height = dotSize)
+                        .clip(RoundedCornerShape(50))
+                        .background(activeColor),
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(dotSize)
+                        .clip(CircleShape)
+                        .background(if (isActive) activeColor else inactiveColor),
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Social Login Block (SPEC-089d AC-015)
+
+/**
+ * Renders social login provider buttons (Apple, Google, Email, Facebook, GitHub).
+ * Supports filled, outlined, and minimal button styles.
+ * Each tap fires the onAction callback with the provider type.
+ */
+@Composable
+private fun SocialLoginBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    loc: ((String, String) -> String)? = null,
+) {
+    val providers = block.providers?.filter { it.enabled } ?: return
+    val buttonStyle = block.button_style ?: "filled"
+    val cornerRadius = (block.button_corner_radius ?: 12.0).dp
+    val buttonHeight = (block.button_height ?: 48.0).dp
+    val spacing = (block.spacing ?: 12.0).dp
+    val showDivider = block.show_divider ?: false
+    val dividerText = block.divider_text ?: "or"
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(spacing),
+    ) {
+        providers.forEachIndexed { index, provider ->
+            val label = provider.label ?: when (provider.type) {
+                "apple" -> "Continue with Apple"
+                "google" -> "Continue with Google"
+                "email" -> "Continue with Email"
+                "facebook" -> "Continue with Facebook"
+                "github" -> "Continue with GitHub"
+                else -> "Continue with ${provider.type.replaceFirstChar { it.uppercase() }}"
+            }
+            val displayLabel = loc?.invoke("block.${block.id}.provider.$index", label) ?: label
+
+            val (bgColor, textColor, borderColor) = when (provider.type) {
+                "apple" -> Triple(Color(0xFF000000), Color.White, Color(0xFF000000))
+                "google" -> Triple(Color.White, Color(0xFF1F1F1F), Color(0xFFDADCE0))
+                "facebook" -> Triple(Color(0xFF1877F2), Color.White, Color(0xFF1877F2))
+                "github" -> Triple(Color(0xFF24292F), Color.White, Color(0xFF24292F))
+                "email" -> Triple(
+                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: "#6366F1"),
+                    Color.White,
+                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: "#6366F1"),
+                )
+                else -> Triple(Color(0xFF6366F1), Color.White, Color(0xFF6366F1))
+            }
+
+            val providerIcon = when (provider.type) {
+                "apple" -> "\uF8FF"  // Apple logo placeholder
+                "google" -> "G"
+                "email" -> "\u2709"
+                "facebook" -> "f"
+                "github" -> "\u2B24"
+                else -> ""
+            }
+
+            when (buttonStyle) {
+                "outlined" -> {
+                    OutlinedButton(
+                        onClick = { onAction("social_login:${provider.type}") },
+                        modifier = Modifier.fillMaxWidth().height(buttonHeight),
+                        shape = RoundedCornerShape(cornerRadius),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                    ) {
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                        Text(displayLabel, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                "minimal" -> {
+                    TextButton(
+                        onClick = { onAction("social_login:${provider.type}") },
+                        modifier = Modifier.fillMaxWidth().height(buttonHeight),
+                        shape = RoundedCornerShape(cornerRadius),
+                    ) {
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                        Text(displayLabel, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                else -> { // filled
+                    Button(
+                        onClick = { onAction("social_login:${provider.type}") },
+                        modifier = Modifier.fillMaxWidth().height(buttonHeight),
+                        shape = RoundedCornerShape(cornerRadius),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = bgColor,
+                            contentColor = textColor,
+                        ),
+                    ) {
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
+                    }
+                }
+            }
+
+            // Insert divider between providers if show_divider is true and not after last
+            if (showDivider && index < providers.size - 1) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(1.dp)
+                            .background(Color.Gray.copy(alpha = 0.3f)),
+                    )
+                    Text(
+                        text = loc?.invoke("block.${block.id}.divider", dividerText) ?: dividerText,
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(1.dp)
+                            .background(Color.Gray.copy(alpha = 0.3f)),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Countdown Timer Block (SPEC-089d AC-018)
+
+/**
+ * Countdown timer with digital or bar variant.
+ * Uses LaunchedEffect with delay(1000) loop to decrement remaining seconds.
+ * Supports fixed_duration and fixed_datetime target types.
+ */
+@Composable
+private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit) {
+    val variant = block.variant ?: "digital"
+    val initialSeconds = when (block.target_type) {
+        "fixed_datetime" -> {
+            // Parse ISO datetime and compute remaining seconds
+            try {
+                val targetMs = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+                    .parse(block.target_datetime ?: "")?.time ?: 0L
+                val remaining = ((targetMs - System.currentTimeMillis()) / 1000).toInt()
+                if (remaining > 0) remaining else 0
+            } catch (_: Exception) { block.duration_seconds ?: 60 }
+        }
+        else -> block.duration_seconds ?: 60
+    }
+
+    var remainingSeconds by remember { mutableIntStateOf(initialSeconds) }
+    var expired by remember { mutableStateOf(initialSeconds <= 0) }
+
+    val textColor = StyleEngine.parseColor(block.text_color ?: "#000000")
+    val accentColor = StyleEngine.parseColor(block.accent_color ?: "#6366F1")
+    val bgColor = block.bg_color?.let { StyleEngine.parseColor(it) }
+    val fontSize = (block.font_size ?: 24.0).sp
+
+    val showDays = block.show_days ?: true
+    val showHours = block.show_hours ?: true
+    val showMinutes = block.show_minutes ?: true
+    val showSeconds = block.show_seconds ?: true
+
+    val labels = block.labels ?: CountdownLabels()
+    val daysLabel = labels.days ?: "Days"
+    val hoursLabel = labels.hours ?: "Hours"
+    val minutesLabel = labels.minutes ?: "Min"
+    val secondsLabel = labels.seconds ?: "Sec"
+
+    // Countdown tick
+    LaunchedEffect(Unit) {
+        while (remainingSeconds > 0) {
+            kotlinx.coroutines.delay(1000L)
+            remainingSeconds--
+        }
+        expired = true
+        when (block.on_expire_action) {
+            "auto_advance" -> onAction("next")
+            else -> { /* hide or show_expired_text handled below */ }
+        }
+    }
+
+    // On expire: hide
+    if (expired && block.on_expire_action == "hide") return
+
+    // On expire: show expired text
+    if (expired && block.on_expire_action == "show_expired_text") {
+        Text(
+            text = block.expired_text ?: "Expired",
+            fontSize = fontSize,
+            color = textColor,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        return
+    }
+
+    val days = remainingSeconds / 86400
+    val hours = (remainingSeconds % 86400) / 3600
+    val minutes = (remainingSeconds % 3600) / 60
+    val seconds = remainingSeconds % 60
+
+    val hAlign = when (block.alignment) {
+        "left" -> Arrangement.Start
+        "right" -> Arrangement.End
+        else -> Arrangement.Center
+    }
+
+    when (variant) {
+        "bar" -> {
+            // Shrinking bar variant
+            val fraction = if (initialSeconds > 0) remainingSeconds.toFloat() / initialSeconds else 0f
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height((block.height ?: 8.0).dp)
+                    .clip(RoundedCornerShape((block.corner_radius ?: 4.0).dp))
+                    .background(bgColor ?: Color.Gray.copy(alpha = 0.2f)),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction)
+                        .fillMaxHeight()
+                        .background(accentColor),
+                )
+            }
+        }
+        else -> {
+            // Digital variant: columns of time units
+            // Build list of (value, label) pairs to display
+            val timeUnits = mutableListOf<Triple<Int, String, Boolean>>()
+            if (showDays && days > 0) timeUnits.add(Triple(days, daysLabel, true))
+            if (showHours) timeUnits.add(Triple(hours, hoursLabel, true))
+            if (showMinutes) timeUnits.add(Triple(minutes, minutesLabel, showSeconds))
+            if (showSeconds) timeUnits.add(Triple(seconds, secondsLabel, false))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = hAlign,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                timeUnits.forEachIndexed { index, (value, unitLabel, showSep) ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = value.toString().padStart(2, '0'),
+                            fontSize = fontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor,
+                        )
+                        Text(
+                            text = unitLabel,
+                            fontSize = 10.sp,
+                            color = textColor.copy(alpha = 0.6f),
+                        )
+                    }
+                    // Show separator between units, but not after last
+                    if (showSep && index < timeUnits.size - 1) {
+                        Text(
+                            text = ":",
+                            fontSize = fontSize,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor.copy(alpha = 0.4f),
+                            modifier = Modifier.padding(horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Rating Block (SPEC-089d AC-019)
+
+/**
+ * Star rating input. Renders a row of star icons (filled/outlined).
+ * Stores selected rating in inputValues map for response collection.
+ */
+@Composable
+private fun RatingBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)? = null,
+) {
+    val maxStars = block.max_stars ?: 5
+    val starSize = (block.star_size ?: 32.0).dp
+    val activeColor = StyleEngine.parseColor(block.active_rating_color ?: block.active_color ?: "#FBBF24")
+    val inactiveColor = StyleEngine.parseColor(block.inactive_rating_color ?: block.inactive_color ?: "#D1D5DB")
+    val fieldId = block.field_id ?: block.id
+
+    var selectedRating by remember {
+        mutableIntStateOf((block.default_value?.toInt() ?: (inputValues[fieldId] as? Number)?.toInt()) ?: 0)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // Optional label
+        block.label?.let { label ->
+            val displayLabel = loc?.invoke("block.${block.id}.label", label) ?: label
+            Text(
+                text = displayLabel,
+                fontSize = 14.sp,
+                color = Color.Gray,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            for (i in 1..maxStars) {
+                val filled = i <= selectedRating
+                Icon(
+                    imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
+                    contentDescription = "Star $i",
+                    tint = if (filled) activeColor else inactiveColor,
+                    modifier = Modifier
+                        .size(starSize)
+                        .clickable {
+                            selectedRating = i
+                            inputValues[fieldId] = i
+                        },
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Rich Text Block (SPEC-089d AC-020)
+
+/**
+ * Rich text with inline markdown-style formatting.
+ * Parses **bold**, *italic*, and [link](url) patterns.
+ * Uses ClickableText for link tap handling.
+ */
+@Composable
+private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val rawContent = block.content ?: block.text ?: ""
+    val content = loc?.invoke("block.${block.id}.content", rawContent) ?: rawContent
+    val linkColor = StyleEngine.parseColor(block.link_color ?: "#6366F1")
+    val context = LocalContext.current
+
+    // Apply base_style if present
+    val baseTextStyle = if (block.base_style != null) {
+        StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp, color = Color.Unspecified), block.base_style)
+    } else if (block.style != null) {
+        StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp, color = Color.Unspecified), block.style)
+    } else {
+        TextStyle(fontSize = 16.sp, color = Color.Unspecified)
+    }
+
+    val annotatedString = parseMarkdownToAnnotatedString(content, baseTextStyle, linkColor)
+
+    ClickableText(
+        text = annotatedString,
+        style = baseTextStyle,
+        maxLines = block.max_lines ?: Int.MAX_VALUE,
+        modifier = Modifier.fillMaxWidth(),
+        onClick = { offset ->
+            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                .firstOrNull()?.let { annotation ->
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                        // Malformed URL or no browser — silently ignore
+                    }
+                }
+        },
+    )
+}
+
+/**
+ * Parses a subset of Markdown into an AnnotatedString.
+ * Supported patterns:
+ * - **bold** → SpanStyle(fontWeight = Bold)
+ * - *italic* → SpanStyle(fontStyle = Italic)
+ * - [text](url) → SpanStyle(color = linkColor, underline) + URL annotation
+ */
+private fun parseMarkdownToAnnotatedString(
+    markdown: String,
+    baseStyle: TextStyle,
+    linkColor: Color,
+): androidx.compose.ui.text.AnnotatedString {
+    // Regex patterns (order matters: bold before italic to avoid ambiguity)
+    val boldRegex = Regex("""\*\*(.+?)\*\*""")
+    val italicRegex = Regex("""\*(.+?)\*""")
+    val linkRegex = Regex("""\[(.+?)]\((.+?)\)""")
+
+    data class StyledRange(val start: Int, val end: Int, val style: SpanStyle, val tag: String? = null, val annotation: String? = null)
+
+    // First pass: find all link ranges in the original text and build a clean string
+    val linkMatches = linkRegex.findAll(markdown).toList()
+    val boldMatches = boldRegex.findAll(markdown).toList()
+    val italicMatches = italicRegex.findAll(markdown).toList()
+
+    return buildAnnotatedString {
+        // Simple iterative parser: process the string character by character,
+        // replacing markdown tokens as we go
+        var remaining = markdown
+        while (remaining.isNotEmpty()) {
+            // Find the earliest markdown match
+            val linkMatch = linkRegex.find(remaining)
+            val boldMatch = boldRegex.find(remaining)
+            // Only match italic if it's not part of a bold marker
+            val italicMatch = italicRegex.find(remaining)?.takeIf { m ->
+                val idx = m.range.first
+                // Ensure this is not a ** bold marker
+                !(idx > 0 && remaining.getOrNull(idx - 1) == '*') &&
+                    remaining.getOrNull(idx + 1) != '*'
+            }
+
+            val matches = listOfNotNull(
+                linkMatch?.let { it to "link" },
+                boldMatch?.let { it to "bold" },
+                italicMatch?.let { it to "italic" },
+            ).sortedBy { it.first.range.first }
+
+            if (matches.isEmpty()) {
+                // No more markdown — append rest as plain text
+                append(remaining)
+                break
+            }
+
+            val (match, type) = matches.first()
+
+            // Append text before the match
+            if (match.range.first > 0) {
+                append(remaining.substring(0, match.range.first))
+            }
+
+            when (type) {
+                "link" -> {
+                    val linkText = match.groupValues[1]
+                    val url = match.groupValues[2]
+                    pushStringAnnotation(tag = "URL", annotation = url)
+                    withStyle(SpanStyle(
+                        color = linkColor,
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                    )) {
+                        append(linkText)
+                    }
+                    pop()
+                }
+                "bold" -> {
+                    withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(match.groupValues[1])
+                    }
+                }
+                "italic" -> {
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                        append(match.groupValues[1])
+                    }
+                }
+            }
+
+            remaining = remaining.substring(match.range.last + 1)
+        }
+    }
+}
+
+// MARK: - Progress Bar Block (SPEC-089d AC-021)
+
+/**
+ * Segmented or continuous progress bar.
+ * Continuous: single track + fill bar.
+ * Segmented: row of equally-sized segments, some filled, some empty.
+ * SDK can auto-bind active_segments to current step index.
+ */
+@Composable
+private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val variant = block.variant ?: "continuous"
+    val segmentCount = block.segment_count ?: 5
+    val activeSegments = block.active_segments ?: 1
+    val fillColor = StyleEngine.parseColor(block.fill_color ?: "#6366F1")
+    val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
+    val barHeight = (block.height ?: 6.0).dp
+    val cornerRadius = (block.corner_radius ?: 3.0).dp
+    val segmentGap = (block.segment_gap ?: 4.0).dp
+    val showLabel = block.show_label ?: false
+
+    Column(modifier = Modifier.fillMaxWidth()) {
+        // Optional label
+        if (showLabel && segmentCount > 0) {
+            val labelText = "Step $activeSegments of $segmentCount"
+            val labelStyle = if (block.label_style != null) {
+                StyleEngine.applyTextStyle(TextStyle(fontSize = 12.sp, color = Color.Gray), block.label_style)
+            } else {
+                TextStyle(fontSize = 12.sp, color = Color.Gray)
+            }
+            Text(
+                text = loc?.invoke("block.${block.id}.label", labelText) ?: labelText,
+                style = labelStyle,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+
+        when (variant) {
+            "segmented" -> {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(segmentGap),
+                ) {
+                    for (i in 0 until segmentCount) {
+                        val isFilled = i < activeSegments
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(cornerRadius))
+                                .background(if (isFilled) fillColor else trackColor),
+                        )
+                    }
+                }
+            }
+            else -> {
+                // Continuous progress bar
+                val fraction = if (segmentCount > 0) {
+                    (activeSegments.toFloat() / segmentCount).coerceIn(0f, 1f)
+                } else 0f
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(barHeight)
+                        .clip(RoundedCornerShape(cornerRadius))
+                        .background(trackColor),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(cornerRadius))
+                            .background(fillColor),
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Timeline Block (SPEC-089d AC-016)
+
+/**
+ * Vertical timeline with status indicators (completed/current/upcoming).
+ * Each item shows a status circle, optional connecting line, title, and subtitle.
+ */
+@Composable
+private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val items = block.timeline_items ?: return
+    val lineColor = StyleEngine.parseColor(block.line_color ?: "#E5E7EB")
+    val completedColor = StyleEngine.parseColor(block.completed_color ?: "#22C55E")
+    val currentColor = StyleEngine.parseColor(block.current_color ?: "#6366F1")
+    val upcomingColor = StyleEngine.parseColor(block.upcoming_color ?: "#D1D5DB")
+    val showLine = block.show_line ?: true
+    val isCompact = block.compact ?: false
+    val itemSpacing = if (isCompact) 12.dp else 24.dp
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        items.forEachIndexed { index, item ->
+            val statusColor = when (item.status) {
+                "completed" -> completedColor
+                "current" -> currentColor
+                else -> upcomingColor
+            }
+            val isLast = index == items.size - 1
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = if (isLast) 0.dp else itemSpacing),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                // Left column: status indicator + connecting line
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(24.dp),
+                ) {
+                    // Status circle
+                    Box(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .clip(CircleShape)
+                            .background(statusColor),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (item.status == "completed") {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Completed",
+                                tint = Color.White,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        } else if (item.status == "current") {
+                            Box(
+                                modifier = Modifier
+                                    .size(8.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White),
+                            )
+                        }
+                    }
+
+                    // Connecting line
+                    if (showLine && !isLast) {
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(itemSpacing)
+                                .background(lineColor),
+                        )
+                    }
+                }
+
+                // Right column: title + subtitle
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    val titleText = loc?.invoke("block.${block.id}.item.$index.title", item.title) ?: item.title
+                    val titleBaseStyle = TextStyle(
+                        fontSize = 16.sp,
+                        fontWeight = if (item.status == "current") FontWeight.SemiBold else FontWeight.Normal,
+                        color = if (item.status == "upcoming") Color.Gray else Color.Unspecified,
+                    )
+                    val titleStyle = if (block.title_style != null) {
+                        StyleEngine.applyTextStyle(titleBaseStyle, block.title_style)
+                    } else titleBaseStyle
+
+                    Text(text = titleText, style = titleStyle)
+
+                    item.subtitle?.let { subtitle ->
+                        val subtitleText = loc?.invoke("block.${block.id}.item.$index.subtitle", subtitle) ?: subtitle
+                        val subtitleBaseStyle = TextStyle(fontSize = 13.sp, color = Color.Gray)
+                        val subtitleEffective = if (block.subtitle_style != null) {
+                            StyleEngine.applyTextStyle(subtitleBaseStyle, block.subtitle_style)
+                        } else subtitleBaseStyle
+
+                        Text(text = subtitleText, style = subtitleEffective)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Animated Loading Block (SPEC-089d AC-017)
+
+/**
+ * Animated loading/progress screen with sequential item completion.
+ * Checklist variant: items appear with animated checkmarks.
+ * Circular variant: CircularProgressIndicator.
+ * Linear variant: LinearProgressIndicator.
+ * Supports auto_advance to trigger step advance after completion.
+ */
+@Composable
+private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit) {
+    val variant = block.variant ?: "checklist"
+    val items = block.loading_items ?: emptyList()
+    val progressColor = StyleEngine.parseColor(block.progress_color ?: "#6366F1")
+    val checkColor = StyleEngine.parseColor(block.check_color ?: "#22C55E")
+    val textColor = StyleEngine.parseColor(block.text_color ?: "#000000")
+    val totalDurationMs = block.total_duration_ms
+    val autoAdvance = block.auto_advance ?: false
+    val showPercentage = block.show_percentage ?: false
+
+    // Track which items have completed
+    var completedCount by remember { mutableIntStateOf(0) }
+    var overallProgress by remember { mutableStateOf(0f) }
+    var finished by remember { mutableStateOf(false) }
+
+    // Sequential item completion timer
+    LaunchedEffect(Unit) {
+        if (items.isNotEmpty()) {
+            for (i in items.indices) {
+                val durationMs = items[i].duration_ms.toLong()
+                // Animate progress within this item
+                val startProgress = if (items.isNotEmpty()) i.toFloat() / items.size else 0f
+                val endProgress = if (items.isNotEmpty()) (i + 1).toFloat() / items.size else 1f
+
+                val steps = (durationMs / 50).toInt().coerceAtLeast(1)
+                val stepDelay = durationMs / steps
+                for (s in 1..steps) {
+                    kotlinx.coroutines.delay(stepDelay)
+                    overallProgress = startProgress + (endProgress - startProgress) * (s.toFloat() / steps)
+                }
+                completedCount = i + 1
+            }
+        } else if (totalDurationMs != null && totalDurationMs > 0) {
+            // No items, just progress over total duration
+            val steps = (totalDurationMs / 50).coerceAtLeast(1)
+            val stepDelay = totalDurationMs.toLong() / steps
+            for (s in 1..steps) {
+                kotlinx.coroutines.delay(stepDelay)
+                overallProgress = s.toFloat() / steps
+            }
+        }
+        finished = true
+        if (autoAdvance) {
+            onAction("next")
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        when (variant) {
+            "circular" -> {
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { overallProgress },
+                        modifier = Modifier.size(80.dp),
+                        color = progressColor,
+                        trackColor = progressColor.copy(alpha = 0.2f),
+                        strokeWidth = 6.dp,
+                    )
+                    if (showPercentage) {
+                        Text(
+                            text = "${(overallProgress * 100).toInt()}%",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = textColor,
+                        )
+                    }
+                }
+            }
+            "linear" -> {
+                LinearProgressIndicator(
+                    progress = { overallProgress },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp)),
+                    color = progressColor,
+                    trackColor = progressColor.copy(alpha = 0.2f),
+                )
+                if (showPercentage) {
+                    Text(
+                        text = "${(overallProgress * 100).toInt()}%",
+                        fontSize = 14.sp,
+                        color = textColor,
+                    )
+                }
+            }
+            else -> { /* checklist is the default, handled below */ }
+        }
+
+        // Checklist items (shown for all variants if items exist)
+        if (items.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items.forEachIndexed { index, item ->
+                    val isCompleted = index < completedCount
+                    val isCurrent = index == completedCount && !finished
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // Status icon
+                        Box(
+                            modifier = Modifier.size(24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (isCompleted) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "Done",
+                                    tint = checkColor,
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            } else if (isCurrent) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = progressColor,
+                                    strokeWidth = 2.dp,
+                                )
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .size(20.dp)
+                                        .clip(CircleShape)
+                                        .background(Color.Gray.copy(alpha = 0.2f)),
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = item.label,
+                            fontSize = 15.sp,
+                            color = when {
+                                isCompleted -> textColor
+                                isCurrent -> textColor
+                                else -> textColor.copy(alpha = 0.4f)
+                            },
+                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

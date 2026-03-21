@@ -643,6 +643,7 @@ fun OnboardingStepView(
     modifier: Modifier = Modifier
 ) {
     val toggleValues = remember { mutableMapOf<String, Boolean>() }
+    val inputValues = remember { mutableMapOf<String, Any>() }
 
     // SPEC-084: Block-based vs legacy rendering
     val blocks = effectiveConfig.content_blocks
@@ -652,6 +653,7 @@ fun OnboardingStepView(
             effectiveConfig = effectiveConfig,
             blocks = blocks,
             toggleValues = toggleValues,
+            inputValues = inputValues,
             onNext = onNext,
             onSkip = if (step.config.skip_enabled == true) onSkip else null,
             modifier = modifier,
@@ -691,6 +693,7 @@ private fun BlockBasedStepView(
     effectiveConfig: StepConfig,
     blocks: List<ContentBlock>,
     toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any> = mutableMapOf(),
     onNext: (Map<String, Any>?) -> Unit,
     onSkip: (() -> Unit)?,
     modifier: Modifier = Modifier,
@@ -706,7 +709,13 @@ private fun BlockBasedStepView(
 
     fun handleAction(action: String) {
         when (action) {
-            "next" -> onNext(toggleValues.toMap().mapValues { it.value as Any })
+            "next" -> {
+                // Merge toggleValues and inputValues (rating, etc.) into responses
+                val merged = mutableMapOf<String, Any>()
+                merged.putAll(toggleValues.mapValues { it.value as Any })
+                merged.putAll(inputValues)
+                onNext(merged)
+            }
             "skip" -> onSkip?.invoke()
             else -> onNext(null)
         }
@@ -789,7 +798,7 @@ private fun BlockBasedStepView(
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                         Spacer(Modifier.height(200.dp))
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
                     }
                 }
             }
@@ -808,7 +817,7 @@ private fun BlockBasedStepView(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
                     }
                 }
             }
@@ -819,7 +828,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
                     Spacer(Modifier.height(16.dp))
                     ai.appdna.sdk.core.NetworkImage(
                         url = effectiveConfig.image_url,
@@ -841,7 +850,7 @@ private fun BlockBasedStepView(
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                     Spacer(Modifier.height(16.dp))
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
                 }
             }
             else -> { // no_image
@@ -851,7 +860,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
                 }
             }
         }

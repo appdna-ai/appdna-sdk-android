@@ -514,6 +514,117 @@ internal object OnboardingConfigParser {
                     horizontal_align = bm["horizontal_align"] as? String,
                     vertical_offset = (bm["vertical_offset"] as? Number)?.toDouble(),
                     horizontal_offset = (bm["horizontal_offset"] as? Number)?.toDouble(),
+                    // SPEC-089d: page_indicator fields
+                    dot_count = (bm["dot_count"] as? Number)?.toInt(),
+                    active_index = (bm["active_index"] as? Number)?.toInt(),
+                    active_color = bm["active_color"] as? String,
+                    inactive_color = bm["inactive_color"] as? String,
+                    dot_size = (bm["dot_size"] as? Number)?.toDouble(),
+                    dot_spacing = (bm["dot_spacing"] as? Number)?.toDouble(),
+                    active_dot_width = (bm["active_dot_width"] as? Number)?.toDouble(),
+                    // SPEC-089d: social_login fields
+                    providers = (bm["providers"] as? List<*>)?.mapNotNull { p ->
+                        if (p is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val pm = p as Map<String, Any>
+                            SocialProvider(
+                                type = pm["type"] as? String ?: "",
+                                label = pm["label"] as? String,
+                                enabled = pm["enabled"] as? Boolean ?: true,
+                            )
+                        } else null
+                    },
+                    button_style = bm["button_style"] as? String,
+                    button_height = (bm["button_height"] as? Number)?.toDouble(),
+                    spacing = (bm["spacing"] as? Number)?.toDouble(),
+                    show_divider = bm["show_divider"] as? Boolean,
+                    divider_text = bm["divider_text"] as? String,
+                    // SPEC-089d: countdown_timer fields
+                    target_type = bm["target_type"] as? String,
+                    duration_seconds = (bm["duration_seconds"] as? Number)?.toInt(),
+                    target_datetime = bm["target_datetime"] as? String,
+                    show_days = bm["show_days"] as? Boolean,
+                    show_hours = bm["show_hours"] as? Boolean,
+                    show_minutes = bm["show_minutes"] as? Boolean,
+                    show_seconds = bm["show_seconds"] as? Boolean,
+                    labels = (bm["labels"] as? Map<String, Any>)?.let { lm ->
+                        CountdownLabels(
+                            days = lm["days"] as? String,
+                            hours = lm["hours"] as? String,
+                            minutes = lm["minutes"] as? String,
+                            seconds = lm["seconds"] as? String,
+                        )
+                    },
+                    on_expire_action = bm["on_expire_action"] as? String,
+                    expired_text = bm["expired_text"] as? String,
+                    accent_color = bm["accent_color"] as? String,
+                    font_size = (bm["font_size"] as? Number)?.toDouble(),
+                    alignment = bm["alignment"] as? String,
+                    // SPEC-089d: rating fields
+                    field_id = bm["field_id"] as? String,
+                    max_stars = (bm["max_stars"] as? Number)?.toInt(),
+                    default_value = (bm["default_value"] as? Number)?.toDouble(),
+                    star_size = (bm["star_size"] as? Number)?.toDouble(),
+                    active_rating_color = bm["active_rating_color"] as? String ?: bm["active_color"] as? String,
+                    inactive_rating_color = bm["inactive_rating_color"] as? String ?: bm["inactive_color"] as? String,
+                    allow_half = bm["allow_half"] as? Boolean,
+                    label = bm["label"] as? String,
+                    // SPEC-089d: rich_text fields
+                    content = bm["content"] as? String,
+                    base_style = (bm["base_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    link_color = bm["link_color"] as? String,
+                    max_lines = (bm["max_lines"] as? Number)?.toInt(),
+                    // SPEC-089d: progress_bar fields
+                    segment_count = (bm["segment_count"] as? Number)?.toInt(),
+                    active_segments = (bm["active_segments"] as? Number)?.toInt(),
+                    fill_color = bm["fill_color"] as? String,
+                    track_color = bm["track_color"] as? String,
+                    segment_gap = (bm["segment_gap"] as? Number)?.toDouble(),
+                    show_label = bm["show_label"] as? Boolean,
+                    label_style = (bm["label_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    // SPEC-089d: timeline fields
+                    timeline_items = (bm["timeline_items"] as? List<*>
+                        ?: bm["items"] as? List<*>)?.mapNotNull { ti ->
+                        if (ti is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val tm = ti as Map<String, Any>
+                            // Only parse as TimelineItem if it has a title (to distinguish from string items)
+                            val title = tm["title"] as? String ?: return@mapNotNull null
+                            TimelineItem(
+                                id = tm["id"] as? String ?: "",
+                                title = title,
+                                subtitle = tm["subtitle"] as? String,
+                                icon = tm["icon"] as? String,
+                                status = tm["status"] as? String ?: "upcoming",
+                            )
+                        } else null
+                    },
+                    line_color = bm["line_color"] as? String,
+                    completed_color = bm["completed_color"] as? String,
+                    current_color = bm["current_color"] as? String,
+                    upcoming_color = bm["upcoming_color"] as? String,
+                    show_line = bm["show_line"] as? Boolean,
+                    compact = bm["compact"] as? Boolean,
+                    title_style = (bm["title_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    subtitle_style = (bm["subtitle_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    // SPEC-089d: animated_loading fields
+                    loading_items = (bm["loading_items"] as? List<*>
+                        ?: if (bm["type"] == "animated_loading") bm["items"] as? List<*> else null)?.mapNotNull { li ->
+                        if (li is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val lm = li as Map<String, Any>
+                            LoadingItem(
+                                label = lm["label"] as? String ?: "",
+                                duration_ms = (lm["duration_ms"] as? Number)?.toInt() ?: 1000,
+                                icon = lm["icon"] as? String,
+                            )
+                        } else null
+                    },
+                    progress_color = bm["progress_color"] as? String,
+                    check_color = bm["check_color"] as? String,
+                    total_duration_ms = (bm["total_duration_ms"] as? Number)?.toInt(),
+                    auto_advance = bm["auto_advance"] as? Boolean,
+                    show_percentage = bm["show_percentage"] as? Boolean,
                 )
             } else null
         }
