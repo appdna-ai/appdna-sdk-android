@@ -68,6 +68,17 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
 import ai.appdna.sdk.AppDNA
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.ui.graphics.graphicsLayer
 
 // MARK: - Block Style Design Tokens (SPEC-089d §6.1)
 
@@ -424,6 +435,24 @@ data class ContentBlock(
     // SPEC-089d Nurrai: pricing_card fields
     val pricing_plans: List<PricingPlan>? = null,
     val pricing_layout: String? = null,
+    // SPEC-089d Phase 3: Form input common fields
+    val field_label: String? = null,
+    val field_placeholder: String? = null,
+    val field_required: Boolean? = null,
+    val field_style: FormFieldBlockStyle? = null,
+    val field_options: List<InputOption>? = null,
+    val field_config: Map<String, Any>? = null,
+    // SPEC-089d §6.3: Visibility condition
+    val visibility_condition: VisibilityCondition? = null,
+    // SPEC-089d §6.4: Entrance animation
+    val entrance_animation: EntranceAnimationConfig? = null,
+    // SPEC-089d §6.5: Press/tap state
+    val pressed_style: PressedStyleConfig? = null,
+    // SPEC-089d §6.6: Dynamic bindings
+    val bindings: Map<String, String>? = null,
+    // SPEC-089d §6.7: Relative sizing
+    val element_width: String? = null,
+    val element_height: String? = null,
 )
 
 /** Social login provider config (SPEC-089d §3.4). */
@@ -483,6 +512,186 @@ data class StarParticleState(
     var speed: Float,
 )
 
+/** Form field styling config (SPEC-089d §5.2). */
+data class FormFieldBlockStyle(
+    val background_color: String? = null,
+    val border_color: String? = null,
+    val border_width: Double? = null,
+    val corner_radius: Double? = null,
+    val text_color: String? = null,
+    val placeholder_color: String? = null,
+    val font_size: Double? = null,
+    val focused_border_color: String? = null,
+    val label_color: String? = null,
+    val label_font_size: Double? = null,
+    val error_border_color: String? = null,
+    val error_text_color: String? = null,
+    val track_color: String? = null,
+    val fill_color: String? = null,
+    val thumb_color: String? = null,
+    val toggle_on_color: String? = null,
+    val toggle_off_color: String? = null,
+)
+
+/** Option for select, chips, segmented inputs. */
+data class InputOption(
+    val value: String,
+    val label: String,
+)
+
+/** Visibility condition (SPEC-089d §6.3). */
+data class VisibilityCondition(
+    val type: String,        // always, when_equals, when_not_equals, when_not_empty, when_empty, when_gt, when_lt
+    val variable: String? = null,
+    val value: Any? = null,
+    val expression: String? = null,
+)
+
+/** Entrance animation config (SPEC-089d §6.4). */
+data class EntranceAnimationConfig(
+    val type: String = "none",    // none, fade_in, slide_up, slide_down, slide_left, slide_right, scale_up, scale_down, bounce, flip
+    val duration_ms: Int = 300,
+    val delay_ms: Int = 0,
+    val easing: String = "ease_out",
+    val spring_damping: Double? = null,
+)
+
+/** Pressed/tap style config (SPEC-089d §6.5). */
+data class PressedStyleConfig(
+    val bg_color: String? = null,
+    val text_color: String? = null,
+    val scale: Double? = null,     // 0.85-1.0
+    val opacity: Double? = null,   // 0.5-1.0
+)
+
+// MARK: - Visibility Condition Evaluator (SPEC-089d §6.3)
+
+/**
+ * Evaluates a visibility condition against the current data context.
+ * Returns true if the block should be rendered.
+ */
+fun evaluateVisibilityCondition(
+    condition: VisibilityCondition?,
+    responses: Map<String, Any> = emptyMap(),
+    hookData: Map<String, Any>? = null,
+    userTraits: Map<String, Any>? = null,
+    sessionData: Map<String, Any>? = null,
+): Boolean {
+    if (condition == null) return true
+
+    return when (condition.type) {
+        "always" -> true
+        "when_equals" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            resolved?.toString() == condition.value?.toString()
+        }
+        "when_not_equals" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            resolved?.toString() != condition.value?.toString()
+        }
+        "when_not_empty" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            resolved != null && resolved.toString().isNotEmpty()
+        }
+        "when_empty" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            resolved == null || resolved.toString().isEmpty()
+        }
+        "when_gt" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            val numA = resolved?.toString()?.toDoubleOrNull() ?: return false
+            val numB = condition.value?.toString()?.toDoubleOrNull() ?: return false
+            numA > numB
+        }
+        "when_lt" -> {
+            val resolved = resolveDotPath(condition.variable, responses, hookData, userTraits, sessionData)
+            val numA = resolved?.toString()?.toDoubleOrNull() ?: return false
+            val numB = condition.value?.toString()?.toDoubleOrNull() ?: return false
+            numA < numB
+        }
+        else -> true
+    }
+}
+
+/**
+ * Resolves a dot-path variable from the evaluation context.
+ */
+private fun resolveDotPath(
+    path: String?,
+    responses: Map<String, Any>,
+    hookData: Map<String, Any>?,
+    userTraits: Map<String, Any>?,
+    sessionData: Map<String, Any>?,
+): Any? {
+    if (path.isNullOrEmpty()) return null
+    val parts = path.split(".")
+    if (parts.size < 2) return null
+
+    val root: Map<String, Any>? = when (parts[0]) {
+        "responses" -> responses
+        "hook_data" -> hookData
+        "user" -> userTraits
+        "session" -> sessionData
+        else -> null
+    }
+
+    var current: Any? = root ?: return null
+    for (part in parts.drop(1)) {
+        current = (current as? Map<*, *>)?.get(part) ?: return null
+    }
+    return current
+}
+
+/**
+ * Resolves `{{variable}}` template strings in text (SPEC-089d §6.6).
+ */
+fun resolveTemplateString(
+    text: String,
+    hookData: Map<String, Any>?,
+    responses: Map<String, Any>,
+    sessionData: Map<String, Any>? = null,
+    userTraits: Map<String, Any>? = null,
+): String {
+    val pattern = Regex("\\{\\{\\s*([a-zA-Z0-9_.]+)\\s*\\}\\}")
+    return pattern.replace(text) { matchResult ->
+        val path = matchResult.groupValues[1]
+        val resolved = resolveDotPath(path, responses, hookData, userTraits, sessionData)
+        resolved?.toString() ?: matchResult.value
+    }
+}
+
+/**
+ * Parses relative size strings (SPEC-089d §6.7).
+ */
+fun Modifier.applyRelativeSizing(width: String?, height: String?): Modifier {
+    var mod = this
+    when {
+        width == "fill" -> mod = mod.then(Modifier.fillMaxWidth())
+        width == "auto" -> { /* no-op, content-sized */ }
+        width?.endsWith("%") == true -> {
+            val fraction = width.dropLast(1).toFloatOrNull()?.div(100f)
+            if (fraction != null) mod = mod.then(Modifier.fillMaxWidth(fraction))
+        }
+        width?.endsWith("px") == true -> {
+            val px = width.dropLast(2).toFloatOrNull()
+            if (px != null) mod = mod.then(Modifier.width(px.dp))
+        }
+    }
+    when {
+        height == "fill" -> mod = mod.then(Modifier.fillMaxHeight())
+        height == "auto" -> { /* no-op */ }
+        height?.endsWith("%") == true -> {
+            val fraction = height.dropLast(1).toFloatOrNull()?.div(100f)
+            if (fraction != null) mod = mod.then(Modifier.fillMaxHeight(fraction))
+        }
+        height?.endsWith("px") == true -> {
+            val px = height.dropLast(2).toFloatOrNull()
+            if (px != null) mod = mod.then(Modifier.height(px.dp))
+        }
+    }
+    return mod
+}
+
 // MARK: - Content Block Renderer
 
 @Composable
@@ -492,13 +701,43 @@ fun ContentBlockRendererView(
     toggleValues: MutableMap<String, Boolean>,
     inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
+    responses: Map<String, Any> = emptyMap(),
+    hookData: Map<String, Any>? = null,
 ) {
+    // SPEC-089d §6.3: Filter blocks by visibility condition
+    val visibleBlocks = blocks.filter { block ->
+        evaluateVisibilityCondition(
+            block.visibility_condition,
+            responses = responses,
+            hookData = hookData,
+        )
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        blocks.forEach { block ->
-            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
+        var animationCount = 0
+        visibleBlocks.forEach { block ->
+            val shouldAnimate = block.entrance_animation != null
+                && block.entrance_animation.type != "none"
+                && animationCount < 10  // Max 10 animated blocks per step
+            if (shouldAnimate) animationCount++
+
+            // SPEC-089d §6.7: Apply relative sizing
+            val sizingModifier = Modifier.applyRelativeSizing(block.element_width, block.element_height)
+
+            if (shouldAnimate) {
+                EntranceAnimationWrapper(animation = block.entrance_animation!!) {
+                    Box(modifier = sizingModifier) {
+                        RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
+                    }
+                }
+            } else {
+                Box(modifier = sizingModifier) {
+                    RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
+                }
+            }
         }
     }
 }
@@ -585,6 +824,29 @@ private fun RenderBlockContent(
         "row" -> RowBlock(block, onAction, toggleValues, inputValues, loc)
         // SPEC-089d Nurrai: Pricing card
         "pricing_card" -> PricingCardBlock(block, onAction, inputValues)
+        // SPEC-089d Phase 3: Form input block renderers (22 types)
+        "input_text" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_CLASS_TEXT)
+        "input_textarea" -> FormInputTextAreaBlock(block, inputValues)
+        "input_number" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_CLASS_NUMBER)
+        "input_email" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS)
+        "input_phone" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_CLASS_PHONE)
+        "input_url" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_TEXT_VARIATION_URI)
+        "input_password" -> FormInputPasswordBlock(block, inputValues)
+        "input_date" -> FormInputDateBlock(block, inputValues, mode = "date")
+        "input_time" -> FormInputDateBlock(block, inputValues, mode = "time")
+        "input_datetime" -> FormInputDateBlock(block, inputValues, mode = "datetime")
+        "input_select" -> FormInputSelectBlock(block, inputValues)
+        "input_slider" -> FormInputSliderBlock(block, inputValues)
+        "input_toggle" -> FormInputToggleBlock(block, inputValues)
+        "input_stepper" -> FormInputStepperBlock(block, inputValues)
+        "input_segmented" -> FormInputSegmentedBlock(block, inputValues)
+        "input_rating" -> FormInputRatingBlock(block, inputValues)
+        "input_range_slider" -> FormInputRangeSliderBlock(block, inputValues)
+        "input_chips" -> FormInputChipsBlock(block, inputValues)
+        "input_color" -> FormInputColorBlock(block, inputValues)
+        "input_location" -> FormInputPlaceholderBlock(block, icon = "\uD83D\uDCCD", label = "Tap to search location")
+        "input_image_picker" -> FormInputPlaceholderBlock(block, icon = "\uD83D\uDDBC", label = "Tap to pick image")
+        "input_signature" -> FormInputPlaceholderBlock(block, icon = "\u270D", label = "Tap to sign")
         // SPEC-089d AC-002: Backward compatibility — unknown types render as empty
         else -> {
             // Unknown block types silently render nothing.
@@ -664,15 +926,26 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
         }
     }
 
+    // SPEC-089d §6.5: Pressed style — collect interaction source for scale/opacity
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val pressedScale = if (isPressed) (block.pressed_style?.scale ?: 0.97).toFloat() else 1f
+    val pressedAlpha = if (isPressed) (block.pressed_style?.opacity ?: 0.9).toFloat() else 1f
+    val pressedModifier = if (block.pressed_style != null) {
+        Modifier
+            .graphicsLayer(scaleX = pressedScale, scaleY = pressedScale, alpha = pressedAlpha)
+    } else Modifier
+
     when (btnVariant) {
         "outline" -> {
             // SPEC-089d §3.18: Outline variant — transparent bg, colored border + text
             OutlinedButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
                 shape = RoundedCornerShape(cornerRadius),
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, bgColor),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = bgColor),
+                interactionSource = interactionSource,
             ) {
                 Text(text = displayText, style = effectiveStyle, color = bgColor)
             }
@@ -680,8 +953,9 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
         "text" -> {
             TextButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
                 shape = RoundedCornerShape(cornerRadius),
+                interactionSource = interactionSource,
             ) {
                 Text(text = displayText, style = effectiveStyle, color = bgColor)
             }
@@ -690,9 +964,10 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             // primary / secondary — filled button
             Button(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
                 shape = RoundedCornerShape(cornerRadius),
                 colors = ButtonDefaults.buttonColors(containerColor = bgColor),
+                interactionSource = interactionSource,
             ) {
                 Text(text = displayText, style = effectiveStyle, color = txtColor)
             }
@@ -2368,6 +2643,727 @@ private fun PricingCardBlock(
         ) {
             plans.forEach { plan ->
                 PlanCardContent(plan, modifier = Modifier.fillMaxWidth())
+            }
+        }
+    }
+}
+
+// MARK: - Entrance Animation Wrapper (SPEC-089d §6.4)
+
+/**
+ * Wraps content with entrance animation.
+ * Uses AnimatedVisibility with appropriate EnterTransition.
+ */
+@Composable
+fun EntranceAnimationWrapper(
+    animation: EntranceAnimationConfig,
+    content: @Composable () -> Unit,
+) {
+    var isVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(animation.delay_ms.toLong())
+        isVisible = true
+    }
+
+    val durationMs = animation.duration_ms
+    val easingSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> = when (animation.easing) {
+        "spring" -> androidx.compose.animation.core.spring(
+            dampingRatio = (animation.spring_damping ?: 0.7).toFloat()
+        )
+        else -> tween(durationMillis = durationMs)
+    }
+
+    val enterTransition: androidx.compose.animation.EnterTransition = when (animation.type) {
+        "fade_in" -> androidx.compose.animation.fadeIn(tween(durationMs))
+        "slide_up" -> androidx.compose.animation.slideInVertically(tween(durationMs)) { it }
+        "slide_down" -> androidx.compose.animation.slideInVertically(tween(durationMs)) { -it }
+        "slide_left" -> androidx.compose.animation.slideInHorizontally(tween(durationMs)) { -it }
+        "slide_right" -> androidx.compose.animation.slideInHorizontally(tween(durationMs)) { it }
+        "scale_up" -> androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 0.5f)
+        "scale_down" -> androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 1.5f)
+        "bounce" -> androidx.compose.animation.scaleIn(
+            androidx.compose.animation.core.spring(dampingRatio = (animation.spring_damping ?: 0.7).toFloat()),
+            initialScale = 0.3f,
+        )
+        else -> androidx.compose.animation.EnterTransition.None
+    }
+
+    androidx.compose.animation.AnimatedVisibility(
+        visible = isVisible,
+        enter = enterTransition,
+    ) {
+        content()
+    }
+}
+
+// MARK: - Form Input Block Composables (SPEC-089d Phase 3: AC-040 through AC-053)
+
+/** Label composable for form field blocks. */
+@Composable
+private fun FormFieldLabel(block: ContentBlock) {
+    val label = block.field_label ?: block.label ?: block.text
+    if (!label.isNullOrEmpty()) {
+        val required = block.field_required ?: false
+        Row {
+            Text(
+                text = label,
+                fontSize = (block.field_style?.label_font_size ?: 14.0).sp,
+                fontWeight = FontWeight.Medium,
+                color = StyleEngine.parseColor(block.field_style?.label_color ?: "#374151"),
+            )
+            if (required) {
+                Text(text = "*", color = Color.Red, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+/** Generic text-based input (text, number, email, phone, url). */
+@Composable
+private fun FormInputTextBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    keyboardType: Int,
+) {
+    val fieldId = block.field_id ?: block.id
+    var text by remember { mutableStateOf("") }
+    val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
+    val cornerRadius = (block.field_style?.corner_radius ?: 8.0).dp
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        val kbType = when (keyboardType) {
+            android.text.InputType.TYPE_CLASS_NUMBER -> androidx.compose.ui.text.input.KeyboardType.Number
+            android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS -> androidx.compose.ui.text.input.KeyboardType.Email
+            android.text.InputType.TYPE_CLASS_PHONE -> androidx.compose.ui.text.input.KeyboardType.Phone
+            android.text.InputType.TYPE_TEXT_VARIATION_URI -> androidx.compose.ui.text.input.KeyboardType.Uri
+            else -> androidx.compose.ui.text.input.KeyboardType.Text
+        }
+
+        androidx.compose.material3.OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                inputValues[fieldId] = it
+            },
+            placeholder = {
+                Text(
+                    text = block.field_placeholder ?: "",
+                    color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
+                )
+            },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = kbType),
+            shape = RoundedCornerShape(cornerRadius),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+    }
+}
+
+/** Multi-line textarea input. */
+@Composable
+private fun FormInputTextAreaBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    var text by remember { mutableStateOf("") }
+    val minLines = (block.field_config?.get("min_lines") as? Number)?.toInt() ?: 3
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        androidx.compose.material3.OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                inputValues[fieldId] = it
+            },
+            placeholder = { Text(block.field_placeholder ?: "") },
+            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = false,
+            minLines = minLines,
+        )
+    }
+}
+
+/** Password input with show/hide toggle. */
+@Composable
+private fun FormInputPasswordBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    var text by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        androidx.compose.material3.OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                inputValues[fieldId] = it
+            },
+            placeholder = { Text(block.field_placeholder ?: "Password") },
+            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            visualTransformation = if (passwordVisible)
+                androidx.compose.ui.text.input.VisualTransformation.None
+            else
+                androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            trailingIcon = {
+                androidx.compose.material3.IconButton(onClick = { passwordVisible = !passwordVisible }) {
+                    Text(if (passwordVisible) "\uD83D\uDE48" else "\uD83D\uDC41", fontSize = 18.sp)
+                }
+            },
+        )
+    }
+}
+
+/** Date / Time / DateTime picker input. */
+@Composable
+private fun FormInputDateBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    mode: String,
+) {
+    val fieldId = block.field_id ?: block.id
+    var displayText by remember { mutableStateOf(block.field_placeholder ?: "Select ${mode}...") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        // Simplified: render as a tappable text field placeholder
+        // Full DatePickerDialog/TimePickerDialog requires Activity context
+        OutlinedButton(
+            onClick = {
+                // In a full implementation, this would show a DatePickerDialog
+                val now = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                displayText = now
+                inputValues[fieldId] = now
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            border = androidx.compose.foundation.BorderStroke(
+                1.dp,
+                StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+            ),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(text = displayText, fontSize = 14.sp)
+                Text(text = when (mode) {
+                    "date" -> "\uD83D\uDCC5"
+                    "time" -> "\u23F0"
+                    else -> "\uD83D\uDCC5"
+                }, fontSize = 16.sp)
+            }
+        }
+    }
+}
+
+/** Dropdown select input. */
+@Composable
+private fun FormInputSelectBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val options = block.field_options ?: emptyList()
+    var expanded by remember { mutableStateOf(false) }
+    var selectedLabel by remember { mutableStateOf(block.field_placeholder ?: "Select...") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedButton(
+                onClick = { expanded = true },
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(text = selectedLabel, fontSize = 14.sp)
+                    Text(text = "\u25BC", fontSize = 12.sp)
+                }
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                options.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text(option.label) },
+                        onClick = {
+                            selectedLabel = option.label
+                            inputValues[fieldId] = option.value
+                            expanded = false
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Slider input for single numeric value. */
+@Composable
+private fun FormInputSliderBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val minVal = (block.min_value ?: 0.0).toFloat()
+    val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    val unitStr = block.unit ?: ""
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    var value by remember { mutableStateOf((block.default_picker_value ?: minVal.toDouble()).toFloat()) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            FormFieldLabel(block)
+            Text(
+                text = "${value.roundToInt()}$unitStr",
+                fontSize = 14.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = fillCol,
+            )
+        }
+
+        Slider(
+            value = value,
+            onValueChange = {
+                value = it
+                inputValues[fieldId] = it.toDouble()
+            },
+            valueRange = minVal..maxVal,
+            colors = SliderDefaults.colors(
+                thumbColor = fillCol,
+                activeTrackColor = fillCol,
+            ),
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        inputValues[fieldId] = value.toDouble()
+    }
+}
+
+/** Toggle (switch) input. */
+@Composable
+private fun FormInputToggleBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val onColor = StyleEngine.parseColor(block.field_style?.toggle_on_color ?: "#6366F1")
+    val label = block.field_label ?: block.toggle_label ?: ""
+    var checked by remember { mutableStateOf(block.toggle_default ?: false) }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(text = label, modifier = Modifier.weight(1f), fontSize = 14.sp)
+        Switch(
+            checked = checked,
+            onCheckedChange = {
+                checked = it
+                inputValues[fieldId] = it
+            },
+            colors = SwitchDefaults.colors(checkedTrackColor = onColor),
+        )
+    }
+
+    LaunchedEffect(Unit) {
+        inputValues[fieldId] = checked
+    }
+}
+
+/** Stepper input (increment/decrement). */
+@Composable
+private fun FormInputStepperBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val minVal = (block.min_value ?: 0.0).toInt()
+    val maxVal = (block.max_value_picker ?: 100.0).toInt()
+    val stepVal = (block.step_value ?: 1.0).toInt()
+    val unitStr = block.unit ?: ""
+    var value by remember { mutableStateOf((block.default_picker_value ?: minVal.toDouble()).toInt()) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            OutlinedButton(
+                onClick = { if (value - stepVal >= minVal) { value -= stepVal; inputValues[fieldId] = value } },
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                text = "$value$unitStr",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+                textAlign = TextAlign.Center,
+            )
+            OutlinedButton(
+                onClick = { if (value + stepVal <= maxVal) { value += stepVal; inputValues[fieldId] = value } },
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                contentPadding = PaddingValues(0.dp),
+            ) {
+                Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        inputValues[fieldId] = value
+    }
+}
+
+/** Segmented picker input. */
+@Composable
+private fun FormInputSegmentedBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val options = block.field_options ?: emptyList()
+    var selectedValue by remember { mutableStateOf(options.firstOrNull()?.value ?: "") }
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+        ) {
+            options.forEach { option ->
+                val isSelected = selectedValue == option.value
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(if (isSelected) fillCol else Color.Transparent)
+                        .clickable {
+                            selectedValue = option.value
+                            inputValues[fieldId] = option.value
+                        }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = option.label,
+                        color = if (isSelected) Color.White else Color.DarkGray,
+                        fontSize = 14.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (selectedValue.isNotEmpty()) inputValues[fieldId] = selectedValue
+    }
+}
+
+/** Star rating input (form variant). */
+@Composable
+private fun FormInputRatingBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val maxStars = block.max_stars ?: 5
+    val starSize = (block.star_size ?: 32.0).sp
+    val filledCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_rating_color ?: "#FBBF24")
+    val emptyCol = StyleEngine.parseColor(block.inactive_rating_color ?: "#D1D5DB")
+    var selectedRating by remember { mutableStateOf((block.default_value ?: 0.0).toInt()) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (i in 1..maxStars) {
+                val isFilled = i <= selectedRating
+                Icon(
+                    imageVector = if (isFilled) Icons.Filled.Star else Icons.Outlined.Star,
+                    contentDescription = "$i stars",
+                    tint = if (isFilled) filledCol else emptyCol,
+                    modifier = Modifier
+                        .size(starSize.value.dp)
+                        .clickable {
+                            selectedRating = i
+                            inputValues[fieldId] = i.toDouble()
+                        },
+                )
+            }
+        }
+    }
+}
+
+/** Range slider (dual-thumb) input. */
+@Composable
+private fun FormInputRangeSliderBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val minVal = (block.min_value ?: 0.0).toFloat()
+    val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    val unitStr = block.unit ?: ""
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    var lowValue by remember { mutableStateOf(minVal) }
+    var highValue by remember { mutableStateOf(maxVal) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            FormFieldLabel(block)
+            Text(
+                text = "${lowValue.roundToInt()}$unitStr - ${highValue.roundToInt()}$unitStr",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = fillCol,
+            )
+        }
+
+        // Min slider
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Min", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(30.dp))
+            Slider(
+                value = lowValue,
+                onValueChange = {
+                    lowValue = it
+                    if (lowValue > highValue) highValue = lowValue
+                    inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
+                },
+                valueRange = minVal..maxVal,
+                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol),
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // Max slider
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Max", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(30.dp))
+            Slider(
+                value = highValue,
+                onValueChange = {
+                    highValue = it
+                    if (highValue < lowValue) lowValue = highValue
+                    inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
+                },
+                valueRange = minVal..maxVal,
+                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol),
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
+    }
+}
+
+/** Chips / tag selection input. */
+@Composable
+private fun FormInputChipsBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val options = block.field_options ?: emptyList()
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    val maxSelections = (block.field_config?.get("max_selections") as? Number)?.toInt()
+    var selectedValues by remember { mutableStateOf(setOf<String>()) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        // Wrapping flow layout using FlowRow (Material3)
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            options.forEach { option ->
+                val isSelected = selectedValues.contains(option.value)
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .border(
+                            1.dp,
+                            if (isSelected) fillCol else Color.Gray.copy(alpha = 0.3f),
+                            RoundedCornerShape(999.dp),
+                        )
+                        .background(if (isSelected) fillCol else Color.Gray.copy(alpha = 0.05f))
+                        .clickable {
+                            selectedValues = if (isSelected) {
+                                selectedValues - option.value
+                            } else {
+                                if (maxSelections != null && selectedValues.size >= maxSelections) {
+                                    selectedValues // at max
+                                } else {
+                                    selectedValues + option.value
+                                }
+                            }
+                            inputValues[fieldId] = selectedValues.toList()
+                        }
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        text = option.label,
+                        fontSize = 14.sp,
+                        color = if (isSelected) Color.White else Color.DarkGray,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Color picker — grid of preset color swatches. */
+@Composable
+private fun FormInputColorBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    @Suppress("UNCHECKED_CAST")
+    val presetColors: List<String> = (block.field_config?.get("preset_colors") as? List<String>)
+        ?: listOf("#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6", "#6366F1", "#A855F7", "#EC4899", "#000000", "#6B7280")
+    var selectedColor by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        androidx.compose.foundation.layout.FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            presetColors.forEach { color ->
+                val isSelected = selectedColor == color
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(StyleEngine.parseColor(color))
+                        .border(
+                            width = if (isSelected) 3.dp else 0.dp,
+                            color = if (isSelected) Color.DarkGray else Color.Transparent,
+                            shape = CircleShape,
+                        )
+                        .clickable {
+                            selectedColor = color
+                            inputValues[fieldId] = color
+                        },
+                )
+            }
+        }
+    }
+}
+
+/** Placeholder for complex inputs (location, image_picker, signature). */
+@Composable
+private fun FormInputPlaceholderBlock(
+    block: ContentBlock,
+    icon: String,
+    label: String,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                .background(Color(0xFFF9FAFB))
+                .border(
+                    1.dp,
+                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                    RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                )
+                .padding(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = icon, fontSize = 16.sp)
+                Text(text = label, fontSize = 14.sp, color = Color.Gray)
             }
         }
     }
