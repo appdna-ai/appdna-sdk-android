@@ -449,7 +449,9 @@ internal fun OnboardingFlowHost(
                         onStepSkipped(step.id, currentIndex)
                         advanceOrComplete()
                     },
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier.fillMaxSize(),
+                    currentStepIndex = currentIndex,
+                    totalSteps = flow.steps.size,
                 )
                 }
             }
@@ -640,7 +642,9 @@ fun OnboardingStepView(
     effectiveConfig: StepConfig,
     onNext: (Map<String, Any>?) -> Unit,
     onSkip: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currentStepIndex: Int = 0,
+    totalSteps: Int = 1,
 ) {
     val toggleValues = remember { mutableMapOf<String, Boolean>() }
     val inputValues = remember { mutableMapOf<String, Any>() }
@@ -657,6 +661,8 @@ fun OnboardingStepView(
             onNext = onNext,
             onSkip = if (step.config.skip_enabled == true) onSkip else null,
             modifier = modifier,
+            currentStepIndex = currentStepIndex,
+            totalSteps = totalSteps,
         )
     } else {
         // Legacy rendering
@@ -697,6 +703,8 @@ private fun BlockBasedStepView(
     onNext: (Map<String, Any>?) -> Unit,
     onSkip: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    currentStepIndex: Int = 0,
+    totalSteps: Int = 1,
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
@@ -798,7 +806,7 @@ private fun BlockBasedStepView(
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                         Spacer(Modifier.height(200.dp))
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -817,7 +825,7 @@ private fun BlockBasedStepView(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
+                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -828,7 +836,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     Spacer(Modifier.height(16.dp))
                     ai.appdna.sdk.core.NetworkImage(
                         url = effectiveConfig.image_url,
@@ -850,7 +858,7 @@ private fun BlockBasedStepView(
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                     Spacer(Modifier.height(16.dp))
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
             else -> { // no_image
@@ -860,7 +868,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc)
+                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
         }

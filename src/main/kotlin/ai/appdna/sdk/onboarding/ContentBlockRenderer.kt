@@ -79,6 +79,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectDragGestures
 
 // MARK: - Block Style Design Tokens (SPEC-089d §6.1)
 
@@ -661,6 +663,76 @@ fun resolveTemplateString(
 }
 
 /**
+ * AC-064/065/066: Resolves dynamic bindings and template strings on a block.
+ * Returns a new ContentBlock with resolved text fields and binding property overrides.
+ */
+private fun resolveBlockBindings(
+    block: ContentBlock,
+    hookData: Map<String, Any>?,
+    responses: Map<String, Any>,
+): ContentBlock {
+    val hasBindings = !block.bindings.isNullOrEmpty()
+    val hasTemplates = (block.text?.contains("{{") == true)
+        || (block.field_label?.contains("{{") == true)
+        || (block.field_placeholder?.contains("{{") == true)
+        || (block.badge_text?.contains("{{") == true)
+        || (block.toggle_label?.contains("{{") == true)
+        || (block.label?.contains("{{") == true)
+    if (!hasBindings && !hasTemplates) return block
+
+    var resolved = block
+
+    // AC-066: Resolve bindings map — override block properties from data context
+    if (hasBindings) {
+        block.bindings!!.forEach { (property, path) ->
+            val value = resolveDotPath(path, responses, hookData, null, null)
+            if (value != null) {
+                resolved = applyBindingProperty(resolved, property, value)
+            }
+        }
+    }
+
+    // AC-064/065: Resolve template strings in text fields
+    if (hasTemplates) {
+        resolved = resolved.copy(
+            text = resolved.text?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+            field_label = resolved.field_label?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+            field_placeholder = resolved.field_placeholder?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+            badge_text = resolved.badge_text?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+            toggle_label = resolved.toggle_label?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+            label = resolved.label?.let { if (it.contains("{{")) resolveTemplateString(it, hookData, responses) else it },
+        )
+    }
+
+    return resolved
+}
+
+/** Apply a single binding property override to a ContentBlock. */
+private fun applyBindingProperty(block: ContentBlock, property: String, value: Any): ContentBlock {
+    val strValue = value.toString()
+    return when (property) {
+        "text" -> block.copy(text = strValue)
+        "field_label" -> block.copy(field_label = strValue)
+        "field_placeholder" -> block.copy(field_placeholder = strValue)
+        "badge_text" -> block.copy(badge_text = strValue)
+        "toggle_label" -> block.copy(toggle_label = strValue)
+        "label" -> block.copy(label = strValue)
+        "image_url" -> block.copy(image_url = strValue)
+        "bg_color" -> block.copy(bg_color = strValue)
+        "text_color" -> block.copy(text_color = strValue)
+        "active_color" -> block.copy(active_color = strValue)
+        "inactive_color" -> block.copy(inactive_color = strValue)
+        "fill_color" -> block.copy(fill_color = strValue)
+        "icon_emoji" -> block.copy(icon_emoji = strValue)
+        "active_index" -> (value as? Number)?.toInt()?.let { block.copy(active_index = it) } ?: block
+        "dot_count" -> (value as? Number)?.toInt()?.let { block.copy(dot_count = it) } ?: block
+        "segment_count" -> (value as? Number)?.toInt()?.let { block.copy(segment_count = it) } ?: block
+        "active_segments" -> (value as? Number)?.toInt()?.let { block.copy(active_segments = it) } ?: block
+        else -> block // Unknown property — no-op
+    }
+}
+
+/**
  * Parses relative size strings (SPEC-089d §6.7).
  */
 fun Modifier.applyRelativeSizing(width: String?, height: String?): Modifier {
@@ -703,6 +775,8 @@ fun ContentBlockRendererView(
     loc: ((String, String) -> String)? = null,
     responses: Map<String, Any> = emptyMap(),
     hookData: Map<String, Any>? = null,
+    currentStepIndex: Int = 0,
+    totalSteps: Int = 1,
 ) {
     // SPEC-089d §6.3: Filter blocks by visibility condition
     val visibleBlocks = blocks.filter { block ->
@@ -718,7 +792,10 @@ fun ContentBlockRendererView(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         var animationCount = 0
-        visibleBlocks.forEach { block ->
+        visibleBlocks.forEach { rawBlock ->
+            // AC-064/065/066: Resolve dynamic bindings and template strings
+            val block = resolveBlockBindings(rawBlock, hookData = hookData, responses = responses)
+
             val shouldAnimate = block.entrance_animation != null
                 && block.entrance_animation.type != "none"
                 && animationCount < 10  // Max 10 animated blocks per step
@@ -730,12 +807,12 @@ fun ContentBlockRendererView(
             if (shouldAnimate) {
                 EntranceAnimationWrapper(animation = block.entrance_animation!!) {
                     Box(modifier = sizingModifier) {
-                        RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
+                        RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             } else {
                 Box(modifier = sizingModifier) {
-                    RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc)
+                    RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
         }
@@ -749,6 +826,8 @@ private fun RenderBlock(
     toggleValues: MutableMap<String, Boolean>,
     inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
+    currentStepIndex: Int = 0,
+    totalSteps: Int = 1,
 ) {
     // SPEC-089d: Wrap every block with block_style + 2D positioning modifiers
     val blockAlignment = if (block.horizontal_align != null || block.vertical_align != null) {
@@ -770,12 +849,12 @@ private fun RenderBlock(
             contentAlignment = blockAlignment,
         ) {
             Box(modifier = contentModifier) {
-                RenderBlockContent(block, onAction, toggleValues, inputValues, loc)
+                RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps)
             }
         }
     } else {
         Box(modifier = contentModifier) {
-            RenderBlockContent(block, onAction, toggleValues, inputValues, loc)
+            RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps)
         }
     }
 }
@@ -787,6 +866,8 @@ private fun RenderBlockContent(
     toggleValues: MutableMap<String, Boolean>,
     inputValues: MutableMap<String, Any> = mutableMapOf(),
     loc: ((String, String) -> String)? = null,
+    currentStepIndex: Int = 0,
+    totalSteps: Int = 1,
 ) {
     when (block.type) {
         "heading" -> HeadingBlock(block, loc)
@@ -804,12 +885,12 @@ private fun RenderBlockContent(
         "lottie" -> LottieContentBlock(block)
         "rive" -> RiveContentBlock(block)
         // SPEC-089d Phase A: Implemented onboarding block types
-        "page_indicator" -> PageIndicatorBlock(block)
+        "page_indicator" -> PageIndicatorBlock(block, currentStepIndex, totalSteps)
         "social_login" -> SocialLoginBlock(block, onAction, loc)
         "countdown_timer" -> CountdownTimerBlock(block, onAction)
         "rating" -> RatingBlock(block, inputValues, loc)
         "rich_text" -> RichTextBlock(block, loc)
-        "progress_bar" -> ProgressBarBlock(block, loc)
+        "progress_bar" -> ProgressBarBlock(block, loc, currentStepIndex, totalSteps)
         "timeline" -> TimelineBlock(block, loc)
         "animated_loading" -> AnimatedLoadingBlock(block, onAction)
         // SPEC-089d Phase A: Implemented blocks
@@ -844,9 +925,9 @@ private fun RenderBlockContent(
         "input_range_slider" -> FormInputRangeSliderBlock(block, inputValues)
         "input_chips" -> FormInputChipsBlock(block, inputValues)
         "input_color" -> FormInputColorBlock(block, inputValues)
-        "input_location" -> FormInputPlaceholderBlock(block, icon = "\uD83D\uDCCD", label = "Tap to search location")
-        "input_image_picker" -> FormInputPlaceholderBlock(block, icon = "\uD83D\uDDBC", label = "Tap to pick image")
-        "input_signature" -> FormInputPlaceholderBlock(block, icon = "\u270D", label = "Tap to sign")
+        "input_location" -> FormInputLocationPlaceholder(block, inputValues)
+        "input_image_picker" -> FormInputImagePickerPlaceholder(block)
+        "input_signature" -> FormInputSignatureBlock(block, inputValues)
         // SPEC-089d AC-002: Backward compatibility — unknown types render as empty
         else -> {
             // Unknown block types silently render nothing.
@@ -1168,9 +1249,10 @@ private fun RiveContentBlock(block: ContentBlock) {
  * SDK auto-binds active_index to current step index when inside an onboarding flow.
  */
 @Composable
-private fun PageIndicatorBlock(block: ContentBlock) {
-    val dotCount = block.dot_count ?: 3
-    val activeIndex = block.active_index ?: 0
+private fun PageIndicatorBlock(block: ContentBlock, currentStepIndex: Int = 0, totalSteps: Int = 1) {
+    val dotCount = block.dot_count ?: totalSteps
+    // AC-012: Auto-bind active_index to current step index when not explicitly set or 0
+    val activeIndex = if ((block.active_index ?: 0) == 0) currentStepIndex else (block.active_index ?: 0)
     val activeColor = StyleEngine.parseColor(block.active_color ?: "#6366F1")
     val inactiveColor = StyleEngine.parseColor(block.inactive_color ?: "#D1D5DB")
     val dotSize = (block.dot_size ?: 8.0).dp
@@ -1682,10 +1764,13 @@ private fun parseMarkdownToAnnotatedString(
  * SDK can auto-bind active_segments to current step index.
  */
 @Composable
-private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> String)? = null, currentStepIndex: Int = 0, totalSteps: Int = 1) {
     val variant = block.variant ?: "continuous"
-    val segmentCount = block.segment_count ?: 5
-    val activeSegments = block.active_segments ?: 1
+    // AC-021: Auto-bind to step index when no explicit values set
+    val segmentCount = block.segment_count ?: totalSteps
+    val activeSegments = if (block.active_segments != null) block.active_segments
+        else if (block.fill_color != null && block.segment_count != null) 1
+        else currentStepIndex + 1  // Auto-bind: 1-based fill
     val fillColor = StyleEngine.parseColor(block.fill_color ?: "#6366F1")
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val barHeight = (block.height ?: 6.0).dp
@@ -2836,6 +2921,7 @@ private fun FormInputPasswordBlock(
 }
 
 /** Date / Time / DateTime picker input. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FormInputDateBlock(
     block: ContentBlock,
@@ -2844,6 +2930,10 @@ private fun FormInputDateBlock(
 ) {
     val fieldId = block.field_id ?: block.id
     var displayText by remember { mutableStateOf(block.field_placeholder ?: "Select ${mode}...") }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    // For datetime mode: track which sub-picker is active
+    var pendingDate by remember { mutableStateOf("") }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -2851,14 +2941,13 @@ private fun FormInputDateBlock(
     ) {
         FormFieldLabel(block)
 
-        // Simplified: render as a tappable text field placeholder
-        // Full DatePickerDialog/TimePickerDialog requires Activity context
+        // AC-042: Tappable button opens actual Material3 date/time picker
         OutlinedButton(
             onClick = {
-                // In a full implementation, this would show a DatePickerDialog
-                val now = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
-                displayText = now
-                inputValues[fieldId] = now
+                when (mode) {
+                    "date", "datetime" -> showDatePicker = true
+                    "time" -> showTimePicker = true
+                }
             },
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
@@ -2881,6 +2970,63 @@ private fun FormInputDateBlock(
                 }, fontSize = 16.sp)
             }
         }
+    }
+
+    // Material3 DatePickerDialog
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState()
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDatePicker = false
+                    val millis = datePickerState.selectedDateMillis
+                    if (millis != null) {
+                        val formatted = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(millis))
+                        if (mode == "datetime") {
+                            pendingDate = formatted
+                            showTimePicker = true
+                        } else {
+                            displayText = formatted
+                            inputValues[fieldId] = formatted
+                        }
+                    }
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            },
+        ) {
+            DatePicker(state = datePickerState)
+        }
+    }
+
+    // Material3 TimePickerDialog (using AlertDialog wrapper)
+    if (showTimePicker) {
+        val timePickerState = rememberTimePickerState()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    showTimePicker = false
+                    val timeStr = String.format(java.util.Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
+                    if (mode == "datetime" && pendingDate.isNotEmpty()) {
+                        val combined = "$pendingDate $timeStr"
+                        displayText = combined
+                        inputValues[fieldId] = combined
+                        pendingDate = ""
+                    } else {
+                        displayText = timeStr
+                        inputValues[fieldId] = timeStr
+                    }
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
+            },
+            title = { Text("Select time") },
+            text = { TimePicker(state = timePickerState) },
+        )
     }
 }
 
@@ -3364,6 +3510,177 @@ private fun FormInputPlaceholderBlock(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(text = icon, fontSize = 16.sp)
                 Text(text = label, fontSize = 14.sp, color = Color.Gray)
+            }
+        }
+    }
+}
+
+// MARK: - AC-046: Location Input Placeholder (interactive text field)
+
+/** Interactive text field placeholder for location input. Opens keyboard for typing. */
+@Composable
+private fun FormInputLocationPlaceholder(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    var text by remember { mutableStateOf("") }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        OutlinedTextField(
+            value = text,
+            onValueChange = { text = it; inputValues[fieldId] = it },
+            placeholder = { Text(block.field_placeholder ?: "Search location...", color = Color.Gray) },
+            leadingIcon = { Text("\uD83D\uDCCD", fontSize = 16.sp) },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = StyleEngine.parseColor(block.field_style?.focused_border_color ?: "#6366F1"),
+                unfocusedBorderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+            ),
+        )
+    }
+}
+
+// MARK: - AC-048: Image Picker Placeholder (interactive button with dialog)
+
+/** Interactive placeholder for image picker. Shows a dialog on tap. */
+@Composable
+private fun FormInputImagePickerPlaceholder(block: ContentBlock) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                .background(Color(0xFFF9FAFB))
+                .border(
+                    1.dp,
+                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                    RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                )
+                .clickable { showDialog = true }
+                .padding(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(text = "\uD83D\uDDBC", fontSize = 16.sp)
+                Text(text = "Tap to pick image", fontSize = 14.sp, color = Color.Gray)
+            }
+        }
+    }
+
+    if (showDialog) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showDialog = false },
+            confirmButton = {
+                TextButton(onClick = { showDialog = false }) { Text("OK") }
+            },
+            title = { Text("Photo Picker") },
+            text = { Text("Photo picker coming in next SDK update.") },
+        )
+    }
+}
+
+// MARK: - AC-051: Signature Input (interactive Canvas with touch drawing)
+
+/** Interactive signature pad with basic touch/drag drawing. */
+@Composable
+private fun FormInputSignatureBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val lines = remember { mutableStateListOf<List<Offset>>() }
+    var currentLine by remember { mutableStateOf<List<Offset>>(emptyList()) }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        FormFieldLabel(block)
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+                .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                .background(Color(0xFFF9FAFB))
+                .border(
+                    1.dp,
+                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                    RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                )
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { offset ->
+                            currentLine = listOf(offset)
+                        },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            currentLine = currentLine + change.position
+                        },
+                        onDragEnd = {
+                            if (currentLine.isNotEmpty()) {
+                                lines.add(currentLine)
+                                currentLine = emptyList()
+                                inputValues[fieldId] = "signed"
+                            }
+                        },
+                    )
+                },
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val allLines = lines.toList() + listOf(currentLine)
+                allLines.forEach { line ->
+                    if (line.size > 1) {
+                        for (i in 0 until line.size - 1) {
+                            drawLine(
+                                color = Color.Black,
+                                start = line[i],
+                                end = line[i + 1],
+                                strokeWidth = 4f,
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Clear button
+            if (lines.isNotEmpty()) {
+                Text(
+                    text = "\u2715 Clear",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp)
+                        .clickable {
+                            lines.clear()
+                            currentLine = emptyList()
+                            inputValues.remove(fieldId)
+                        },
+                )
+            } else {
+                Text(
+                    text = "Draw your signature here",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
         }
     }

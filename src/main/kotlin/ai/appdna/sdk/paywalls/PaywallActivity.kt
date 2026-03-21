@@ -83,8 +83,8 @@ class PaywallActivity : ComponentActivity() {
             MaterialTheme {
                 PaywallScreen(
                     config = config,
-                    onPlanSelected = { plan ->
-                        onPlanSelected?.invoke(plan)
+                    onPlanSelected = { plan, metadata ->
+                        onPlanSelected?.invoke(plan, metadata)
                     },
                     onRestore = {
                         // Restore action - tracked by the caller
@@ -118,7 +118,7 @@ class PaywallActivity : ComponentActivity() {
         private var pendingConfig: PaywallConfig? = null
         private var pendingOnAppear: (() -> Unit)? = null
         private var pendingOnDismiss: ((DismissReason) -> Unit)? = null
-        private var pendingOnPlanSelected: ((PaywallPlan) -> Unit)? = null
+        private var pendingOnPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
 
         fun launch(
             context: Context,
@@ -127,7 +127,7 @@ class PaywallActivity : ComponentActivity() {
             paywallContext: PaywallContext? = null,
             onAppear: (() -> Unit)? = null,
             onDismiss: ((DismissReason) -> Unit)? = null,
-            onPlanSelected: ((PaywallPlan) -> Unit)? = null
+            onPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
         ) {
             pendingConfig = config
             pendingOnAppear = onAppear
@@ -145,7 +145,7 @@ class PaywallActivity : ComponentActivity() {
 @Composable
 fun PaywallScreen(
     config: PaywallConfig,
-    onPlanSelected: (PaywallPlan) -> Unit,
+    onPlanSelected: (PaywallPlan, Map<String, Any>) -> Unit,
     onRestore: () -> Unit,
     onDismiss: (DismissReason) -> Unit
 ) {
@@ -155,6 +155,8 @@ fun PaywallScreen(
     var isDismissing by remember { mutableStateOf(false) }
     var dragOffset by remember { mutableStateOf(0f) }
     var showConfetti by remember { mutableStateOf(false) }
+    // AC-038: Hoisted toggle states for inclusion in purchase metadata
+    val toggleStates = remember { mutableStateMapOf<String, Boolean>() }
     val coroutineScope = rememberCoroutineScope()
     val currentView = LocalView.current
 
@@ -170,13 +172,21 @@ fun PaywallScreen(
         }
     }
 
-    // Select default plan on appear
+    // Select default plan on appear + initialize toggle defaults
     LaunchedEffect(Unit) {
         val plans = config.sections
             .firstOrNull { it.type == "plans" }
             ?.data?.plans
         selectedPlanId = plans?.firstOrNull { it.is_default == true }?.id
             ?: plans?.firstOrNull()?.id
+
+        // AC-038: Initialize toggle defaults from config
+        config.sections.filter { it.type == "toggle" }.forEach { section ->
+            val key = section.data?.label ?: "toggle_${section.type}"
+            if (section.data?.default_value != null) {
+                toggleStates[key] = section.data.default_value
+            }
+        }
 
         // Handle dismiss delay
         val delay = config.dismiss?.delay_seconds ?: 0
@@ -276,11 +286,12 @@ fun PaywallScreen(
                                     if (config.particle_effect != null) {
                                         showConfetti = true
                                     }
-                                    onPlanSelected(plan)
+                                    onPlanSelected(plan, toggleStates.toMap())
                                 }
                             },
                             onRestore = onRestore,
                             loc = ::loc,
+                            toggleStates = toggleStates,
                         )
                     }
                     Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
@@ -307,7 +318,7 @@ fun PaywallScreen(
                             if (config.particle_effect != null) {
                                 showConfetti = true
                             }
-                            onPlanSelected(plan)
+                            onPlanSelected(plan, toggleStates.toMap())
                         }
                     },
                     onRestore = onRestore,
@@ -418,6 +429,7 @@ private fun PaywallSectionView(
     onCTATap: () -> Unit,
     onRestore: () -> Unit,
     loc: (String, String) -> String,
+    toggleStates: MutableMap<String, Boolean> = mutableMapOf(),
 ) {
     when (section.type) {
         "header" -> {
@@ -921,7 +933,7 @@ private fun PaywallSectionView(
             PaywallPromoInputSection(section = section, loc = loc)
         }
         "toggle" -> {
-            PaywallToggleSection(section = section, loc = loc)
+            PaywallToggleSection(section = section, loc = loc, toggleStates = toggleStates)
         }
         "reviews_carousel" -> {
             PaywallReviewsCarouselSection(section = section, loc = loc)
@@ -1496,8 +1508,7 @@ private fun PaywallPromoInputSection(
             Button(
                 onClick = {
                     promoState = "loading"
-                    // In production: fire async webhook with promo_code
-                    // Placeholder logic
+                    // AC-037: Basic non-empty check fallback (delegate-based validation would go here)
                     promoState = if (promoCode.isNotBlank()) "success" else "error"
                 },
                 enabled = promoState != "loading",
@@ -1539,8 +1550,10 @@ private fun PaywallPromoInputSection(
 private fun PaywallToggleSection(
     section: PaywallSection,
     loc: (String, String) -> String,
+    toggleStates: MutableMap<String, Boolean> = mutableMapOf(),
 ) {
-    var isToggled by remember { mutableStateOf(section.data?.default_value ?: false) }
+    val toggleKey = section.data?.label ?: "toggle_${section.type}"
+    var isToggled by remember { mutableStateOf(toggleStates[toggleKey] ?: section.data?.default_value ?: false) }
     val onColor = section.data?.on_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
 
     Row(
@@ -1576,7 +1589,7 @@ private fun PaywallToggleSection(
 
         Switch(
             checked = isToggled,
-            onCheckedChange = { isToggled = it },
+            onCheckedChange = { isToggled = it; toggleStates[toggleKey] = it },
             colors = SwitchDefaults.colors(checkedTrackColor = onColor),
         )
     }

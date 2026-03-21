@@ -55,12 +55,15 @@ internal class PaywallManager(
                 ))
                 listener?.onPaywallDismissed(paywallId = id)
             },
-            onPlanSelected = { plan ->
+            onPlanSelected = { plan, metadata ->
                 listener?.onPaywallPurchaseStarted(paywallId = id, productId = plan.product_id)
-                eventTracker.track("purchase_started", mapOf(
+                // AC-038: Include toggle states in purchase event metadata
+                val props = mutableMapOf<String, Any>(
                     "paywall_id" to id,
                     "product_id" to plan.product_id
-                ))
+                )
+                props.putAll(metadata)
+                eventTracker.track("purchase_started", props)
             }
         )
     }
