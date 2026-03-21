@@ -2774,6 +2774,8 @@ fun EntranceAnimationWrapper(
             androidx.compose.animation.core.spring(dampingRatio = (animation.spring_damping ?: 0.7).toFloat()),
             initialScale = 0.3f,
         )
+        "flip" -> androidx.compose.animation.fadeIn(tween(durationMs)) +
+            androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 0.0f)
         else -> androidx.compose.animation.EnterTransition.None
     }
 
