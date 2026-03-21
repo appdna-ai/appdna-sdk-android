@@ -507,6 +507,13 @@ internal object OnboardingConfigParser {
                     video_autoplay = bm["video_autoplay"] as? Boolean,
                     video_loop = bm["video_loop"] as? Boolean,
                     video_muted = bm["video_muted"] as? Boolean,
+                    // SPEC-089d §6.1: Per-block style design tokens
+                    block_style = (bm["block_style"] as? Map<String, Any>)?.let { parseBlockStyle(it) },
+                    // SPEC-089d §6.2: 2D positioning
+                    vertical_align = bm["vertical_align"] as? String,
+                    horizontal_align = bm["horizontal_align"] as? String,
+                    vertical_offset = (bm["vertical_offset"] as? Number)?.toDouble(),
+                    horizontal_offset = (bm["horizontal_offset"] as? Number)?.toDouble(),
                 )
             } else null
         }
@@ -683,6 +690,48 @@ internal object OnboardingConfigParser {
             corner_radius = (map["corner_radius"] as? Number)?.toDouble(),
             opacity = (map["opacity"] as? Number)?.toDouble(),
             text_style = textStyle,
+        )
+    }
+
+    /**
+     * Parse a raw Firestore map into a BlockStyle (SPEC-089d §6.1).
+     * Used for per-block design tokens: background, border, shadow, padding, margin, opacity.
+     */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseBlockStyle(map: Map<String, Any>): BlockStyle {
+        val shadowMap = map["shadow"] as? Map<String, Any>
+        val shadow = shadowMap?.let { s ->
+            BlockShadowStyle(
+                x = (s["x"] as? Number)?.toDouble() ?: 0.0,
+                y = (s["y"] as? Number)?.toDouble() ?: 2.0,
+                blur = (s["blur"] as? Number)?.toDouble() ?: 8.0,
+                spread = (s["spread"] as? Number)?.toDouble() ?: 0.0,
+                color = s["color"] as? String ?: "#1A000000",
+            )
+        }
+        val gradientMap = map["background_gradient"] as? Map<String, Any>
+        val gradient = gradientMap?.let { g ->
+            BlockGradientStyle(
+                angle = (g["angle"] as? Number)?.toDouble() ?: 135.0,
+                start = g["start"] as? String ?: "#6366f1",
+                end = g["end"] as? String ?: "#a855f7",
+            )
+        }
+        return BlockStyle(
+            background_color = map["background_color"] as? String,
+            background_gradient = gradient,
+            border_color = map["border_color"] as? String,
+            border_width = (map["border_width"] as? Number)?.toDouble(),
+            border_style = map["border_style"] as? String,
+            border_radius = (map["border_radius"] as? Number)?.toDouble(),
+            shadow = shadow,
+            padding_top = (map["padding_top"] as? Number)?.toDouble(),
+            padding_right = (map["padding_right"] as? Number)?.toDouble(),
+            padding_bottom = (map["padding_bottom"] as? Number)?.toDouble(),
+            padding_left = (map["padding_left"] as? Number)?.toDouble(),
+            margin_top = (map["margin_top"] as? Number)?.toDouble(),
+            margin_bottom = (map["margin_bottom"] as? Number)?.toDouble(),
+            opacity = (map["opacity"] as? Number)?.toDouble(),
         )
     }
 }

@@ -1,6 +1,7 @@
 package ai.appdna.sdk.onboarding
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -8,7 +9,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -16,6 +20,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Intent
 import android.net.Uri
+import ai.appdna.sdk.Log
+import ai.appdna.sdk.LogLevel
 import ai.appdna.sdk.core.StyleEngine
 import ai.appdna.sdk.core.TextStyleConfig
 import ai.appdna.sdk.core.LottieBlock
@@ -28,12 +34,189 @@ import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.resolveIcon
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
+import kotlin.math.cos
+import kotlin.math.sin
+
+// MARK: - Block Style Design Tokens (SPEC-089d §6.1)
+
+/** Per-block styling: background, border, shadow, padding, margin, opacity. */
+data class BlockStyle(
+    val background_color: String? = null,
+    val background_gradient: BlockGradientStyle? = null,
+    val border_color: String? = null,
+    val border_width: Double? = null,
+    val border_style: String? = null,  // solid, dashed, dotted
+    val border_radius: Double? = null,
+    val shadow: BlockShadowStyle? = null,
+    val padding_top: Double? = null,
+    val padding_right: Double? = null,
+    val padding_bottom: Double? = null,
+    val padding_left: Double? = null,
+    val margin_top: Double? = null,
+    val margin_bottom: Double? = null,
+    val opacity: Double? = null,
+)
+
+/** Shadow definition for block_style. */
+data class BlockShadowStyle(
+    val x: Double = 0.0,
+    val y: Double = 2.0,
+    val blur: Double = 8.0,
+    val spread: Double = 0.0,
+    val color: String = "#1A000000",  // ~10% black
+)
+
+/** Gradient definition for block_style background. */
+data class BlockGradientStyle(
+    val angle: Double = 135.0,
+    val start: String = "#6366f1",
+    val end: String = "#a855f7",
+)
+
+// MARK: - Block Style Modifier Extension (SPEC-089d §6.1)
+
+/**
+ * Applies `block_style` design tokens to any Composable's Modifier.
+ * Order: inner padding → background → clip/border → shadow → opacity → outer margin.
+ */
+fun Modifier.applyBlockStyle(style: BlockStyle?): Modifier {
+    if (style == null) return this
+
+    var mod = this
+
+    // Outer margin (top/bottom only — blocks are full-width in a Column)
+    if (style.margin_top != null) mod = mod.then(Modifier.padding(top = style.margin_top.dp))
+    if (style.margin_bottom != null) mod = mod.then(Modifier.padding(bottom = style.margin_bottom.dp))
+
+    // Opacity
+    if (style.opacity != null) mod = mod.then(Modifier.alpha(style.opacity.toFloat()))
+
+    // Shadow (must come before clip/background to be visible)
+    if (style.shadow != null) {
+        val s = style.shadow
+        val shape = RoundedCornerShape((style.border_radius ?: 0.0).dp)
+        mod = mod.then(
+            Modifier.shadow(
+                elevation = (s.blur / 2).dp,
+                shape = shape,
+                ambientColor = StyleEngine.parseColor(s.color),
+                spotColor = StyleEngine.parseColor(s.color),
+            )
+        )
+    }
+
+    // Clip shape
+    val shape = RoundedCornerShape((style.border_radius ?: 0.0).dp)
+    mod = mod.then(Modifier.clip(shape))
+
+    // Background (gradient takes precedence over solid color)
+    if (style.background_gradient != null) {
+        val g = style.background_gradient
+        val rads = g.angle * Math.PI / 180.0
+        val startX = (0.5 - sin(rads) / 2).toFloat()
+        val startY = (0.5 + cos(rads) / 2).toFloat()
+        val endX = (0.5 + sin(rads) / 2).toFloat()
+        val endY = (0.5 - cos(rads) / 2).toFloat()
+        mod = mod.then(
+            Modifier.background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        StyleEngine.parseColor(g.start),
+                        StyleEngine.parseColor(g.end),
+                    ),
+                    start = androidx.compose.ui.geometry.Offset(startX * 1000f, startY * 1000f),
+                    end = androidx.compose.ui.geometry.Offset(endX * 1000f, endY * 1000f),
+                ),
+                shape,
+            )
+        )
+    } else if (style.background_color != null) {
+        mod = mod.then(Modifier.background(StyleEngine.parseColor(style.background_color), shape))
+    }
+
+    // Border
+    if (style.border_width != null && style.border_width > 0) {
+        val borderColor = StyleEngine.parseColor(style.border_color ?: "#000000")
+        // Note: dashed/dotted borders require Canvas — for now we render solid only.
+        // border_style is parsed but not yet differentiated visually.
+        mod = mod.then(Modifier.border(style.border_width.dp, borderColor, shape))
+    }
+
+    // Inner padding
+    mod = mod.then(
+        Modifier.padding(
+            top = (style.padding_top ?: 0.0).dp,
+            end = (style.padding_right ?: 0.0).dp,
+            bottom = (style.padding_bottom ?: 0.0).dp,
+            start = (style.padding_left ?: 0.0).dp,
+        )
+    )
+
+    return mod
+}
+
+// MARK: - 2D Positioning Modifier (SPEC-089d §6.2)
+
+/**
+ * Applies vertical/horizontal alignment + offset positioning to a content block.
+ */
+fun Modifier.applyBlockPosition(
+    verticalAlign: String?,
+    horizontalAlign: String?,
+    verticalOffset: Double?,
+    horizontalOffset: Double?,
+): Modifier {
+    val hasPositioning = verticalAlign != null || horizontalAlign != null
+        || verticalOffset != null || horizontalOffset != null
+    if (!hasPositioning) return this
+
+    var mod = this
+
+    // Offset
+    if (verticalOffset != null || horizontalOffset != null) {
+        mod = mod.then(
+            Modifier.offset(
+                x = (horizontalOffset ?: 0.0).dp,
+                y = (verticalOffset ?: 0.0).dp,
+            )
+        )
+    }
+
+    return mod
+}
+
+/**
+ * Maps horizontal/vertical alignment strings to Compose Alignment.
+ */
+internal fun mapBlockAlignment(horizontal: String?, vertical: String?): Alignment {
+    val h = when (horizontal) {
+        "left" -> Alignment.Start
+        "right" -> Alignment.End
+        else -> Alignment.CenterHorizontally
+    }
+    val v = when (vertical) {
+        "top" -> Alignment.Top
+        "bottom" -> Alignment.Bottom
+        else -> Alignment.CenterVertically
+    }
+    return when {
+        h == Alignment.Start && v == Alignment.Top -> Alignment.TopStart
+        h == Alignment.CenterHorizontally && v == Alignment.Top -> Alignment.TopCenter
+        h == Alignment.End && v == Alignment.Top -> Alignment.TopEnd
+        h == Alignment.Start && v == Alignment.CenterVertically -> Alignment.CenterStart
+        h == Alignment.End && v == Alignment.CenterVertically -> Alignment.CenterEnd
+        h == Alignment.Start && v == Alignment.Bottom -> Alignment.BottomStart
+        h == Alignment.CenterHorizontally && v == Alignment.Bottom -> Alignment.BottomCenter
+        h == Alignment.End && v == Alignment.Bottom -> Alignment.BottomEnd
+        else -> Alignment.Center
+    }
+}
 
 // MARK: - Content Block data class
 
 data class ContentBlock(
     val id: String,
-    val type: String,  // heading, text, image, button, spacer, list, divider, badge, icon, toggle, video
+    val type: String,  // heading, text, image, button, spacer, list, divider, badge, icon, toggle, video, ...
     val text: String? = null,
     val level: Int? = null,
     val image_url: String? = null,
@@ -82,6 +265,13 @@ data class ContentBlock(
     val video_autoplay: Boolean? = null,
     val video_loop: Boolean? = null,
     val video_muted: Boolean? = null,
+    // SPEC-089d §6.1: Per-block style design tokens
+    val block_style: BlockStyle? = null,
+    // SPEC-089d §6.2: 2D positioning
+    val vertical_align: String? = null,
+    val horizontal_align: String? = null,
+    val vertical_offset: Double? = null,
+    val horizontal_offset: Double? = null,
 )
 
 // MARK: - Content Block Renderer
@@ -110,6 +300,43 @@ private fun RenderBlock(
     toggleValues: MutableMap<String, Boolean>,
     loc: ((String, String) -> String)? = null,
 ) {
+    // SPEC-089d: Wrap every block with block_style + 2D positioning modifiers
+    val blockAlignment = if (block.horizontal_align != null || block.vertical_align != null) {
+        mapBlockAlignment(block.horizontal_align, block.vertical_align)
+    } else null
+
+    val contentModifier = Modifier
+        .applyBlockStyle(block.block_style)
+        .applyBlockPosition(
+            verticalAlign = block.vertical_align,
+            horizontalAlign = block.horizontal_align,
+            verticalOffset = block.vertical_offset,
+            horizontalOffset = block.horizontal_offset,
+        )
+
+    if (blockAlignment != null) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = blockAlignment,
+        ) {
+            Box(modifier = contentModifier) {
+                RenderBlockContent(block, onAction, toggleValues, loc)
+            }
+        }
+    } else {
+        Box(modifier = contentModifier) {
+            RenderBlockContent(block, onAction, toggleValues, loc)
+        }
+    }
+}
+
+@Composable
+private fun RenderBlockContent(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    loc: ((String, String) -> String)? = null,
+) {
     when (block.type) {
         "heading" -> HeadingBlock(block, loc)
         "text" -> TextBlock(block, loc)
@@ -125,6 +352,32 @@ private fun RenderBlock(
         // SPEC-085: Rich media block types
         "lottie" -> LottieContentBlock(block)
         "rive" -> RiveContentBlock(block)
+        // SPEC-089d Phase A: New onboarding block types (stubs)
+        "page_indicator" -> StubBlockPlaceholder("page_indicator")
+        "wheel_picker" -> StubBlockPlaceholder("wheel_picker")
+        "pulsing_avatar" -> StubBlockPlaceholder("pulsing_avatar")
+        "social_login" -> StubBlockPlaceholder("social_login")
+        "timeline" -> StubBlockPlaceholder("timeline")
+        "animated_loading" -> StubBlockPlaceholder("animated_loading")
+        "star_background" -> StubBlockPlaceholder("star_background")
+        "countdown_timer" -> StubBlockPlaceholder("countdown_timer")
+        "rating" -> StubBlockPlaceholder("rating")
+        "rich_text" -> StubBlockPlaceholder("rich_text")
+        "progress_bar" -> StubBlockPlaceholder("progress_bar")
+        // SPEC-089d Phase F: Container & advanced block types (stubs)
+        "stack" -> StubBlockPlaceholder("stack")
+        "custom_view" -> StubBlockPlaceholder("custom_view")
+        "date_wheel_picker" -> StubBlockPlaceholder("date_wheel_picker")
+        "circular_gauge" -> StubBlockPlaceholder("circular_gauge")
+        "row" -> StubBlockPlaceholder("row")
+        // SPEC-089d Nurrai: Pricing card
+        "pricing_card" -> StubBlockPlaceholder("pricing_card")
+        // SPEC-089d AC-002: Backward compatibility — unknown types render as empty
+        else -> {
+            // Unknown block types silently render nothing.
+            // This prevents crashes when the backend sends new block types
+            // that this SDK version does not yet implement.
+        }
     }
 }
 
@@ -397,4 +650,26 @@ private fun RiveContentBlock(block: ContentBlock) {
             )
         )
     }
+}
+
+// MARK: - Stub Placeholder (SPEC-089d)
+
+/**
+ * Placeholder view for new block types whose full renderers are not yet implemented.
+ * Renders a subtle debug label when SDK log level is DEBUG; nothing otherwise.
+ */
+@Composable
+private fun StubBlockPlaceholder(typeName: String) {
+    if (Log.level.level >= LogLevel.DEBUG.level) {
+        Text(
+            text = "[$typeName]",
+            fontSize = 10.sp,
+            color = Color.Gray.copy(alpha = 0.5f),
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+        )
+    }
+    // In non-debug mode: renders nothing (empty composable)
 }
