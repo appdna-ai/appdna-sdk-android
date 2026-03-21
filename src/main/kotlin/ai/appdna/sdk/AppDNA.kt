@@ -28,6 +28,7 @@ import com.google.firebase.FirebaseOptions
 import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import androidx.compose.runtime.Composable
 
 /**
  * Main entry point for the AppDNA Android SDK.
@@ -59,6 +60,25 @@ object AppDNA {
     @JvmStatic val deepLinks = DeepLinksModule()
     /** Experiments module. */
     @JvmStatic val experiments = ai.appdna.sdk.ExperimentsModule()
+
+    // MARK: - Custom View Registry (SPEC-089d AC-026)
+
+    /**
+     * Registry of developer-provided Composable factories keyed by `view_key`.
+     * Used by the `custom_view` content block to render developer escape-hatch views.
+     */
+    @JvmStatic
+    val registeredCustomViews: MutableMap<String, @Composable (Map<String, Any>) -> Unit> = mutableMapOf()
+
+    /**
+     * Register a custom Composable factory for use in onboarding content blocks.
+     * @param key The `view_key` value from the block config.
+     * @param factory A composable factory that receives the block's custom config map.
+     */
+    @JvmStatic
+    fun registerCustomView(key: String, factory: @Composable (Map<String, Any>) -> Unit) {
+        registeredCustomViews[key] = factory
+    }
 
     /** Current config bundle version reported in events. */
     @JvmStatic var currentBundleVersion: Int = 0

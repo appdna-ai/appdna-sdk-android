@@ -46,6 +46,28 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.text.ClickableText
 import kotlin.math.cos
 import kotlin.math.sin
+import kotlin.math.roundToInt
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.zIndex
+// mutableIntStateOf, derivedStateOf, etc. covered by runtime.* import
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.ContentScale
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import ai.appdna.sdk.AppDNA
 
 // MARK: - Block Style Design Tokens (SPEC-089d §6.1)
 
@@ -350,6 +372,58 @@ data class ContentBlock(
     val total_duration_ms: Int? = null,
     val auto_advance: Boolean? = null,
     val show_percentage: Boolean? = null,
+    // SPEC-089d Phase F: circular_gauge fields
+    val gauge_value: Double? = null,
+    val max_gauge_value: Double? = null,
+    val sublabel: String? = null,
+    val stroke_width: Double? = null,
+    val label_color: String? = null,
+    val label_font_size: Double? = null,
+    val animate: Boolean? = null,
+    val animation_duration_ms: Int? = null,
+    // SPEC-089d Phase F: date_wheel_picker fields
+    val columns: List<DateWheelColumn>? = null,
+    val default_date_value: String? = null,
+    val min_date: String? = null,
+    val max_date: String? = null,
+    val highlight_color: String? = null,
+    val haptic_on_scroll: Boolean? = null,
+    // SPEC-089d Phase F: stack / row fields (container blocks)
+    val children: List<ContentBlock>? = null,
+    val z_index: Double? = null,
+    val gap: Double? = null,
+    val wrap: Boolean? = null,
+    val justify: String? = null,
+    val align_items: String? = null,
+    // SPEC-089d Phase F: custom_view fields
+    val view_key: String? = null,
+    val custom_config: Map<String, Any>? = null,
+    val placeholder_image_url: String? = null,
+    val placeholder_text: String? = null,
+    // SPEC-089d Phase F: star_background fields
+    val particle_type: String? = null,
+    val density: String? = null,
+    val speed: String? = null,
+    val secondary_color: String? = null,
+    val size_range: List<Double>? = null,
+    val fullscreen: Boolean? = null,
+    // SPEC-089d Phase F: wheel_picker fields
+    val min_value: Double? = null,
+    val max_value_picker: Double? = null,
+    val step_value: Double? = null,
+    val default_picker_value: Double? = null,
+    val unit: String? = null,
+    val unit_position: String? = null,
+    val visible_items: Int? = null,
+    // SPEC-089d Phase F: pulsing_avatar fields
+    val pulse_color: String? = null,
+    val pulse_ring_count: Int? = null,
+    val pulse_speed: Double? = null,
+    val border_width: Double? = null,
+    val border_color: String? = null,
+    // SPEC-089d Nurrai: pricing_card fields
+    val pricing_plans: List<PricingPlan>? = null,
+    val pricing_layout: String? = null,
 )
 
 /** Social login provider config (SPEC-089d §3.4). */
@@ -381,6 +455,32 @@ data class LoadingItem(
     val label: String,
     val duration_ms: Int = 1000,
     val icon: String? = null,
+)
+
+/** Pricing plan config for pricing_card block (SPEC-089d §3.17). */
+data class PricingPlan(
+    val id: String,
+    val label: String,
+    val price: String,
+    val period: String,
+    val badge: String? = null,
+    val is_highlighted: Boolean = false,
+)
+
+/** Date wheel column config (SPEC-089d §3.12). */
+data class DateWheelColumn(
+    val type: String,    // day | month | year | custom
+    val label: String? = null,
+    val values: List<String>? = null,
+)
+
+/** Star particle state for star_background animation. */
+data class StarParticleState(
+    var x: Float,
+    var y: Float,
+    var size: Float,
+    var opacity: Float,
+    var speed: Float,
 )
 
 // MARK: - Content Block Renderer
@@ -473,18 +573,18 @@ private fun RenderBlockContent(
         "progress_bar" -> ProgressBarBlock(block, loc)
         "timeline" -> TimelineBlock(block, loc)
         "animated_loading" -> AnimatedLoadingBlock(block, onAction)
-        // SPEC-089d Phase A: Remaining stubs
-        "wheel_picker" -> StubBlockPlaceholder("wheel_picker")
-        "pulsing_avatar" -> StubBlockPlaceholder("pulsing_avatar")
-        "star_background" -> StubBlockPlaceholder("star_background")
-        // SPEC-089d Phase F: Container & advanced block types (stubs)
-        "stack" -> StubBlockPlaceholder("stack")
-        "custom_view" -> StubBlockPlaceholder("custom_view")
-        "date_wheel_picker" -> StubBlockPlaceholder("date_wheel_picker")
-        "circular_gauge" -> StubBlockPlaceholder("circular_gauge")
-        "row" -> StubBlockPlaceholder("row")
+        // SPEC-089d Phase A: Implemented blocks
+        "wheel_picker" -> WheelPickerBlock(block, inputValues)
+        "pulsing_avatar" -> PulsingAvatarBlock(block)
+        "star_background" -> StarBackgroundBlock(block)
+        // SPEC-089d Phase F: Container & advanced block types
+        "stack" -> StackBlock(block, onAction, toggleValues, inputValues, loc)
+        "custom_view" -> CustomViewBlock(block)
+        "date_wheel_picker" -> DateWheelPickerBlock(block, inputValues)
+        "circular_gauge" -> CircularGaugeBlock(block)
+        "row" -> RowBlock(block, onAction, toggleValues, inputValues, loc)
         // SPEC-089d Nurrai: Pricing card
-        "pricing_card" -> StubBlockPlaceholder("pricing_card")
+        "pricing_card" -> PricingCardBlock(block, onAction, inputValues)
         // SPEC-089d AC-002: Backward compatibility — unknown types render as empty
         else -> {
             // Unknown block types silently render nothing.
@@ -541,41 +641,62 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
     val baseStyle = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     val context = LocalContext.current
-    Button(
-        onClick = {
-            val action = block.action ?: "next"
-            when (action) {
-                "link" -> {
-                    block.action_value?.let { url ->
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                            context.startActivity(intent)
-                        } catch (_: Exception) {
-                            // Malformed URL or no browser available — fall through to advance
-                        }
-                    }
-                    onAction("next")
+    val btnVariant = block.variant ?: "primary"
+    val bgColor = StyleEngine.parseColor(block.bg_color ?: "#6366F1")
+    val txtColor = StyleEngine.parseColor(block.text_color ?: "#FFFFFF")
+    val cornerRadius = (block.button_corner_radius ?: 12.0).dp
+    val displayText = loc?.invoke("block.${block.id}.text", text) ?: text
+
+    val onClick: () -> Unit = {
+        val action = block.action ?: "next"
+        when (action) {
+            "link" -> {
+                block.action_value?.let { url ->
+                    try {
+                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                        context.startActivity(intent)
+                    } catch (_: Exception) {}
                 }
-                "permission" -> {
-                    // P1: Requires runtime permission request infrastructure.
-                    // action_value will specify the permission type (e.g. "camera", "notifications").
-                    // For now, advance the step as a safe fallback.
-                    onAction("next")
-                }
-                else -> onAction(action)
+                onAction("next")
             }
-        },
-        modifier = Modifier.fillMaxWidth().height(52.dp),
-        shape = RoundedCornerShape((block.button_corner_radius ?: 12.0).dp),
-        colors = ButtonDefaults.buttonColors(
-            containerColor = StyleEngine.parseColor(block.bg_color ?: "#6366F1"),
-        ),
-    ) {
-        Text(
-            text = loc?.invoke("block.${block.id}.text", text) ?: text,
-            style = effectiveStyle,
-            color = StyleEngine.parseColor(block.text_color ?: "#FFFFFF"),
-        )
+            "permission" -> onAction("next")
+            else -> onAction(action)
+        }
+    }
+
+    when (btnVariant) {
+        "outline" -> {
+            // SPEC-089d §3.18: Outline variant — transparent bg, colored border + text
+            OutlinedButton(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(cornerRadius),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, bgColor),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = bgColor),
+            ) {
+                Text(text = displayText, style = effectiveStyle, color = bgColor)
+            }
+        }
+        "text" -> {
+            TextButton(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(cornerRadius),
+            ) {
+                Text(text = displayText, style = effectiveStyle, color = bgColor)
+            }
+        }
+        else -> {
+            // primary / secondary — filled button
+            Button(
+                onClick = onClick,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(cornerRadius),
+                colors = ButtonDefaults.buttonColors(containerColor = bgColor),
+            ) {
+                Text(text = displayText, style = effectiveStyle, color = txtColor)
+            }
+        }
     }
 }
 
@@ -1623,6 +1744,630 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+// MARK: - Circular Gauge Block (SPEC-089d AC-022)
+
+/**
+ * Circular arc gauge with center label. Supports animated fill via animateFloatAsState.
+ */
+@Composable
+private fun CircularGaugeBlock(block: ContentBlock) {
+    val value = (block.gauge_value ?: block.default_value ?: 0.0).toFloat()
+    val maxVal = (block.max_gauge_value ?: 100.0).toFloat()
+    val targetProgress = if (maxVal > 0f) (value / maxVal).coerceIn(0f, 1f) else 0f
+    val size = (block.height ?: 120.0).dp
+    val strokeW = (block.stroke_width ?: 10.0).toFloat()
+    val fillColor = StyleEngine.parseColor(block.fill_color ?: block.active_color ?: "#6366F1")
+    val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
+    val labelColor = StyleEngine.parseColor(block.label_color ?: block.text_color ?: "#000000")
+    val labelFontSize = (block.label_font_size ?: block.font_size ?: 20.0).sp
+    val shouldAnimate = block.animate ?: true
+    val animDurationMs = block.animation_duration_ms ?: 800
+    val showPct = block.show_percentage ?: false
+
+    val animatedProgress by animateFloatAsState(
+        targetValue = targetProgress,
+        animationSpec = if (shouldAnimate) tween(durationMillis = animDurationMs) else tween(0),
+        label = "gauge_progress",
+    )
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier.size(size),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                // Track
+                drawArc(
+                    color = trackColor,
+                    startAngle = 0f,
+                    sweepAngle = 360f,
+                    useCenter = false,
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                )
+                // Filled arc
+                drawArc(
+                    color = fillColor,
+                    startAngle = -90f,
+                    sweepAngle = animatedProgress * 360f,
+                    useCenter = false,
+                    style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                )
+            }
+            // Center label
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = if (showPct) "${(animatedProgress * 100).roundToInt()}%" else (block.text ?: "${value.roundToInt()}"),
+                    fontSize = labelFontSize,
+                    fontWeight = FontWeight.Bold,
+                    color = labelColor,
+                )
+                block.sublabel?.let {
+                    Text(text = it, fontSize = 12.sp, color = labelColor.copy(alpha = 0.7f))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Date Wheel Picker Block (SPEC-089d AC-023)
+
+/**
+ * Date picker using Material3 DatePickerDialog or simplified column picker.
+ * For simplicity, renders three side-by-side LazyColumns for day/month/year.
+ */
+@Composable
+private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+    val fieldId = block.field_id ?: block.id
+    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: "#6366F1")
+
+    // Simple day/month/year selectors
+    val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+    var selectedDay by remember { mutableIntStateOf(1) }
+    var selectedMonth by remember { mutableIntStateOf(1) }
+    var selectedYear by remember { mutableIntStateOf(2000) }
+
+    val dayListState = rememberLazyListState()
+    val monthListState = rememberLazyListState()
+    val yearListState = rememberLazyListState()
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(150.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        // Month column
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = monthListState,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                flingBehavior = rememberSnapFlingBehavior(lazyListState = monthListState),
+            ) {
+                items(12) { index ->
+                    val isCenter = monthListState.firstVisibleItemIndex == index
+                    Text(
+                        text = months[index],
+                        fontSize = if (isCenter) 18.sp else 14.sp,
+                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isCenter) highlightColor else Color.Gray,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .clickable {
+                                selectedMonth = index + 1
+                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                            },
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+
+        // Day column
+        Box(modifier = Modifier.weight(1f)) {
+            LazyColumn(
+                state = dayListState,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                flingBehavior = rememberSnapFlingBehavior(lazyListState = dayListState),
+            ) {
+                items(31) { index ->
+                    val day = index + 1
+                    val isCenter = dayListState.firstVisibleItemIndex == index
+                    Text(
+                        text = "%02d".format(day),
+                        fontSize = if (isCenter) 18.sp else 14.sp,
+                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isCenter) highlightColor else Color.Gray,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .clickable {
+                                selectedDay = day
+                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                            },
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+
+        // Year column
+        Box(modifier = Modifier.weight(1f)) {
+            val years = (1950..2030).toList()
+            LazyColumn(
+                state = yearListState,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                flingBehavior = rememberSnapFlingBehavior(lazyListState = yearListState),
+            ) {
+                items(years.size) { index ->
+                    val year = years[index]
+                    val isCenter = yearListState.firstVisibleItemIndex == index
+                    Text(
+                        text = year.toString(),
+                        fontSize = if (isCenter) 18.sp else 14.sp,
+                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isCenter) highlightColor else Color.Gray,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .clickable {
+                                selectedYear = year
+                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                            },
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Stack Block (ZStack container — SPEC-089d AC-024)
+
+@Composable
+private fun StackBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)?,
+) {
+    val childBlocks = (block.children ?: emptyList()).sortedBy { it.z_index ?: 0.0 }
+    val stackAlignment = mapBlockAlignment(block.alignment, null)
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = stackAlignment,
+    ) {
+        childBlocks.forEach { child ->
+            Box(modifier = Modifier.zIndex((child.z_index ?: 0.0).toFloat())) {
+                RenderBlock(
+                    block = child,
+                    onAction = onAction,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    loc = loc,
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Row Block (HStack container — SPEC-089d AC-025)
+
+@Composable
+private fun RowBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)?,
+) {
+    val childBlocks = block.children ?: emptyList()
+    val rowGap = (block.gap ?: 8.0).dp
+    val vAlignment = when (block.align_items) {
+        "top" -> Alignment.Top
+        "bottom" -> Alignment.Bottom
+        else -> Alignment.CenterVertically
+    }
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(rowGap),
+        verticalAlignment = vAlignment,
+    ) {
+        childBlocks.forEach { child ->
+            Box(modifier = Modifier.weight(1f)) {
+                RenderBlock(
+                    block = child,
+                    onAction = onAction,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    loc = loc,
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Custom View Block (SPEC-089d AC-026)
+
+@Composable
+private fun CustomViewBlock(block: ContentBlock) {
+    val key = block.view_key ?: ""
+    val factory = AppDNA.registeredCustomViews[key]
+
+    if (factory != null) {
+        val heightMod = if (block.height != null) Modifier.height(block.height.dp) else Modifier
+        Box(modifier = Modifier.fillMaxWidth().then(heightMod)) {
+            factory(block.custom_config ?: emptyMap())
+        }
+    } else if (block.placeholder_image_url != null) {
+        ai.appdna.sdk.core.NetworkImage(
+            url = block.placeholder_image_url,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height((block.height ?: 100.0).dp),
+            contentScale = ContentScale.Fit,
+        )
+    } else {
+        Text(
+            text = block.placeholder_text ?: "[$key]",
+            fontSize = 12.sp,
+            color = Color.Gray,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().padding(8.dp),
+        )
+    }
+}
+
+// MARK: - Star Background Block (SPEC-089d AC-027)
+
+@Composable
+private fun StarBackgroundBlock(block: ContentBlock) {
+    val particleColor = StyleEngine.parseColor(block.active_color ?: block.text_color ?: "#FFFFFF")
+    val baseOpacity = (block.block_style?.opacity ?: 0.8).toFloat()
+    val particleCount = when (block.density) {
+        "sparse" -> 20; "dense" -> 100; else -> 50
+    }
+    val speedFactor = when (block.speed) {
+        "slow" -> 0.3f; "fast" -> 1.5f; else -> 0.8f
+    }
+    val minSize = (block.size_range?.firstOrNull() ?: 1.0).toFloat()
+    val maxSize = (block.size_range?.lastOrNull() ?: 3.0).toFloat()
+    val isFullscreen = block.fullscreen ?: false
+    val blockHeight = (block.height ?: 200.0).dp
+
+    val particles = remember {
+        mutableStateOf(
+            (0 until particleCount).map {
+                StarParticleState(
+                    x = (Math.random() * 1000).toFloat(),
+                    y = (Math.random() * 1000).toFloat(),
+                    size = (minSize + Math.random().toFloat() * (maxSize - minSize)),
+                    opacity = (0.2f + Math.random().toFloat() * 0.8f),
+                    speed = (0.2f + Math.random().toFloat() * 0.8f),
+                )
+            }
+        )
+    }
+
+    // Lifecycle awareness — only animate when resumed
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isResumed by remember { mutableStateOf(true) }
+
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
+            override fun onResume(owner: androidx.lifecycle.LifecycleOwner) { isResumed = true }
+            override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { isResumed = false }
+        })
+    }
+
+    // Animation loop
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(33L) // ~30fps
+            if (!isResumed) continue
+            particles.value = particles.value.map { p ->
+                var newY = p.y + p.speed * speedFactor
+                var newOpacity = p.opacity + (-0.02f + Math.random().toFloat() * 0.04f)
+                newOpacity = newOpacity.coerceIn(0.1f, 1f)
+                if (newY > 1000f) {
+                    p.copy(y = -p.size, x = (Math.random() * 1000).toFloat(), opacity = newOpacity)
+                } else {
+                    p.copy(y = newY, opacity = newOpacity)
+                }
+            }
+        }
+    }
+
+    Canvas(
+        modifier = if (isFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(blockHeight),
+    ) {
+        val scaleX = size.width / 1000f
+        val scaleY = size.height / 1000f
+        particles.value.forEach { p ->
+            drawCircle(
+                color = particleColor.copy(alpha = p.opacity * baseOpacity),
+                radius = p.size * scaleX,
+                center = Offset(p.x * scaleX, p.y * scaleY),
+            )
+        }
+    }
+}
+
+// MARK: - Wheel Picker Block (SPEC-089d AC-013)
+
+@Composable
+private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+    val minVal = block.min_value ?: 0.0
+    val maxVal = block.max_value_picker ?: 100.0
+    val step = block.step_value ?: 1.0
+    val defaultVal = block.default_picker_value ?: minVal
+    val unitStr = block.unit ?: ""
+    val unitPos = block.unit_position ?: "after"
+    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: block.active_color ?: "#6366F1")
+    val fieldId = block.field_id ?: block.id
+
+    val values = remember {
+        val vals = mutableListOf<Double>()
+        var current = minVal
+        while (current <= maxVal) {
+            vals.add(current)
+            current += step
+        }
+        if (vals.isEmpty()) vals.add(0.0)
+        vals
+    }
+
+    val initialIndex = values.indexOfFirst { it >= defaultVal }.coerceAtLeast(0)
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+
+    // Persist selected value
+    val centeredIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    LaunchedEffect(centeredIndex) {
+        if (centeredIndex in values.indices) {
+            inputValues[fieldId] = values[centeredIndex]
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        block.label?.let { label ->
+            Text(text = label, fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+        }
+
+        Box(
+            modifier = Modifier.fillMaxWidth().height(150.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Highlight strip at center
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+            )
+
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+            ) {
+                items(values.size) { index ->
+                    val v = values[index]
+                    val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+                    val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
+                    val isCenter = index == centeredIndex
+
+                    Text(
+                        text = display,
+                        fontSize = if (isCenter) 22.sp else 16.sp,
+                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                        color = if (isCenter) highlightColor else Color.Gray,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Pulsing Avatar Block (SPEC-089d AC-014)
+
+@Composable
+private fun PulsingAvatarBlock(block: ContentBlock) {
+    val avatarSize = (block.icon_size ?: block.height ?: 80.0).dp
+    val pulseColor = StyleEngine.parseColor(block.pulse_color ?: "#6366F1")
+    val ringCount = block.pulse_ring_count ?: 3
+    val pulseDurationMs = ((block.pulse_speed ?: 1.5) * 1000).toInt()
+    val borderW = (block.border_width ?: 0.0).dp
+    val borderCol = StyleEngine.parseColor(block.border_color ?: "#FFFFFF")
+    val hAlign = when (block.alignment) {
+        "left" -> Alignment.CenterStart; "right" -> Alignment.CenterEnd; else -> Alignment.Center
+    }
+
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+
+    Box(
+        modifier = Modifier.fillMaxWidth(),
+        contentAlignment = hAlign,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            // Pulse rings
+            for (i in 0 until ringCount) {
+                val ringSize = avatarSize + (i + 1).dp * 20
+                val scale by infiniteTransition.animateFloat(
+                    initialValue = 1f,
+                    targetValue = 1.2f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = pulseDurationMs),
+                        repeatMode = RepeatMode.Restart,
+                        initialStartOffset = androidx.compose.animation.core.StartOffset(
+                            offsetMillis = (pulseDurationMs / ringCount) * i,
+                        ),
+                    ),
+                    label = "ring_scale_$i",
+                )
+                val alpha by infiniteTransition.animateFloat(
+                    initialValue = 0.6f,
+                    targetValue = 0f,
+                    animationSpec = infiniteRepeatable(
+                        animation = tween(durationMillis = pulseDurationMs),
+                        repeatMode = RepeatMode.Restart,
+                        initialStartOffset = androidx.compose.animation.core.StartOffset(
+                            offsetMillis = (pulseDurationMs / ringCount) * i,
+                        ),
+                    ),
+                    label = "ring_alpha_$i",
+                )
+                Box(
+                    modifier = Modifier
+                        .size(ringSize)
+                        .alpha(alpha)
+                        .border(2.dp, pulseColor.copy(alpha = 0.3f), CircleShape)
+                        .then(Modifier.size(ringSize * scale.coerceIn(1f, 1.5f))),
+                )
+            }
+
+            // Avatar image
+            Box(
+                modifier = Modifier
+                    .size(avatarSize)
+                    .clip(CircleShape)
+                    .then(
+                        if (borderW.value > 0) Modifier.border(borderW, borderCol, CircleShape) else Modifier
+                    ),
+            ) {
+                if (block.image_url != null) {
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = block.image_url,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(Color.Gray.copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("\uD83D\uDC64", fontSize = (avatarSize.value * 0.4).sp)
+                    }
+                }
+            }
+
+            // Badge
+            if (!block.badge_text.isNullOrEmpty()) {
+                Text(
+                    text = block.badge_text,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .background(
+                            StyleEngine.parseColor(block.badge_bg_color ?: "#EF4444"),
+                            RoundedCornerShape(999.dp),
+                        )
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                )
+            }
+        }
+    }
+}
+
+// MARK: - Pricing Card Block (SPEC-089d Nurrai)
+
+@Composable
+private fun PricingCardBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    inputValues: MutableMap<String, Any>,
+) {
+    val plans = block.pricing_plans ?: emptyList()
+    val isSideBySide = block.pricing_layout == "side_by_side"
+    val accentColor = StyleEngine.parseColor(block.active_color ?: block.bg_color ?: "#6366F1")
+
+    var selectedPlanId by remember { mutableStateOf<String?>(null) }
+
+    @Composable
+    fun PlanCardContent(plan: PricingPlan, modifier: Modifier = Modifier) {
+        val isHighlighted = plan.is_highlighted
+        val isSelected = selectedPlanId == plan.id
+
+        Card(
+            onClick = {
+                selectedPlanId = plan.id
+                inputValues["selected_plan_id"] = plan.id
+                inputValues["selected_plan_label"] = plan.label
+                onAction("select_plan:${plan.id}")
+            },
+            modifier = modifier
+                .border(
+                    width = if (isSelected || isHighlighted) 2.dp else 1.dp,
+                    color = if (isSelected) accentColor else if (isHighlighted) accentColor else Color.Gray.copy(alpha = 0.3f),
+                    shape = RoundedCornerShape(12.dp),
+                ),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isSelected) accentColor.copy(alpha = 0.05f) else Color.Transparent,
+            ),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (!plan.badge.isNullOrEmpty()) {
+                    Text(
+                        text = plan.badge,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        modifier = Modifier
+                            .background(accentColor, RoundedCornerShape(999.dp))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+                Text(text = plan.label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+                Text(text = plan.price, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(text = plan.period, fontSize = 12.sp, color = Color.Gray)
+            }
+        }
+    }
+
+    if (isSideBySide) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            plans.forEach { plan ->
+                PlanCardContent(plan, modifier = Modifier.weight(1f))
+            }
+        }
+    } else {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            plans.forEach { plan ->
+                PlanCardContent(plan, modifier = Modifier.fillMaxWidth())
             }
         }
     }
