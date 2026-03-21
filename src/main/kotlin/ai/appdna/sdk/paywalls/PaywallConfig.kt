@@ -27,7 +27,7 @@ data class PaywallLayout(
 )
 
 data class PaywallSection(
-    val type: String, // "header", "features", "plans", "cta", "social_proof", "guarantee", "image", "spacer", "testimonial"
+    val type: String, // "header", "features", "plans", "cta", "social_proof", "guarantee", "image", "spacer", "testimonial", "lottie", "video", "rive", "countdown", "legal", "divider", "sticky_footer", "card", "carousel", "timeline", "icon_grid", "comparison_table", "promo_input", "toggle", "reviews_carousel"
     val data: PaywallSectionData? = null,
     // SPEC-084: Per-section styling
     val style: ai.appdna.sdk.core.SectionStyleConfig? = null,
@@ -82,6 +82,142 @@ data class PaywallSectionData(
     val video_thumbnail_url: String? = null,
     val video_autoplay: Boolean? = null,
     val video_loop: Boolean? = null,
+
+    // SPEC-089d: Countdown section
+    val variant: String? = null,             // digital | circular | flip | bar
+    val duration_seconds: Int? = null,
+    val target_datetime: String? = null,
+    val show_days: Boolean? = null,
+    val show_hours: Boolean? = null,
+    val show_minutes: Boolean? = null,
+    val show_seconds: Boolean? = null,
+    val labels: Map<String, String>? = null,
+    val on_expire_action: String? = null,    // hide | show_expired_text | auto_advance
+    val expired_text: String? = null,
+    val accent_color: String? = null,
+    val background_color: String? = null,
+    val font_size: Float? = null,
+    val alignment: String? = null,
+
+    // SPEC-089d: Legal section
+    val color: String? = null,
+    val links: List<PaywallLink>? = null,
+
+    // SPEC-089d: Divider section
+    val thickness: Float? = null,
+    val line_style: String? = null,          // solid | dashed | dotted
+    val margin_top: Float? = null,
+    val margin_bottom: Float? = null,
+    val margin_horizontal: Float? = null,
+    val label_text: String? = null,
+    val label_color: String? = null,
+    val label_bg_color: String? = null,
+    val label_font_size: Float? = null,
+
+    // SPEC-089d: Sticky footer section
+    val cta_text: String? = null,
+    val cta_bg_color: String? = null,
+    val cta_text_color: String? = null,
+    val cta_corner_radius: Float? = null,
+    val secondary_text: String? = null,
+    val secondary_action: String? = null,    // restore | link
+    val secondary_url: String? = null,
+    val legal_text: String? = null,
+    val blur_background: Boolean? = null,
+    val padding: Float? = null,
+
+    // SPEC-089d: Carousel section
+    val pages: List<PaywallCarouselPage>? = null,
+    val auto_scroll: Boolean? = null,
+    val auto_scroll_interval_ms: Int? = null,
+    val show_indicators: Boolean? = null,
+    val indicator_color: String? = null,
+    val indicator_active_color: String? = null,
+
+    // SPEC-089d: Timeline / Icon grid items
+    val items: List<PaywallGenericItem>? = null,
+    val line_color: String? = null,
+    val completed_color: String? = null,
+    val current_color: String? = null,
+    val upcoming_color: String? = null,
+    val show_line: Boolean? = null,
+    val compact: Boolean? = null,
+
+    // SPEC-089d: Icon grid / comparison table
+    val columns: Int? = null,
+    val icon_size: Float? = null,
+    val icon_color: String? = null,
+    val spacing: Float? = null,
+
+    // SPEC-089d: Comparison table section
+    val table_columns: List<PaywallTableColumn>? = null,
+    val rows: List<PaywallTableRow>? = null,
+    val check_color: String? = null,
+    val cross_color: String? = null,
+    val highlight_color: String? = null,
+    val border_color: String? = null,
+
+    // SPEC-089d: Promo input section
+    val placeholder: String? = null,
+    val button_text: String? = null,
+    val success_text: String? = null,
+    val error_text: String? = null,
+
+    // SPEC-089d: Toggle section
+    val label: String? = null,
+    val description: String? = null,
+    val default_value: Boolean? = null,
+    val on_color: String? = null,
+    val off_color: String? = null,
+    val label_color_val: String? = null,
+    val description_color: String? = null,
+    val icon: String? = null,
+    val affects_price: Boolean? = null,
+
+    // SPEC-089d: Reviews carousel section
+    val reviews: List<PaywallReview>? = null,
+    val show_rating_stars: Boolean? = null,
+    val star_color: String? = null,
+)
+
+// SPEC-089d: Sub-types for new paywall sections
+
+data class PaywallLink(
+    val label: String,
+    val url: String,
+)
+
+data class PaywallCarouselPage(
+    val id: String,
+    val children: List<PaywallSection>? = null,
+)
+
+data class PaywallGenericItem(
+    val id: String? = null,
+    val title: String? = null,
+    val subtitle: String? = null,
+    val icon: String? = null,
+    val status: String? = null,       // completed | current | upcoming
+    val label: String? = null,
+    val description: String? = null,
+)
+
+data class PaywallTableColumn(
+    val label: String,
+    val highlighted: Boolean? = null,
+)
+
+data class PaywallTableRow(
+    val feature: String,
+    val values: List<String>,
+)
+
+data class PaywallReview(
+    val text: String,
+    val author: String,
+    val rating: Double? = null,
+    val avatar_url: String? = null,
+    val date: String? = null,
 )
 
 data class PaywallPlan(
@@ -316,6 +452,143 @@ internal object PaywallConfigParser {
                 video_thumbnail_url = d["video_thumbnail_url"] as? String,
                 video_autoplay = d["video_autoplay"] as? Boolean,
                 video_loop = d["video_loop"] as? Boolean,
+                // SPEC-089d: Countdown section
+                variant = d["variant"] as? String,
+                duration_seconds = (d["duration_seconds"] as? Number)?.toInt(),
+                target_datetime = d["target_datetime"] as? String,
+                show_days = d["show_days"] as? Boolean,
+                show_hours = d["show_hours"] as? Boolean,
+                show_minutes = d["show_minutes"] as? Boolean,
+                show_seconds = d["show_seconds"] as? Boolean,
+                labels = (d["labels"] as? Map<*, *>)?.entries?.associate { (k, v) -> (k as? String ?: "") to (v as? String ?: "") },
+                on_expire_action = d["on_expire_action"] as? String,
+                expired_text = d["expired_text"] as? String,
+                accent_color = d["accent_color"] as? String,
+                background_color = d["background_color"] as? String,
+                font_size = (d["font_size"] as? Number)?.toFloat(),
+                alignment = d["alignment"] as? String,
+                // SPEC-089d: Legal section
+                color = d["color"] as? String,
+                links = (d["links"] as? List<*>)?.mapNotNull { linkData ->
+                    (linkData as? Map<*, *>)?.let { lm ->
+                        PaywallLink(
+                            label = lm["label"] as? String ?: "",
+                            url = lm["url"] as? String ?: "",
+                        )
+                    }
+                },
+                // SPEC-089d: Divider section
+                thickness = (d["thickness"] as? Number)?.toFloat(),
+                line_style = d["style"] as? String,
+                margin_top = (d["margin_top"] as? Number)?.toFloat(),
+                margin_bottom = (d["margin_bottom"] as? Number)?.toFloat(),
+                margin_horizontal = (d["margin_horizontal"] as? Number)?.toFloat(),
+                label_text = d["label_text"] as? String,
+                label_color = d["label_color"] as? String,
+                label_bg_color = d["label_bg_color"] as? String,
+                label_font_size = (d["label_font_size"] as? Number)?.toFloat(),
+                // SPEC-089d: Sticky footer section
+                cta_text = d["cta_text"] as? String,
+                cta_bg_color = d["cta_bg_color"] as? String,
+                cta_text_color = d["cta_text_color"] as? String,
+                cta_corner_radius = (d["cta_corner_radius"] as? Number)?.toFloat(),
+                secondary_text = d["secondary_text"] as? String,
+                secondary_action = d["secondary_action"] as? String,
+                secondary_url = d["secondary_url"] as? String,
+                legal_text = d["legal_text"] as? String,
+                blur_background = d["blur_background"] as? Boolean,
+                padding = (d["padding"] as? Number)?.toFloat(),
+                // SPEC-089d: Carousel section
+                pages = (d["pages"] as? List<*>)?.mapNotNull { pageData ->
+                    (pageData as? Map<*, *>)?.let { pm ->
+                        @Suppress("UNCHECKED_CAST")
+                        val childSections = (pm["children"] as? List<Map<String, Any>>)?.map { parseSectionFromMap(it) }
+                        PaywallCarouselPage(
+                            id = pm["id"] as? String ?: "",
+                            children = childSections,
+                        )
+                    }
+                },
+                auto_scroll = d["auto_scroll"] as? Boolean,
+                auto_scroll_interval_ms = (d["auto_scroll_interval_ms"] as? Number)?.toInt(),
+                show_indicators = d["show_indicators"] as? Boolean,
+                indicator_color = d["indicator_color"] as? String,
+                indicator_active_color = d["indicator_active_color"] as? String,
+                // SPEC-089d: Timeline / Icon grid items
+                items = (d["items"] as? List<*>)?.mapNotNull { itemData ->
+                    (itemData as? Map<*, *>)?.let { im ->
+                        PaywallGenericItem(
+                            id = im["id"] as? String,
+                            title = im["title"] as? String,
+                            subtitle = im["subtitle"] as? String,
+                            icon = im["icon"] as? String,
+                            status = im["status"] as? String,
+                            label = im["label"] as? String,
+                            description = im["description"] as? String,
+                        )
+                    }
+                },
+                line_color = d["line_color"] as? String,
+                completed_color = d["completed_color"] as? String,
+                current_color = d["current_color"] as? String,
+                upcoming_color = d["upcoming_color"] as? String,
+                show_line = d["show_line"] as? Boolean,
+                compact = d["compact"] as? Boolean,
+                // SPEC-089d: Icon grid / comparison table
+                columns = (d["columns"] as? Number)?.toInt(),
+                icon_size = (d["icon_size"] as? Number)?.toFloat(),
+                icon_color = d["icon_color"] as? String,
+                spacing = (d["spacing"] as? Number)?.toFloat(),
+                // SPEC-089d: Comparison table section
+                table_columns = ((d["table_columns"] ?: d["columns"]) as? List<*>)?.mapNotNull { colData ->
+                    (colData as? Map<*, *>)?.let { cm ->
+                        PaywallTableColumn(
+                            label = cm["label"] as? String ?: "",
+                            highlighted = cm["highlighted"] as? Boolean,
+                        )
+                    }
+                },
+                rows = (d["rows"] as? List<*>)?.mapNotNull { rowData ->
+                    (rowData as? Map<*, *>)?.let { rm ->
+                        PaywallTableRow(
+                            feature = rm["feature"] as? String ?: "",
+                            values = (rm["values"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+                        )
+                    }
+                },
+                check_color = d["check_color"] as? String,
+                cross_color = d["cross_color"] as? String,
+                highlight_color = d["highlight_color"] as? String,
+                border_color = d["border_color"] as? String,
+                // SPEC-089d: Promo input section
+                placeholder = d["placeholder"] as? String,
+                button_text = d["button_text"] as? String,
+                success_text = d["success_text"] as? String,
+                error_text = d["error_text"] as? String,
+                // SPEC-089d: Toggle section
+                label = d["label"] as? String,
+                description = d["description"] as? String,
+                default_value = d["default_value"] as? Boolean,
+                on_color = d["on_color"] as? String,
+                off_color = d["off_color"] as? String,
+                label_color_val = d["label_color"] as? String,
+                description_color = d["description_color"] as? String,
+                icon = d["icon"] as? String,
+                affects_price = d["affects_price"] as? Boolean,
+                // SPEC-089d: Reviews carousel section
+                reviews = (d["reviews"] as? List<*>)?.mapNotNull { reviewData ->
+                    (reviewData as? Map<*, *>)?.let { rm ->
+                        PaywallReview(
+                            text = rm["text"] as? String ?: "",
+                            author = rm["author"] as? String ?: "",
+                            rating = (rm["rating"] as? Number)?.toDouble(),
+                            avatar_url = rm["avatar_url"] as? String,
+                            date = rm["date"] as? String,
+                        )
+                    }
+                },
+                show_rating_stars = d["show_rating_stars"] as? Boolean,
+                star_color = d["star_color"] as? String,
             )
         }
 

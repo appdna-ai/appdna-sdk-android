@@ -225,60 +225,94 @@ fun PaywallScreen(
         // Background
         PaywallBackground(config.background)
 
-        // Content
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .padding((config.layout.padding ?: 20f).dp)
-        ) {
-            val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
-            config.sections.forEachIndexed { index, section ->
-                Box(
-                    modifier = Modifier.sectionStagger(
-                        config.animation?.section_stagger,
-                        delayMs = staggerDelay * index,
-                    )
-                ) {
-                    PaywallSectionView(
-                        section = section,
-                        config = config,
-                        selectedPlanId = selectedPlanId,
-                        isPurchasing = isPurchasing,
-                        onPlanSelect = { planId ->
-                            selectedPlanId = planId
-                            // SPEC-085: Haptic on plan select
-                            HapticEngine.triggerIfEnabled(
-                                currentView,
-                                config.haptic?.triggers?.on_plan_select,
-                                config.haptic,
-                            )
-                        },
-                        onCTATap = {
-                            val plans = config.sections
-                                .firstOrNull { s -> s.type == "plans" }
-                                ?.data?.plans
-                            val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
-                            if (plan != null) {
-                                isPurchasing = true
-                                // SPEC-085: Haptic on CTA tap
+        // SPEC-089d: Extract sticky_footer section
+        val stickyFooterSection = config.sections.firstOrNull { it.type == "sticky_footer" }
+
+        // Content in a Column with scrollable area + sticky footer
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Scrollable content
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding((config.layout.padding ?: 20f).dp)
+            ) {
+                val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
+                config.sections.forEachIndexed { index, section ->
+                    Box(
+                        modifier = Modifier.sectionStagger(
+                            config.animation?.section_stagger,
+                            delayMs = staggerDelay * index,
+                        )
+                    ) {
+                        PaywallSectionView(
+                            section = section,
+                            config = config,
+                            selectedPlanId = selectedPlanId,
+                            isPurchasing = isPurchasing,
+                            onPlanSelect = { planId ->
+                                selectedPlanId = planId
+                                // SPEC-085: Haptic on plan select
                                 HapticEngine.triggerIfEnabled(
                                     currentView,
-                                    config.haptic?.triggers?.on_button_tap,
+                                    config.haptic?.triggers?.on_plan_select,
                                     config.haptic,
                                 )
-                                // SPEC-085: Confetti on purchase
-                                if (config.particle_effect != null) {
-                                    showConfetti = true
+                            },
+                            onCTATap = {
+                                val plans = config.sections
+                                    .firstOrNull { s -> s.type == "plans" }
+                                    ?.data?.plans
+                                val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
+                                if (plan != null) {
+                                    isPurchasing = true
+                                    // SPEC-085: Haptic on CTA tap
+                                    HapticEngine.triggerIfEnabled(
+                                        currentView,
+                                        config.haptic?.triggers?.on_button_tap,
+                                        config.haptic,
+                                    )
+                                    // SPEC-085: Confetti on purchase
+                                    if (config.particle_effect != null) {
+                                        showConfetti = true
+                                    }
+                                    onPlanSelected(plan)
                                 }
-                                onPlanSelected(plan)
-                            }
-                        },
-                        onRestore = onRestore,
-                        loc = ::loc,
-                    )
+                            },
+                            onRestore = onRestore,
+                            loc = ::loc,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
                 }
-                Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
+            }
+
+            // SPEC-089d: Sticky footer pinned to bottom
+            if (stickyFooterSection != null) {
+                PaywallStickyFooter(
+                    section = stickyFooterSection,
+                    isPurchasing = isPurchasing,
+                    onCTATap = {
+                        val plans = config.sections
+                            .firstOrNull { s -> s.type == "plans" }
+                            ?.data?.plans
+                        val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
+                        if (plan != null) {
+                            isPurchasing = true
+                            HapticEngine.triggerIfEnabled(
+                                currentView,
+                                config.haptic?.triggers?.on_button_tap,
+                                config.haptic,
+                            )
+                            if (config.particle_effect != null) {
+                                showConfetti = true
+                            }
+                            onPlanSelected(plan)
+                        }
+                    },
+                    onRestore = onRestore,
+                    loc = ::loc,
+                )
             }
         }
 
@@ -855,6 +889,812 @@ private fun PaywallSectionView(
                 }
             }
         }
+        // SPEC-089d: 12 new paywall section types
+        "countdown" -> {
+            PaywallCountdownSection(section = section, loc = loc)
+        }
+        "legal" -> {
+            PaywallLegalSection(section = section, loc = loc)
+        }
+        "divider" -> {
+            PaywallDividerSection(section = section)
+        }
+        "sticky_footer" -> {
+            // Rendered outside scrollable content — see PaywallScreen
+        }
+        "card" -> {
+            PaywallCardSection(section = section, loc = loc)
+        }
+        "carousel" -> {
+            PaywallCarouselSection(section = section, config = config, loc = loc)
+        }
+        "timeline" -> {
+            PaywallTimelineSection(section = section, loc = loc)
+        }
+        "icon_grid" -> {
+            PaywallIconGridSection(section = section, loc = loc)
+        }
+        "comparison_table" -> {
+            PaywallComparisonTableSection(section = section, loc = loc)
+        }
+        "promo_input" -> {
+            PaywallPromoInputSection(section = section, loc = loc)
+        }
+        "toggle" -> {
+            PaywallToggleSection(section = section, loc = loc)
+        }
+        "reviews_carousel" -> {
+            PaywallReviewsCarouselSection(section = section, loc = loc)
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Countdown section (AC-028)
+
+@Composable
+private fun PaywallCountdownSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val duration = section.data?.duration_seconds ?: section.data?.countdown_seconds ?: 3600
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        CountdownTimer(
+            seconds = duration,
+            valueTextStyle = section.style?.elements?.get("value")?.text_style,
+        )
+    }
+}
+
+// MARK: - SPEC-089d: Legal section (AC-029)
+
+@Composable
+private fun PaywallLegalSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val textColor = section.data?.color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.5f)
+    val fontSize = section.data?.font_size ?: 11f
+    val textAlignment = when (section.data?.alignment) {
+        "left" -> TextAlign.Start
+        "right" -> TextAlign.End
+        else -> TextAlign.Center
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        section.data?.text?.let { text ->
+            // Parse markdown links [text](url)
+            val annotated = buildAnnotatedStringWithLinks(text)
+            androidx.compose.foundation.text.ClickableText(
+                text = annotated,
+                style = TextStyle(color = textColor, fontSize = fontSize.sp, textAlign = textAlignment),
+                onClick = { offset ->
+                    annotated.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                        .firstOrNull()?.let { annotation ->
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(annotation.item))
+                            context.startActivity(intent)
+                        }
+                },
+            )
+        }
+        val links = section.data?.links
+        if (!links.isNullOrEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Spacer(Modifier.weight(1f))
+                links.forEach { link ->
+                    val accentColor = section.data.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+                    Text(
+                        text = link.label,
+                        color = accentColor,
+                        fontSize = fontSize.sp,
+                        modifier = Modifier.clickable {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link.url))
+                            context.startActivity(intent)
+                        },
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+private fun buildAnnotatedStringWithLinks(text: String): androidx.compose.ui.text.AnnotatedString {
+    val builder = androidx.compose.ui.text.AnnotatedString.Builder()
+    val pattern = Regex("\\[([^]]+)]\\(([^)]+)\\)")
+    var lastIndex = 0
+    pattern.findAll(text).forEach { match ->
+        // Add text before the match
+        builder.append(text.substring(lastIndex, match.range.first))
+        // Add the link text with annotation
+        val label = match.groupValues[1]
+        val url = match.groupValues[2]
+        builder.pushStringAnnotation(tag = "URL", annotation = url)
+        builder.pushStyle(
+            androidx.compose.ui.text.SpanStyle(
+                color = Color(0xFF6366F1),
+                textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+            )
+        )
+        builder.append(label)
+        builder.pop() // style
+        builder.pop() // annotation
+        lastIndex = match.range.last + 1
+    }
+    if (lastIndex < text.length) {
+        builder.append(text.substring(lastIndex))
+    }
+    return builder.toAnnotatedString()
+}
+
+// MARK: - SPEC-089d: Divider section (AC-030)
+
+@Composable
+private fun PaywallDividerSection(section: PaywallSection) {
+    val dividerColor = section.data?.color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.2f)
+    val thickness = section.data?.thickness ?: 1f
+    val lineStyle = section.data?.line_style ?: "solid"
+    val mTop = section.data?.margin_top ?: 8f
+    val mBottom = section.data?.margin_bottom ?: 8f
+    val mH = section.data?.margin_horizontal ?: 0f
+
+    Box(
+        modifier = Modifier
+            .padding(top = mTop.dp, bottom = mBottom.dp, start = mH.dp, end = mH.dp)
+            .fillMaxWidth(),
+    ) {
+        val labelText = section.data?.label_text
+        if (labelText != null) {
+            // Divider with centered label
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                DividerLine(color = dividerColor, thickness = thickness, style = lineStyle, modifier = Modifier.weight(1f))
+                Text(
+                    text = labelText,
+                    color = section.data.label_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.5f),
+                    fontSize = (section.data.label_font_size ?: 12f).sp,
+                    modifier = Modifier
+                        .padding(horizontal = 12.dp)
+                        .background(
+                            section.data.label_bg_color?.let { parseHexColor(it) } ?: Color.Transparent,
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 4.dp),
+                )
+                DividerLine(color = dividerColor, thickness = thickness, style = lineStyle, modifier = Modifier.weight(1f))
+            }
+        } else {
+            DividerLine(color = dividerColor, thickness = thickness, style = lineStyle, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+@Composable
+private fun DividerLine(color: Color, thickness: Float, style: String, modifier: Modifier = Modifier) {
+    when (style) {
+        "dashed", "dotted" -> {
+            val dashLength = if (style == "dashed") 6f else 2f
+            val gapLength = if (style == "dashed") 3f else 2f
+            androidx.compose.foundation.Canvas(
+                modifier = modifier.height(thickness.dp),
+            ) {
+                drawLine(
+                    color = color,
+                    start = androidx.compose.ui.geometry.Offset(0f, size.height / 2),
+                    end = androidx.compose.ui.geometry.Offset(size.width, size.height / 2),
+                    strokeWidth = thickness,
+                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                        floatArrayOf(dashLength * density, gapLength * density),
+                        0f,
+                    ),
+                )
+            }
+        }
+        else -> { // solid
+            HorizontalDivider(
+                thickness = thickness.dp,
+                color = color,
+                modifier = modifier,
+            )
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Card section (AC-032)
+
+@Composable
+private fun PaywallCardSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val radius = section.data?.corner_radius ?: 16f
+    val bgColor = section.data?.background_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.08f)
+    val borderClr = section.data?.border_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.15f)
+
+    Card(
+        shape = RoundedCornerShape(radius.dp),
+        colors = CardDefaults.cardColors(containerColor = bgColor),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, borderClr, RoundedCornerShape(radius.dp))
+            .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        Column(modifier = Modifier.padding((section.data?.padding ?: 16f).dp)) {
+            section.data?.title?.let {
+                Text(
+                    text = loc("card.title", it),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 16.sp,
+                    color = Color.White,
+                )
+                Spacer(Modifier.height(4.dp))
+            }
+            section.data?.subtitle?.let {
+                Text(
+                    text = loc("card.subtitle", it),
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.8f),
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+            section.data?.text?.let {
+                Text(
+                    text = loc("card.body", it),
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                )
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Carousel section (AC-033)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PaywallCarouselSection(
+    section: PaywallSection,
+    config: PaywallConfig,
+    loc: (String, String) -> String,
+) {
+    val pages = section.data?.pages ?: return
+    if (pages.isEmpty()) return
+    val pagerState = rememberPagerState(pageCount = { pages.size })
+    val coroutineScope = rememberCoroutineScope()
+    val autoScroll = section.data.auto_scroll ?: false
+    val intervalMs = section.data.auto_scroll_interval_ms ?: 3000
+    val showIndicators = section.data.show_indicators ?: true
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth().height((section.data.height ?: 200f).dp),
+        ) { pageIdx ->
+            val page = pages[pageIdx]
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize().padding(horizontal = 8.dp),
+            ) {
+                page.children?.forEach { child ->
+                    child.data?.title?.let {
+                        Text(text = it, fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    child.data?.subtitle?.let {
+                        Text(text = it, color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    child.data?.image_url?.let { url ->
+                        ai.appdna.sdk.core.NetworkImage(
+                            url = url,
+                            modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(8.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    }
+                }
+            }
+        }
+
+        if (showIndicators) {
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                repeat(pages.size) { idx ->
+                    val activeColor = section.data.indicator_active_color?.let { parseHexColor(it) } ?: Color.White
+                    val inactiveColor = section.data.indicator_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.3f)
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (idx == pagerState.currentPage) activeColor else inactiveColor),
+                    )
+                }
+            }
+        }
+    }
+
+    // Auto-scroll
+    if (autoScroll) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(intervalMs.toLong())
+                val nextPage = (pagerState.currentPage + 1) % pages.size
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Timeline section (AC-034)
+
+@Composable
+private fun PaywallTimelineSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val items = section.data?.items ?: return
+    val isCompact = section.data.compact ?: false
+    val showLine = section.data.show_line ?: true
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(if (isCompact) 12.dp else 24.dp),
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        items.forEachIndexed { index, item ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                // Status indicator column
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.width(24.dp),
+                ) {
+                    val statusColor = when (item.status) {
+                        "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
+                        "current" -> parseHexColor(section.data.current_color ?: "#6366F1")
+                        else -> parseHexColor(section.data.upcoming_color ?: "#666666")
+                    }
+                    Box(
+                        modifier = Modifier.size(24.dp).clip(CircleShape).background(statusColor),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (item.status == "completed") {
+                            Text("\u2713", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                    if (showLine && index < items.size - 1) {
+                        Box(
+                            modifier = Modifier
+                                .width(2.dp)
+                                .height(if (isCompact) 12.dp else 24.dp)
+                                .background(parseHexColor(section.data.line_color ?: "#333333")),
+                        )
+                    }
+                }
+
+                // Content column
+                Column(modifier = Modifier.weight(1f)) {
+                    item.title?.let {
+                        Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 14.sp)
+                    }
+                    item.subtitle?.let {
+                        Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Icon grid section (AC-035)
+
+@Composable
+private fun PaywallIconGridSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val items = section.data?.items ?: return
+    val columnCount = section.data.columns ?: 3
+    val gridSpacing = section.data.spacing ?: 16f
+    val iconSz = section.data.icon_size ?: 32f
+    val iconClr = section.data.icon_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+
+    val titleStyle = section.style?.elements?.get("title")?.text_style
+    val descStyle = section.style?.elements?.get("description")?.text_style
+
+    // Manual grid since LazyVerticalGrid can't be nested in scrollable Column
+    val chunked = items.chunked(columnCount)
+    Column(
+        verticalArrangement = Arrangement.spacedBy(gridSpacing.dp),
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        chunked.forEach { rowItems ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(gridSpacing.dp),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                rowItems.forEach { item ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        item.icon?.let { icon ->
+                            // Check if emoji (non-ASCII) or icon name
+                            if (icon.any { it.code > 127 }) {
+                                Text(text = icon, fontSize = iconSz.sp)
+                            } else {
+                                IconView(
+                                    icon = resolveIcon(icon),
+                                    modifier = Modifier.size(iconSz.dp),
+                                    tint = iconClr,
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
+                        val itemLabel = item.label ?: item.title
+                        itemLabel?.let {
+                            val ts = if (titleStyle != null) StyleEngine.applyTextStyle(
+                                TextStyle(fontWeight = FontWeight.Medium, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center),
+                                titleStyle,
+                            ) else TextStyle(fontWeight = FontWeight.Medium, color = Color.White, fontSize = 12.sp, textAlign = TextAlign.Center)
+                            Text(text = it, style = ts, textAlign = TextAlign.Center)
+                        }
+                        val itemDesc = item.description ?: item.subtitle
+                        itemDesc?.let {
+                            val ds = if (descStyle != null) StyleEngine.applyTextStyle(
+                                TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, textAlign = TextAlign.Center),
+                                descStyle,
+                            ) else TextStyle(color = Color.White.copy(alpha = 0.6f), fontSize = 10.sp, textAlign = TextAlign.Center)
+                            Text(text = it, style = ds, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                // Fill remaining slots for last row
+                repeat(columnCount - rowItems.size) {
+                    Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Comparison table section (AC-036)
+
+@Composable
+private fun PaywallComparisonTableSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val cols = section.data?.table_columns ?: return
+    val rows = section.data.rows ?: return
+    val checkColor = section.data.check_color?.let { parseHexColor(it) } ?: Color(0xFF22C55E)
+    val crossColor = section.data.cross_color?.let { parseHexColor(it) } ?: Color(0xFFEF4444)
+    val highlightClr = section.data.highlight_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+    val borderClr = section.data.border_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.2f)
+    val radius = section.data.corner_radius ?: 12f
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(radius.dp))
+            .border(1.dp, borderClr, RoundedCornerShape(radius.dp))
+            .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        // Header row
+        Row(
+            modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.05f)),
+        ) {
+            // Feature label column header
+            Box(modifier = Modifier.weight(1f).padding(vertical = 10.dp))
+            cols.forEachIndexed { _, col ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .background(if (col.highlighted == true) highlightClr.copy(alpha = 0.15f) else Color.Transparent)
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = col.label,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+            }
+        }
+        HorizontalDivider(color = borderClr, thickness = 0.5.dp)
+
+        // Data rows
+        rows.forEachIndexed { rowIdx, row ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = row.feature,
+                    fontSize = 12.sp,
+                    color = Color.White.copy(alpha = 0.9f),
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 8.dp),
+                )
+                row.values.forEachIndexed { valIdx, value ->
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .background(
+                                if (valIdx < cols.size && cols[valIdx].highlighted == true) highlightClr.copy(alpha = 0.08f)
+                                else Color.Transparent,
+                            )
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        when (value.lowercase()) {
+                            "check" -> Text("\u2713", color = checkColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            "cross" -> Text("\u2715", color = crossColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            "partial" -> Text("\u2014", color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            else -> Text(value, fontSize = 12.sp, color = Color.White, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+            }
+            if (rowIdx < rows.size - 1) {
+                HorizontalDivider(color = borderClr.copy(alpha = 0.3f), thickness = 0.5.dp)
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Promo input section (AC-037)
+
+@Composable
+private fun PaywallPromoInputSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    var promoCode by remember { mutableStateOf("") }
+    var promoState by remember { mutableStateOf("idle") } // idle | loading | success | error
+
+    Column(
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            OutlinedTextField(
+                value = promoCode,
+                onValueChange = { promoCode = it },
+                placeholder = { Text(section.data?.placeholder ?: "Promo code", color = Color.White.copy(alpha = 0.4f)) },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White,
+                    focusedBorderColor = Color(0xFF6366F1),
+                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                ),
+            )
+            Button(
+                onClick = {
+                    promoState = "loading"
+                    // In production: fire async webhook with promo_code
+                    // Placeholder logic
+                    promoState = if (promoCode.isNotBlank()) "success" else "error"
+                },
+                enabled = promoState != "loading",
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = section.data?.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
+                ),
+            ) {
+                Text(
+                    text = loc("promo.button", section.data?.button_text ?: "Apply"),
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                )
+            }
+        }
+        when (promoState) {
+            "success" -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = section.data?.success_text ?: "Code applied!",
+                    color = Color(0xFF22C55E),
+                    fontSize = 12.sp,
+                )
+            }
+            "error" -> {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = section.data?.error_text ?: "Invalid code",
+                    color = Color(0xFFEF4444),
+                    fontSize = 12.sp,
+                )
+            }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Toggle section (AC-038)
+
+@Composable
+private fun PaywallToggleSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    var isToggled by remember { mutableStateOf(section.data?.default_value ?: false) }
+    val onColor = section.data?.on_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        section.data?.icon?.let { iconName ->
+            IconView(
+                icon = resolveIcon(iconName),
+                modifier = Modifier.size(24.dp).padding(end = 8.dp),
+                tint = section.data.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
+            )
+            Spacer(Modifier.width(8.dp))
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            section.data?.label?.let {
+                Text(
+                    text = loc("toggle.label", it),
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 14.sp,
+                    color = section.data.label_color_val?.let { c -> parseHexColor(c) } ?: Color.White,
+                )
+            }
+            section.data?.description?.let {
+                Text(
+                    text = loc("toggle.description", it),
+                    fontSize = 12.sp,
+                    color = section.data.description_color?.let { c -> parseHexColor(c) } ?: Color.White.copy(alpha = 0.6f),
+                )
+            }
+        }
+
+        Switch(
+            checked = isToggled,
+            onCheckedChange = { isToggled = it },
+            colors = SwitchDefaults.colors(checkedTrackColor = onColor),
+        )
+    }
+}
+
+// MARK: - SPEC-089d: Reviews carousel section (AC-039)
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun PaywallReviewsCarouselSection(
+    section: PaywallSection,
+    loc: (String, String) -> String,
+) {
+    val reviews = section.data?.reviews ?: return
+    if (reviews.isEmpty()) return
+    val pagerState = rememberPagerState(pageCount = { reviews.size })
+    val autoScroll = section.data.auto_scroll ?: true
+    val intervalMs = section.data.auto_scroll_interval_ms ?: 4000
+    val showStars = section.data.show_rating_stars ?: true
+    val starClr = section.data.star_color?.let { parseHexColor(it) } ?: Color(0xFFFBBF24)
+    val textStyleConfig = section.style?.elements?.get("text")?.text_style
+    val authorStyleConfig = section.style?.elements?.get("author")?.text_style
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth().height(180.dp),
+        ) { pageIdx ->
+            val review = reviews[pageIdx]
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxSize().padding(16.dp),
+            ) {
+                // Star rating
+                if (showStars && review.rating != null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                        repeat(5) { star ->
+                            Text(
+                                text = if (star < review.rating.toInt()) "\u2605" else "\u2606",
+                                color = starClr,
+                                fontSize = 16.sp,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+
+                // Quote text
+                val quoteTextStyle = if (textStyleConfig != null) {
+                    StyleEngine.applyTextStyle(
+                        TextStyle(color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, textAlign = TextAlign.Center),
+                        textStyleConfig,
+                    )
+                } else {
+                    TextStyle(color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, textAlign = TextAlign.Center)
+                }
+                Text(
+                    text = "\u201C${review.text}\u201D",
+                    style = quoteTextStyle,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(12.dp))
+
+                // Author
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    review.avatar_url?.let { url ->
+                        ai.appdna.sdk.core.NetworkImage(
+                            url = url,
+                            modifier = Modifier.size(28.dp).clip(CircleShape),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                    }
+                    val authorStyle = if (authorStyleConfig != null) {
+                        StyleEngine.applyTextStyle(
+                            TextStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp),
+                            authorStyleConfig,
+                        )
+                    } else {
+                        TextStyle(fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                    }
+                    Text(text = review.author, style = authorStyle)
+                    review.date?.let {
+                        Text(text = it, fontSize = 10.sp, color = Color.White.copy(alpha = 0.4f))
+                    }
+                }
+            }
+        }
+
+        // Page indicators
+        Spacer(Modifier.height(4.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            repeat(reviews.size) { idx ->
+                Box(
+                    modifier = Modifier
+                        .size(6.dp)
+                        .clip(CircleShape)
+                        .background(if (idx == pagerState.currentPage) Color.White else Color.White.copy(alpha = 0.3f)),
+                )
+            }
+        }
+    }
+
+    // Auto-scroll
+    if (autoScroll) {
+        LaunchedEffect(Unit) {
+            while (true) {
+                kotlinx.coroutines.delay(intervalMs.toLong())
+                val nextPage = (pagerState.currentPage + 1) % reviews.size
+                pagerState.animateScrollToPage(nextPage)
+            }
+        }
     }
 }
 
@@ -899,6 +1739,87 @@ private fun CountdownTimer(seconds: Int, valueTextStyle: ai.appdna.sdk.core.Text
                 )
                 Text(text = label, fontSize = 10.sp, color = Color.White.copy(alpha = 0.6f))
             }
+        }
+    }
+}
+
+// MARK: - SPEC-089d: Sticky footer section (AC-031)
+
+@Composable
+private fun PaywallStickyFooter(
+    section: PaywallSection,
+    isPurchasing: Boolean,
+    onCTATap: () -> Unit,
+    onRestore: () -> Unit,
+    loc: (String, String) -> String,
+) {
+    val bgColor = section.data?.background_color?.let { parseHexColor(it) } ?: Color.Black.copy(alpha = 0.95f)
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(bgColor)
+            .padding(horizontal = (section.data?.padding ?: 20f).dp, vertical = 16.dp)
+            .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+    ) {
+        // CTA button
+        section.data?.cta_text?.let { ctaText ->
+            Button(
+                onClick = onCTATap,
+                enabled = !isPurchasing,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape((section.data.cta_corner_radius ?: 14f).dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = section.data.cta_bg_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
+                ),
+            ) {
+                if (isPurchasing) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text(
+                        text = loc("sticky_footer.cta", ctaText),
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 17.sp,
+                        color = section.data.cta_text_color?.let { parseHexColor(it) } ?: Color.White,
+                    )
+                }
+            }
+        }
+
+        // Secondary action
+        section.data?.secondary_text?.let { secondaryText ->
+            Spacer(Modifier.height(8.dp))
+            TextButton(onClick = {
+                when (section.data.secondary_action) {
+                    "restore" -> onRestore()
+                    "link" -> {
+                        section.data.secondary_url?.let { url ->
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                            context.startActivity(intent)
+                        }
+                    }
+                }
+            }) {
+                Text(
+                    text = loc("sticky_footer.secondary", secondaryText),
+                    color = Color.White.copy(alpha = 0.6f),
+                    fontSize = 13.sp,
+                )
+            }
+        }
+
+        // Legal text
+        section.data?.legal_text?.let { legalText ->
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = loc("sticky_footer.legal", legalText),
+                color = Color.White.copy(alpha = 0.4f),
+                fontSize = 10.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }
