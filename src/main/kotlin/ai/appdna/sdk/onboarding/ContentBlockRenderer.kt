@@ -81,6 +81,9 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.graphics.asImageBitmap
+import kotlinx.coroutines.launch
+import androidx.compose.foundation.Image
 
 // MARK: - Block Style Design Tokens (SPEC-089d §6.1)
 
@@ -926,7 +929,7 @@ private fun RenderBlockContent(
         "input_chips" -> FormInputChipsBlock(block, inputValues)
         "input_color" -> FormInputColorBlock(block, inputValues)
         "input_location" -> FormInputLocationPlaceholder(block, inputValues)
-        "input_image_picker" -> FormInputImagePickerPlaceholder(block)
+        "input_image_picker" -> FormInputImagePickerPlaceholder(block, inputValues)
         "input_signature" -> FormInputSignatureBlock(block, inputValues)
         // SPEC-089d AC-002: Backward compatibility — unknown types render as empty
         else -> {
@@ -3515,9 +3518,9 @@ private fun FormInputPlaceholderBlock(
     }
 }
 
-// MARK: - AC-046: Location Input Placeholder (interactive text field)
+// MARK: - AC-046: Location Input with backend geocoding autocomplete
 
-/** Interactive text field placeholder for location input. Opens keyboard for typing. */
+/** Location input with debounced autocomplete via AppDNA backend geocoding API. */
 @Composable
 private fun FormInputLocationPlaceholder(
     block: ContentBlock,
@@ -3525,6 +3528,11 @@ private fun FormInputLocationPlaceholder(
 ) {
     val fieldId = block.field_id ?: block.id
     var text by remember { mutableStateOf("") }
+    var suggestions by remember { mutableStateOf<List<LocationSuggestion>>(emptyList()) }
+    var showSuggestions by remember { mutableStateOf(false) }
+    var isSearching by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
+    var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3534,9 +3542,34 @@ private fun FormInputLocationPlaceholder(
 
         OutlinedTextField(
             value = text,
-            onValueChange = { text = it; inputValues[fieldId] = it },
+            onValueChange = { newText ->
+                text = newText
+                inputValues[fieldId] = newText
+                // Debounce API calls — wait 300ms after last keystroke
+                debounceJob?.cancel()
+                if (newText.length >= 3) {
+                    debounceJob = coroutineScope.launch {
+                        kotlinx.coroutines.delay(300)
+                        isSearching = true
+                        suggestions = fetchLocationSuggestions(newText)
+                        showSuggestions = suggestions.isNotEmpty()
+                        isSearching = false
+                    }
+                } else {
+                    suggestions = emptyList()
+                    showSuggestions = false
+                }
+            },
             placeholder = { Text(block.field_placeholder ?: "Search location...", color = Color.Gray) },
             leadingIcon = { Text("\uD83D\uDCCD", fontSize = 16.sp) },
+            trailingIcon = {
+                if (isSearching) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
@@ -3545,15 +3578,115 @@ private fun FormInputLocationPlaceholder(
                 unfocusedBorderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
             ),
         )
+
+        // Autocomplete results dropdown
+        if (showSuggestions) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                    .background(Color(0xFFF9FAFB))
+                    .border(
+                        1.dp,
+                        StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                        RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                    ),
+            ) {
+                suggestions.forEachIndexed { index, suggestion ->
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                text = suggestion.address
+                                showSuggestions = false
+                                inputValues[fieldId] = mapOf(
+                                    "address" to suggestion.address,
+                                    "latitude" to suggestion.latitude,
+                                    "longitude" to suggestion.longitude,
+                                )
+                            }
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text(text = suggestion.address, fontSize = 14.sp, color = Color.Black)
+                    }
+                    if (index < suggestions.size - 1) {
+                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                    }
+                }
+            }
+        }
     }
 }
 
-// MARK: - AC-048: Image Picker Placeholder (interactive button with dialog)
+/** Data class for geocoding autocomplete suggestion. */
+private data class LocationSuggestion(
+    val address: String,
+    val latitude: Double,
+    val longitude: Double,
+)
 
-/** Interactive placeholder for image picker. Shows a dialog on tap. */
+/** Fetch location suggestions from the AppDNA backend geocoding API. */
+private suspend fun fetchLocationSuggestions(query: String): List<LocationSuggestion> {
+    return try {
+        val apiClient = AppDNA.instance?.let { sdk ->
+            val field = sdk.javaClass.getDeclaredField("apiClient")
+            field.isAccessible = true
+            field.get(sdk) as? ai.appdna.sdk.network.ApiClient
+        } ?: return emptyList()
+
+        val response = apiClient.get("/api/v1/geocoding/autocomplete?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
+        val results = response?.optJSONArray("data") ?: return emptyList()
+
+        (0 until minOf(results.length(), 5)).mapNotNull { i ->
+            val item = results.optJSONObject(i) ?: return@mapNotNull null
+            LocationSuggestion(
+                address = item.optString("address", ""),
+                latitude = item.optDouble("latitude", 0.0),
+                longitude = item.optDouble("longitude", 0.0),
+            )
+        }
+    } catch (e: Exception) {
+        ai.appdna.sdk.Log.debug("Location autocomplete failed: ${e.message}")
+        emptyList()
+    }
+}
+
+// MARK: - AC-048: Image Picker with PickVisualMedia (Android 13+, backported via Activity Result API)
+
+/** Image picker using PickVisualMedia. Stores selected image data as base64 in inputValues. */
 @Composable
-private fun FormInputImagePickerPlaceholder(block: ContentBlock) {
-    var showDialog by remember { mutableStateOf(false) }
+private fun FormInputImagePickerPlaceholder(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+) {
+    val fieldId = block.field_id ?: block.id
+    val context = LocalContext.current
+    var selectedImageUri by remember { mutableStateOf<android.net.Uri?>(null) }
+    var thumbnailBitmap by remember { mutableStateOf<android.graphics.Bitmap?>(null) }
+
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            selectedImageUri = uri
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val bytes = inputStream?.readBytes()
+                inputStream?.close()
+                if (bytes != null) {
+                    thumbnailBitmap = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    inputValues[fieldId] = mapOf(
+                        "data" to base64,
+                        "size" to bytes.size,
+                        "mime_type" to (context.contentResolver.getType(uri) ?: "image/jpeg"),
+                    )
+                }
+            } catch (e: Exception) {
+                ai.appdna.sdk.Log.debug("Image picker load failed: ${e.message}")
+            }
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3561,36 +3694,70 @@ private fun FormInputImagePickerPlaceholder(block: ContentBlock) {
     ) {
         FormFieldLabel(block)
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                .background(Color(0xFFF9FAFB))
-                .border(
-                    1.dp,
-                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
-                    RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+        if (thumbnailBitmap != null) {
+            // Show selected image thumbnail
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                    .border(
+                        1.dp,
+                        StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                        RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                    )
+                    .clickable {
+                        launcher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    },
+            ) {
+                Image(
+                    bitmap = thumbnailBitmap!!.asImageBitmap(),
+                    contentDescription = "Selected image",
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(120.dp),
                 )
-                .clickable { showDialog = true }
-                .padding(16.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(text = "\uD83D\uDDBC", fontSize = 16.sp)
-                Text(text = "Tap to pick image", fontSize = 14.sp, color = Color.Gray)
+                // Edit overlay icon
+                Text(
+                    text = "\u270F\uFE0F",
+                    fontSize = 20.sp,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(8.dp),
+                )
+            }
+        } else {
+            // Empty state — dashed border tap target
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                    .background(Color(0xFFF9FAFB))
+                    .border(
+                        1.dp,
+                        StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                        RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                    )
+                    .clickable {
+                        launcher.launch(
+                            androidx.activity.result.PickVisualMediaRequest(
+                                androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                            )
+                        )
+                    }
+                    .padding(16.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text = "\uD83D\uDDBC", fontSize = 16.sp)
+                    Text(text = "Tap to pick image", fontSize = 14.sp, color = Color.Gray)
+                }
             }
         }
-    }
-
-    if (showDialog) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { showDialog = false },
-            confirmButton = {
-                TextButton(onClick = { showDialog = false }) { Text("OK") }
-            },
-            title = { Text("Photo Picker") },
-            text = { Text("Photo picker coming in next SDK update.") },
-        )
     }
 }
 

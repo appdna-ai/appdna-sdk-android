@@ -64,7 +64,11 @@ internal class PaywallManager(
                 )
                 props.putAll(metadata)
                 eventTracker.track("purchase_started", props)
-            }
+            },
+            // AC-037: Wire delegate promo code callback
+            onPromoCodeSubmit = if (listener != null) { code, completion ->
+                listener.onPromoCodeSubmit(paywallId = id, code = code, completion = completion)
+            } else null
         )
     }
 }

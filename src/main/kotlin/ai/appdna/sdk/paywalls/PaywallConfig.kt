@@ -290,6 +290,8 @@ interface AppDNAPaywallDelegate {
     fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: ai.appdna.sdk.TransactionInfo) {}
     fun onPaywallPurchaseFailed(paywallId: String, error: Exception) {}
     fun onPaywallDismissed(paywallId: String) {}
+    // AC-037: Validate a promo code entered by the user. Call the completion handler with `true` if valid, `false` otherwise.
+    fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) { completion(false) }
 }
 
 // MARK: - Parsing helpers

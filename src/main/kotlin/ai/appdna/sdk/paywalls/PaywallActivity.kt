@@ -75,6 +75,7 @@ class PaywallActivity : ComponentActivity() {
         val onAppear = pendingOnAppear
         val onDismiss = pendingOnDismiss
         val onPlanSelected = pendingOnPlanSelected
+        val onPromoCodeSubmit = pendingOnPromoCodeSubmit
 
         // Notify appearance
         onAppear?.invoke()
@@ -92,7 +93,8 @@ class PaywallActivity : ComponentActivity() {
                     onDismiss = { reason ->
                         onDismiss?.invoke(reason)
                         cleanup()
-                    }
+                    },
+                    onPromoCodeSubmit = onPromoCodeSubmit
                 )
             }
         }
@@ -103,6 +105,7 @@ class PaywallActivity : ComponentActivity() {
         pendingOnAppear = null
         pendingOnDismiss = null
         pendingOnPlanSelected = null
+        pendingOnPromoCodeSubmit = null
         finish()
     }
 
@@ -119,6 +122,8 @@ class PaywallActivity : ComponentActivity() {
         private var pendingOnAppear: (() -> Unit)? = null
         private var pendingOnDismiss: ((DismissReason) -> Unit)? = null
         private var pendingOnPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
+        // AC-037: Promo code delegate callback
+        private var pendingOnPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
 
         fun launch(
             context: Context,
@@ -127,12 +132,14 @@ class PaywallActivity : ComponentActivity() {
             paywallContext: PaywallContext? = null,
             onAppear: (() -> Unit)? = null,
             onDismiss: ((DismissReason) -> Unit)? = null,
-            onPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
+            onPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null,
+            onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
         ) {
             pendingConfig = config
             pendingOnAppear = onAppear
             pendingOnDismiss = onDismiss
             pendingOnPlanSelected = onPlanSelected
+            pendingOnPromoCodeSubmit = onPromoCodeSubmit
             val intent = Intent(context, PaywallActivity::class.java).apply {
                 putExtra(EXTRA_PAYWALL_ID, paywallId)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -147,7 +154,9 @@ fun PaywallScreen(
     config: PaywallConfig,
     onPlanSelected: (PaywallPlan, Map<String, Any>) -> Unit,
     onRestore: () -> Unit,
-    onDismiss: (DismissReason) -> Unit
+    onDismiss: (DismissReason) -> Unit,
+    // AC-037: Callback for promo code validation. Returns true if code is valid, false otherwise.
+    onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
 ) {
     var selectedPlanId by remember { mutableStateOf<String?>(null) }
     var showDismiss by remember { mutableStateOf(false) }
@@ -292,6 +301,7 @@ fun PaywallScreen(
                             onRestore = onRestore,
                             loc = ::loc,
                             toggleStates = toggleStates,
+                            onPromoCodeSubmit = onPromoCodeSubmit,
                         )
                     }
                     Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
@@ -430,6 +440,7 @@ private fun PaywallSectionView(
     onRestore: () -> Unit,
     loc: (String, String) -> String,
     toggleStates: MutableMap<String, Boolean> = mutableMapOf(),
+    onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
 ) {
     when (section.type) {
         "header" -> {
@@ -930,7 +941,7 @@ private fun PaywallSectionView(
             PaywallComparisonTableSection(section = section, loc = loc)
         }
         "promo_input" -> {
-            PaywallPromoInputSection(section = section, loc = loc)
+            PaywallPromoInputSection(section = section, loc = loc, onPromoCodeSubmit = onPromoCodeSubmit)
         }
         "toggle" -> {
             PaywallToggleSection(section = section, loc = loc, toggleStates = toggleStates)
@@ -1480,6 +1491,7 @@ private fun PaywallComparisonTableSection(
 private fun PaywallPromoInputSection(
     section: PaywallSection,
     loc: (String, String) -> String,
+    onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
 ) {
     var promoCode by remember { mutableStateOf("") }
     var promoState by remember { mutableStateOf("idle") } // idle | loading | success | error
@@ -1508,8 +1520,15 @@ private fun PaywallPromoInputSection(
             Button(
                 onClick = {
                     promoState = "loading"
-                    // AC-037: Basic non-empty check fallback (delegate-based validation would go here)
-                    promoState = if (promoCode.isNotBlank()) "success" else "error"
+                    // AC-037: Submit promo code via delegate callback
+                    if (onPromoCodeSubmit != null) {
+                        onPromoCodeSubmit(promoCode) { isValid ->
+                            promoState = if (isValid) "success" else "error"
+                        }
+                    } else {
+                        // No delegate configured — basic non-empty check fallback
+                        promoState = if (promoCode.isNotBlank()) "success" else "error"
+                    }
                 },
                 enabled = promoState != "loading",
                 colors = ButtonDefaults.buttonColors(
