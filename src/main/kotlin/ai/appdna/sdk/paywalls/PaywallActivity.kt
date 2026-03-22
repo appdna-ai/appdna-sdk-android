@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.material3.Divider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -1127,7 +1128,7 @@ private fun DividerLine(color: Color, thickness: Float, style: String, modifier:
             }
         }
         else -> { // solid
-            HorizontalDivider(
+            Divider(
                 thickness = thickness.dp,
                 color = color,
                 modifier = modifier,
@@ -1444,7 +1445,7 @@ private fun PaywallComparisonTableSection(
                 }
             }
         }
-        HorizontalDivider(color = borderClr, thickness = 0.5.dp)
+        Divider(color = borderClr, thickness = 0.5.dp)
 
         // Data rows
         rows.forEachIndexed { rowIdx, row ->
@@ -1479,7 +1480,7 @@ private fun PaywallComparisonTableSection(
                 }
             }
             if (rowIdx < rows.size - 1) {
-                HorizontalDivider(color = borderClr.copy(alpha = 0.3f), thickness = 0.5.dp)
+                Divider(color = borderClr.copy(alpha = 0.3f), thickness = 0.5.dp)
             }
         }
     }
