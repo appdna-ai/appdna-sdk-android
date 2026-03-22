@@ -669,8 +669,7 @@ internal object OnboardingConfigParser {
                             text_color = ps["text_color"] as? String,
                         )
                     },
-                    @Suppress("UNCHECKED_CAST")
-                    bindings = bm["bindings"] as? Map<String, String>,
+                    bindings = (bm["bindings"] as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() },
                     element_width = bm["element_width"] as? String,
                     element_height = bm["element_height"] as? String,
                 )
