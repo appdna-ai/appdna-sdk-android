@@ -21,7 +21,7 @@ class ContentBlockParsingTest {
             )
         )
         val step = OnboardingConfigParser.parseStepForTest(stepMap)
-        return step?.content_blocks ?: emptyList()
+        return step?.config?.content_blocks ?: emptyList()
     }
 
     // MARK: - Unknown block type doesn't crash (AC-002)
