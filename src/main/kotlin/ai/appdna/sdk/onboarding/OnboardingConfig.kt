@@ -354,6 +354,10 @@ internal object OnboardingConfigParser {
         )
     }
 
+    /** Exposed as internal for unit testing. */
+    @Suppress("UNCHECKED_CAST")
+    internal fun parseStepForTest(map: Map<String, Any>): OnboardingStep? = try { parseStep(map) } catch (_: Exception) { null }
+
     @Suppress("UNCHECKED_CAST")
     private fun parseStep(map: Map<String, Any>): OnboardingStep {
         val typeStr = map["type"] as? String ?: "custom"
@@ -565,8 +569,8 @@ internal object OnboardingConfigParser {
                     max_stars = (bm["max_stars"] as? Number)?.toInt(),
                     default_value = (bm["default_value"] as? Number)?.toDouble(),
                     star_size = (bm["star_size"] as? Number)?.toDouble(),
-                    active_rating_color = bm["active_rating_color"] as? String ?: bm["active_color"] as? String,
-                    inactive_rating_color = bm["inactive_rating_color"] as? String ?: bm["inactive_color"] as? String,
+                    active_rating_color = bm["active_rating_color"] as? String ?: bm["filled_color"] as? String ?: bm["active_color"] as? String,
+                    inactive_rating_color = bm["inactive_rating_color"] as? String ?: bm["empty_color"] as? String ?: bm["inactive_color"] as? String,
                     allow_half = bm["allow_half"] as? Boolean,
                     label = bm["label"] as? String,
                     // SPEC-089d: rich_text fields
@@ -575,7 +579,7 @@ internal object OnboardingConfigParser {
                     link_color = bm["link_color"] as? String,
                     max_lines = (bm["max_lines"] as? Number)?.toInt(),
                     // SPEC-089d: progress_bar fields
-                    segment_count = (bm["segment_count"] as? Number)?.toInt(),
+                    segment_count = (bm["segment_count"] as? Number)?.toInt() ?: (bm["total_segments"] as? Number)?.toInt(),
                     active_segments = (bm["active_segments"] as? Number)?.toInt(),
                     fill_color = bm["fill_color"] as? String,
                     track_color = bm["track_color"] as? String,
