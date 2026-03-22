@@ -1,5 +1,6 @@
 @file:OptIn(
     androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
     androidx.compose.material3.ExperimentalMaterial3Api::class,
     androidx.compose.ui.ExperimentalComposeUiApi::class,
 )
@@ -3632,19 +3633,27 @@ private data class LocationSuggestion(
 /** Fetch location suggestions from the AppDNA backend geocoding API. */
 private suspend fun fetchLocationSuggestions(query: String): List<LocationSuggestion> {
     return try {
-        val apiClient = AppDNA.instance?.let { sdk ->
-            val field = sdk.javaClass.getDeclaredField("apiClient")
-            field.isAccessible = true
-            field.get(sdk) as? ai.appdna.sdk.network.ApiClient
-        } ?: return emptyList()
+        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+        val url = java.net.URL("https://appdna-app-156101819099.us-east1.run.app/api/v1/geocoding/autocomplete?q=$encodedQuery")
+        val connection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            (url.openConnection() as java.net.HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 5000
+                readTimeout = 5000
+            }
+        }
+        if (connection.responseCode != 200) return emptyList()
 
-        val response = apiClient.get("/api/v1/geocoding/autocomplete?q=${java.net.URLEncoder.encode(query, "UTF-8")}")
-        val results = response?.optJSONArray("data") ?: return emptyList()
+        val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            connection.inputStream.bufferedReader().readText()
+        }
+        val json = org.json.JSONObject(body)
+        val results = json.optJSONArray("data") ?: return emptyList()
 
         (0 until minOf(results.length(), 5)).mapNotNull { i ->
             val item = results.optJSONObject(i) ?: return@mapNotNull null
             LocationSuggestion(
-                address = item.optString("address", ""),
+                address = item.optString("formatted_address", ""),
                 latitude = item.optDouble("latitude", 0.0),
                 longitude = item.optDouble("longitude", 0.0),
             )
