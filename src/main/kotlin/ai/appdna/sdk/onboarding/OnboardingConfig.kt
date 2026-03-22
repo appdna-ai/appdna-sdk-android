@@ -580,7 +580,7 @@ internal object OnboardingConfigParser {
                     max_lines = (bm["max_lines"] as? Number)?.toInt(),
                     // SPEC-089d: progress_bar fields
                     segment_count = (bm["segment_count"] as? Number)?.toInt() ?: (bm["total_segments"] as? Number)?.toInt(),
-                    active_segments = (bm["active_segments"] as? Number)?.toInt(),
+                    active_segments = (bm["active_segments"] as? Number)?.toInt() ?: (bm["filled_segments"] as? Number)?.toInt(),
                     fill_color = bm["fill_color"] as? String,
                     track_color = bm["track_color"] as? String,
                     segment_gap = (bm["segment_gap"] as? Number)?.toDouble(),
