@@ -694,7 +694,7 @@ private fun resolveBlockBindings(
 
     // AC-066: Resolve bindings map — override block properties from data context
     if (hasBindings) {
-        block.bindings!!.forEach { (property, path) ->
+        block.bindings?.forEach { (property, path) ->
             val value = resolveDotPath(path, responses, hookData, null, null)
             if (value != null) {
                 resolved = applyBindingProperty(resolved, property, value)
@@ -815,9 +815,11 @@ fun ContentBlockRendererView(
             val sizingModifier = Modifier.applyRelativeSizing(block.element_width, block.element_height)
 
             if (shouldAnimate) {
-                EntranceAnimationWrapper(animation = block.entrance_animation!!) {
-                    Box(modifier = sizingModifier) {
-                        RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                block.entrance_animation?.let { anim ->
+                    EntranceAnimationWrapper(animation = anim) {
+                        Box(modifier = sizingModifier) {
+                            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        }
                     }
                 }
             } else {
@@ -3726,14 +3728,16 @@ private fun FormInputImagePickerPlaceholder(
                         )
                     },
             ) {
-                Image(
-                    bitmap = thumbnailBitmap!!.asImageBitmap(),
-                    contentDescription = "Selected image",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(120.dp),
-                )
+                thumbnailBitmap?.asImageBitmap()?.let { bmp ->
+                    Image(
+                        bitmap = bmp,
+                        contentDescription = "Selected image",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(120.dp),
+                    )
+                }
                 // Edit overlay icon
                 Text(
                     text = "\u270F\uFE0F",
