@@ -1,6 +1,13 @@
+@file:OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+    androidx.compose.ui.ExperimentalComposeUiApi::class,
+)
+
 package ai.appdna.sdk.onboarding
 
 import androidx.compose.foundation.background
+import androidx.compose.material3.Divider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -65,8 +72,7 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.Lifecycle
+import androidx.compose.runtime.DisposableEffect
 import ai.appdna.sdk.AppDNA
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
@@ -2015,7 +2021,7 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
             "circular" -> {
                 Box(contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
-                        progress = { overallProgress },
+                        progress = overallProgress,
                         modifier = Modifier.size(80.dp),
                         color = progressColor,
                         trackColor = progressColor.copy(alpha = 0.2f),
@@ -2033,7 +2039,7 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
             }
             "linear" -> {
                 LinearProgressIndicator(
-                    progress = { overallProgress },
+                    progress = overallProgress,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(6.dp)
@@ -2426,22 +2432,18 @@ private fun StarBackgroundBlock(block: ContentBlock) {
         )
     }
 
-    // Lifecycle awareness — only animate when resumed
-    val lifecycleOwner = LocalLifecycleOwner.current
-    var isResumed by remember { mutableStateOf(true) }
-
-    LaunchedEffect(lifecycleOwner) {
-        lifecycleOwner.lifecycle.addObserver(object : androidx.lifecycle.DefaultLifecycleObserver {
-            override fun onResume(owner: androidx.lifecycle.LifecycleOwner) { isResumed = true }
-            override fun onPause(owner: androidx.lifecycle.LifecycleOwner) { isResumed = false }
-        })
+    // Battery safety — stop animation when composable leaves composition
+    var isActive by remember { mutableStateOf(true) }
+    DisposableEffect(Unit) {
+        isActive = true
+        onDispose { isActive = false }
     }
 
     // Animation loop
     LaunchedEffect(Unit) {
         while (true) {
             kotlinx.coroutines.delay(33L) // ~30fps
-            if (!isResumed) continue
+            if (!isActive) continue
             particles.value = particles.value.map { p ->
                 var newY = p.y + p.speed * speedFactor
                 var newOpacity = p.opacity + (-0.02f + Math.random().toFloat() * 0.04f)
@@ -3612,7 +3614,7 @@ private fun FormInputLocationPlaceholder(
                         Text(text = suggestion.address, fontSize = 14.sp, color = Color.Black)
                     }
                     if (index < suggestions.size - 1) {
-                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        Divider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
                     }
                 }
             }
