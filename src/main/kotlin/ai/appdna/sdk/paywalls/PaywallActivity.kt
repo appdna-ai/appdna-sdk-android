@@ -49,7 +49,7 @@ import ai.appdna.sdk.core.ConfettiOverlay
 import ai.appdna.sdk.core.HapticEngine
 import ai.appdna.sdk.core.HapticType
 import ai.appdna.sdk.core.IconView
-import ai.appdna.sdk.core.resolveIcon
+import ai.appdna.sdk.core.IconReference
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.launch
@@ -1365,9 +1365,8 @@ private fun PaywallIconGridSection(
                                 Text(text = icon, fontSize = iconSz.sp)
                             } else {
                                 IconView(
-                                    icon = resolveIcon(icon),
+                                    ref = IconReference(library = "material", name = icon, size = iconSz, color = null),
                                     modifier = Modifier.size(iconSz.dp),
-                                    tint = iconClr,
                                 )
                             }
                             Spacer(Modifier.height(8.dp))
@@ -1582,9 +1581,8 @@ private fun PaywallToggleSection(
     ) {
         section.data?.icon?.let { iconName ->
             IconView(
-                icon = resolveIcon(iconName),
+                ref = IconReference(library = "material", name = iconName, size = 24f, color = section.data?.accent_color),
                 modifier = Modifier.size(24.dp).padding(end = 8.dp),
-                tint = section.data.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
             )
             Spacer(Modifier.width(8.dp))
         }
