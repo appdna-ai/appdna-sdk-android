@@ -629,6 +629,50 @@ internal object OnboardingConfigParser {
                     total_duration_ms = (bm["total_duration_ms"] as? Number)?.toInt(),
                     auto_advance = bm["auto_advance"] as? Boolean,
                     show_percentage = bm["show_percentage"] as? Boolean,
+                    // SPEC-089d: Form input fields
+                    field_label = bm["field_label"] as? String,
+                    field_placeholder = bm["field_placeholder"] as? String,
+                    field_required = bm["field_required"] as? Boolean,
+                    field_options = (bm["field_options"] as? List<*>)?.mapNotNull { fo ->
+                        if (fo is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val fm = fo as Map<String, Any>
+                            InputOption(
+                                value = fm["id"] as? String ?: fm["value"] as? String ?: "",
+                                label = fm["label"] as? String ?: "",
+                            )
+                        } else null
+                    },
+                    // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
+                    visibility_condition = (bm["visibility_condition"] as? Map<String, Any>)?.let { vc ->
+                        VisibilityCondition(
+                            type = vc["type"] as? String ?: "always",
+                            variable = vc["variable"] as? String,
+                            value = vc["value"],
+                            expression = vc["expression"] as? String,
+                        )
+                    },
+                    entrance_animation = (bm["entrance_animation"] as? Map<String, Any>)?.let { ea ->
+                        EntranceAnimationConfig(
+                            type = ea["type"] as? String ?: "none",
+                            duration_ms = (ea["duration_ms"] as? Number)?.toInt() ?: 300,
+                            delay_ms = (ea["delay_ms"] as? Number)?.toInt() ?: 0,
+                            easing = ea["easing"] as? String ?: "ease_out",
+                            spring_damping = (ea["spring_damping"] as? Number)?.toDouble(),
+                        )
+                    },
+                    pressed_style = (bm["pressed_style"] as? Map<String, Any>)?.let { ps ->
+                        PressedStyleConfig(
+                            scale = (ps["scale"] as? Number)?.toDouble(),
+                            opacity = (ps["opacity"] as? Number)?.toDouble(),
+                            bg_color = ps["bg_color"] as? String,
+                            text_color = ps["text_color"] as? String,
+                        )
+                    },
+                    @Suppress("UNCHECKED_CAST")
+                    bindings = bm["bindings"] as? Map<String, String>,
+                    element_width = bm["element_width"] as? String,
+                    element_height = bm["element_height"] as? String,
                 )
             } else null
         }

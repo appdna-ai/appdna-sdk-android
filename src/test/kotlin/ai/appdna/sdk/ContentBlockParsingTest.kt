@@ -317,7 +317,7 @@ class ContentBlockParsingTest {
         )
         assertEquals("input_select", blocks[0].type)
         assertEquals(2, blocks[0].field_options?.size)
-        assertEquals("m", blocks[0].field_options?.get(0)?.id)
+        assertEquals("m", blocks[0].field_options?.get(0)?.value)
     }
 
     // MARK: - Minimal block doesn't crash
