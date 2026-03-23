@@ -132,6 +132,15 @@ internal class RemoteConfigManager(
             Log.error("Failed to fetch onboarding: ${e.message}")
         }
 
+        // SPEC-089c: Fetch screen_index for server-driven UI
+        db.document("$basePath/screen_index").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                parseScreenIndex(data)
+            }
+        }.addOnFailureListener { e ->
+            Log.debug("No screen_index config: ${e.message}")
+        }
+
         Log.info("Fetching remote configs from Firestore")
     }
 
@@ -195,6 +204,17 @@ internal class RemoteConfigManager(
         onboardingFlows = flows
         activeOnboardingFlowId = activeId
         Log.debug("Parsed ${flows.size} onboarding flows, active=$activeId")
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseScreenIndex(data: Map<String, Any>) {
+        try {
+            val index = ai.appdna.sdk.screens.ScreenIndex.fromMap(data)
+            ai.appdna.sdk.screens.ScreenManager.shared.updateIndex(index)
+            Log.info("Screen index loaded: ${index.screens?.size ?: 0} screens, ${index.flows?.size ?: 0} flows, ${index.slots?.size ?: 0} slots")
+        } catch (e: Exception) {
+            Log.error("Failed to parse screen_index: ${e.message}")
+        }
     }
 
     private fun loadCachedConfigs() {

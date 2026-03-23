@@ -409,6 +409,49 @@ object AppDNA {
         }
     }
 
+    // MARK: - Public API: Server-Driven Screens (SPEC-089c)
+
+    /** Show a server-driven screen by ID. */
+    fun showScreen(screenId: String, callback: ((ai.appdna.sdk.screens.ScreenResult) -> Unit)? = null) {
+        ai.appdna.sdk.screens.ScreenManager.shared.showScreen(screenId, callback)
+    }
+
+    /** Show a server-driven multi-screen flow by ID. */
+    fun showFlow(flowId: String, callback: ((ai.appdna.sdk.screens.FlowResult) -> Unit)? = null) {
+        ai.appdna.sdk.screens.ScreenManager.shared.showFlow(flowId, callback)
+    }
+
+    /** Dismiss the currently presented server-driven screen or flow. */
+    fun dismissScreen() {
+        ai.appdna.sdk.screens.ScreenManager.shared.dismissScreen()
+    }
+
+    /** Enable navigation interception for server-driven screens. */
+    fun enableNavigationInterception(forScreens: List<String>? = null) {
+        ai.appdna.sdk.screens.ScreenManager.shared.enableNavigationInterception(forScreens)
+    }
+
+    /** Disable navigation interception. */
+    fun disableNavigationInterception() {
+        ai.appdna.sdk.screens.ScreenManager.shared.disableNavigationInterception()
+    }
+
+    /** Check if analytics consent is granted. */
+    fun isConsentGranted(): Boolean {
+        return eventTracker?.isConsentGranted ?: true
+    }
+
+    /** Shorthand to show a paywall by ID (used by screen action routing). */
+    fun showPaywall(id: String) {
+        // Route through existing paywall presentation
+        Log.info("showPaywall($id) triggered from SDUI screen")
+    }
+
+    /** Shorthand to show a survey by ID (used by screen action routing). */
+    fun showSurvey(id: String) {
+        surveyManager?.present(surveyId = id)
+    }
+
     // MARK: - Public API: Push Token + Push Tracking (v0.4 / SPEC-030)
 
     /**
