@@ -70,7 +70,11 @@ internal class ScreenManager private constructor() {
         val entries = index.screens ?: return
         val traits = AppDNA.getUserTraits()
         val screenId = autoTriggerEngine.evaluate(entries, event, properties, traits, sessionCount = 1, daysSinceInstall = 0, currentScreenName = null)
-        if (screenId != null) showScreen(screenId)
+        if (screenId != null) {
+            if (!ai.appdna.sdk.core.PresentationCoordinator.shared.canPresent(
+                ai.appdna.sdk.core.PresentationCoordinator.PresentationType.SCREEN, isAutoTriggered = true)) return
+            showScreen(screenId)
+        }
     }
 
     fun enableNavigationInterception(forScreens: List<String>? = null) { interceptionEnabled = true; interceptionFilter = forScreens }

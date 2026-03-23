@@ -275,6 +275,13 @@ object AppDNA {
     }
 
     /**
+     * Get current user traits (for audience evaluation).
+     */
+    fun getUserTraits(): Map<String, Any> {
+        return identityManager?.currentIdentity?.traits ?: emptyMap()
+    }
+
+    /**
      * Clear user identity (keeps anonymous ID).
      */
     fun reset() {
