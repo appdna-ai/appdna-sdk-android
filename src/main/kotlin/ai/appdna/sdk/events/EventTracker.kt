@@ -22,6 +22,9 @@ internal class EventTracker(
         analyticsConsent = analytics
     }
 
+    /** Whether analytics consent is currently granted. */
+    val isConsentGranted: Boolean get() = analyticsConsent
+
     /**
      * Track an event. If consent is false, the event is silently dropped.
      */

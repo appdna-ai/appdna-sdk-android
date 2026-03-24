@@ -844,7 +844,7 @@ fun ContentBlockRendererView(
 }
 
 @Composable
-private fun RenderBlock(
+internal fun RenderBlock(
     block: ContentBlock,
     onAction: (String) -> Unit,
     toggleValues: MutableMap<String, Boolean>,

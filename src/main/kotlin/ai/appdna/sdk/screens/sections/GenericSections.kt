@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.screens.ScreenSection
 import ai.appdna.sdk.screens.SectionAction
 import ai.appdna.sdk.screens.SectionContext
-import ai.appdna.sdk.onboarding.ContentBlockRenderer
+import ai.appdna.sdk.onboarding.RenderBlock
 import ai.appdna.sdk.onboarding.ContentBlock
 import ai.appdna.sdk.core.StyleEngine
 
@@ -22,14 +22,20 @@ import ai.appdna.sdk.core.StyleEngine
 internal fun ContentBlocksSectionRenderer(section: ScreenSection, context: SectionContext) {
     @Suppress("UNCHECKED_CAST")
     val blocksData = section.data["blocks"] as? List<Map<String, Any?>> ?: return
-    val blocks = blocksData.map { ContentBlock.fromMap(it) }
+    val blocks = blocksData.map { map ->
+        ContentBlock(
+            id = map["id"] as? String ?: "",
+            type = map["type"] as? String ?: "text",
+            text = map["text"] as? String,
+        )
+    }
     val spacing = (section.data["spacing"] as? Number)?.toDouble() ?: 12.0
-    val toggleValues = remember { mutableMapOf<String, Boolean>() }
-    val inputValues = remember { mutableMapOf<String, Any>() }
+    val toggleValues = remember { mutableStateMapOf<String, Boolean>() }
+    val inputValues = remember { mutableStateMapOf<String, Any>() }
 
     Column(verticalArrangement = Arrangement.spacedBy(spacing.dp)) {
         for (block in blocks) {
-            ContentBlockRenderer.RenderBlock(
+            RenderBlock(
                 block = block,
                 onAction = { action ->
                     when (action) {
@@ -64,11 +70,17 @@ internal fun HeroSectionRenderer(section: ScreenSection, context: SectionContext
         val overlayData = section.data["overlay_blocks"] as? List<Map<String, Any?>>
         if (overlayData != null) {
             Column(modifier = Modifier.padding(16.dp)) {
-                val blocks = overlayData.map { ContentBlock.fromMap(it) }
-                val toggleValues = remember { mutableMapOf<String, Boolean>() }
-                val inputValues = remember { mutableMapOf<String, Any>() }
+                val blocks = overlayData.map { map ->
+                    ContentBlock(
+                        id = map["id"] as? String ?: "",
+                        type = map["type"] as? String ?: "text",
+                        text = map["text"] as? String,
+                    )
+                }
+                val toggleValues = remember { mutableStateMapOf<String, Boolean>() }
+                val inputValues = remember { mutableStateMapOf<String, Any>() }
                 for (block in blocks) {
-                    ContentBlockRenderer.RenderBlock(block, { context.onAction(SectionAction.Custom(it, null)) }, toggleValues, inputValues)
+                    RenderBlock(block, { context.onAction(SectionAction.Custom(it, null)) }, toggleValues, inputValues)
                 }
             }
         }

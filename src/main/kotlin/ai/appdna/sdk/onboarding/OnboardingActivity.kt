@@ -294,7 +294,9 @@ internal fun OnboardingFlowHost(
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Progress bar (Gap 9: custom progress_color/progress_track_color)
-            if (flow.settings.show_progress) {
+            // hide_progress per-step: hidden on this step but still counts in total
+            val currentStep = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
+            if (flow.settings.show_progress && currentStep?.hide_progress != true) {
                 val progressColor = flow.settings.progress_color?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: MaterialTheme.colorScheme.primary
@@ -470,7 +472,7 @@ internal fun OnboardingFlowHost(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .align(Alignment.TopCenter)
-                    .padding(top = if (flow.settings.show_progress) 56.dp else 52.dp)
+                    .padding(top = if (flow.settings.show_progress && currentStep?.hide_progress != true) 56.dp else 52.dp)
                     .background(Color.Red, RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically

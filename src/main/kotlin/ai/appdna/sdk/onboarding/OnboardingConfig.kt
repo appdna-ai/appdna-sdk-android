@@ -43,7 +43,9 @@ data class OnboardingStep(
     val id: String,
     val type: StepType,
     val config: StepConfig,
-    val hook: StepHookConfig? = null
+    val hook: StepHookConfig? = null,
+    /** When true, the progress indicator is hidden on this step but the step still counts toward total progress. */
+    val hide_progress: Boolean? = null
 ) {
     enum class StepType(val value: String) {
         WELCOME("welcome"),
@@ -786,7 +788,8 @@ internal object OnboardingConfigParser {
             id = map["id"] as? String ?: "",
             type = OnboardingStep.StepType.fromString(typeStr),
             config = config,
-            hook = hook
+            hook = hook,
+            hide_progress = map["hide_progress"] as? Boolean
         )
     }
 
