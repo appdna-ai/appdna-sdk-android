@@ -682,6 +682,7 @@ internal object OnboardingConfigParser {
                     bindings = (bm["bindings"] as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() },
                     element_width = bm["element_width"] as? String,
                     element_height = bm["element_height"] as? String,
+                    overflow = bm["overflow"] as? String,
                     // Row / stack container fields
                     children = parseChildBlocks(bm["children"]),
                     row_direction = bm["row_direction"] as? String,
@@ -959,6 +960,7 @@ internal object OnboardingConfigParser {
                     align_items = cm["align_items"] as? String,
                     element_width = cm["element_width"] as? String,
                     element_height = cm["element_height"] as? String,
+                    overflow = cm["overflow"] as? String,
                 )
             } else null
         }.takeIf { it.isNotEmpty() }

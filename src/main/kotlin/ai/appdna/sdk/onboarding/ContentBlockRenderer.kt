@@ -476,6 +476,8 @@ data class ContentBlock(
     // SPEC-089d §6.7: Relative sizing
     val element_width: String? = null,
     val element_height: String? = null,
+    // Overflow control (visible = no clipping)
+    val overflow: String? = null,
 )
 
 /** Social login provider config (SPEC-089d §3.4). */
@@ -991,12 +993,24 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
 
 @Composable
 private fun ImageBlock(block: ContentBlock) {
+    val cr = (block.corner_radius ?: 0.0)
+    val isCircle = cr >= 9999
+
+    val shapeModifier = if (block.overflow == "visible") {
+        Modifier.graphicsLayer {
+            clip = false
+            shape = if (isCircle) CircleShape else RoundedCornerShape(cr.dp)
+        }
+    } else {
+        if (isCircle) Modifier.clip(CircleShape) else Modifier.clip(RoundedCornerShape(cr.dp))
+    }
+
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
             .fillMaxWidth()
             .height((block.height ?: 200.0).dp)
-            .clip(RoundedCornerShape((block.corner_radius ?: 0.0).dp)),
+            .then(shapeModifier),
         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
         contentDescription = block.alt,
     )
@@ -2422,6 +2436,8 @@ private fun RowBlock(
     val distribution = block.row_distribution ?: "start"
     val childFill = block.row_child_fill ?: true
 
+    val hasOverflowChild = childBlocks.any { it.overflow == "visible" }
+
     if (direction == "vertical") {
         // Vertical layout
         val vArrangement = when (distribution) {
@@ -2432,12 +2448,19 @@ private fun RowBlock(
             "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
             else -> Arrangement.Top
         }
+        val columnModifier = if (hasOverflowChild) {
+            Modifier.fillMaxWidth().graphicsLayer { clip = false }
+        } else {
+            Modifier.fillMaxWidth()
+        }
         Column(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = columnModifier,
             verticalArrangement = if (rowGap.value > 0 && distribution == "start") Arrangement.spacedBy(rowGap) else vArrangement,
         ) {
             childBlocks.forEach { child ->
-                Box(modifier = if (childFill) Modifier.fillMaxWidth() else Modifier) {
+                val childMod = if (childFill) Modifier.fillMaxWidth() else Modifier
+                val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
+                Box(modifier = overflowMod) {
                     RenderBlock(
                         block = child,
                         onAction = onAction,
@@ -2463,13 +2486,20 @@ private fun RowBlock(
             "bottom" -> Alignment.Bottom
             else -> Alignment.CenterVertically
         }
+        val rowModifier = if (hasOverflowChild) {
+            Modifier.fillMaxWidth().graphicsLayer { clip = false }
+        } else {
+            Modifier.fillMaxWidth()
+        }
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = rowModifier,
             horizontalArrangement = hArrangement,
             verticalAlignment = vAlignment,
         ) {
             childBlocks.forEach { child ->
-                Box(modifier = if (childFill) Modifier.weight(1f) else Modifier) {
+                val childMod = if (childFill) Modifier.weight(1f) else Modifier
+                val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
+                Box(modifier = overflowMod) {
                     RenderBlock(
                         block = child,
                         onAction = onAction,
