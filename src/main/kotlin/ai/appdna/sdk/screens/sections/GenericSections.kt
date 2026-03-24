@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -101,7 +100,8 @@ internal fun DividerSectionRenderer(section: ScreenSection, context: SectionCont
     val insetLeft = (section.data["inset_left"] as? Number)?.toDouble() ?: 0.0
     val insetRight = (section.data["inset_right"] as? Number)?.toDouble() ?: 0.0
 
-    HorizontalDivider(
+    @Suppress("DEPRECATION")
+    Divider(
         modifier = Modifier.padding(start = insetLeft.dp, end = insetRight.dp),
         thickness = thickness.dp,
         color = if (color != null) StyleEngine.parseColor(color) else Color.Gray.copy(alpha = 0.3f),
