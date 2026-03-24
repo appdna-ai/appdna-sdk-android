@@ -911,4 +911,53 @@ internal object OnboardingConfigParser {
             opacity = (map["opacity"] as? Number)?.toDouble(),
         )
     }
+
+    /**
+     * Recursively parse child ContentBlocks for row/stack containers.
+     * Accepts the raw `children` value from a Firestore map and returns a list of ContentBlock,
+     * or null if no children are present.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseChildBlocks(raw: Any?): List<ContentBlock>? {
+        val list = raw as? List<*> ?: return null
+        return list.mapNotNull { child ->
+            if (child is Map<*, *>) {
+                val cm = child as Map<String, Any>
+                ContentBlock(
+                    id = cm["id"] as? String ?: "",
+                    type = cm["type"] as? String ?: "text",
+                    text = cm["text"] as? String,
+                    level = (cm["level"] as? Number)?.toInt(),
+                    image_url = cm["image_url"] as? String,
+                    alt = cm["alt"] as? String,
+                    corner_radius = (cm["corner_radius"] as? Number)?.toDouble(),
+                    height = (cm["height"] as? Number)?.toDouble(),
+                    variant = cm["variant"] as? String,
+                    action = cm["action"] as? String,
+                    action_value = cm["action_value"] as? String,
+                    bg_color = cm["bg_color"] as? String,
+                    text_color = cm["text_color"] as? String,
+                    button_corner_radius = (cm["button_corner_radius"] as? Number)?.toDouble(),
+                    spacer_height = (cm["spacer_height"] as? Number)?.toDouble(),
+                    icon_emoji = cm["icon_emoji"] as? String,
+                    icon_size = (cm["icon_size"] as? Number)?.toDouble(),
+                    style = (cm["style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+                    block_style = (cm["block_style"] as? Map<String, Any>)?.let { parseBlockStyle(it) },
+                    field_id = cm["field_id"] as? String,
+                    field_label = cm["field_label"] as? String,
+                    field_placeholder = cm["field_placeholder"] as? String,
+                    field_required = cm["field_required"] as? Boolean,
+                    field_config = cm["field_config"] as? Map<String, Any>,
+                    children = parseChildBlocks(cm["children"]),
+                    row_direction = cm["row_direction"] as? String,
+                    row_distribution = cm["row_distribution"] as? String,
+                    row_child_fill = cm["row_child_fill"] as? Boolean,
+                    gap = (cm["gap"] as? Number)?.toDouble(),
+                    align_items = cm["align_items"] as? String,
+                    element_width = cm["element_width"] as? String,
+                    element_height = cm["element_height"] as? String,
+                )
+            } else null
+        }.takeIf { it.isNotEmpty() }
+    }
 }

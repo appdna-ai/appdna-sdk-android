@@ -430,6 +430,7 @@ private fun PaywallBackground(background: PaywallBackground?) {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PaywallSectionView(
     section: PaywallSection,
@@ -594,38 +595,18 @@ private fun PaywallSectionView(
 
             Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
                 when (displayStyle) {
-                    "horizontal_scroll", "carousel_cards" -> {
-                        // Horizontally scrollable plan cards
-                        @OptIn(ExperimentalFoundationApi::class)
-                        run {
-                            val pagerState = rememberPagerState(
-                                initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
-                                pageCount = { plans.size }
-                            )
-                            HorizontalPager(
-                                state = pagerState,
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                pageSpacing = cardGap,
-                            ) { planIdx ->
-                                PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
-                            }
-                        }
-                    }
-                    "carousel" -> {
-                        // Legacy carousel (same as horizontal_scroll)
-                        @OptIn(ExperimentalFoundationApi::class)
-                        run {
-                            val pagerState = rememberPagerState(
-                                initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
-                                pageCount = { plans.size }
-                            )
-                            HorizontalPager(
-                                state = pagerState,
-                                contentPadding = PaddingValues(horizontal = 48.dp),
-                                pageSpacing = cardGap,
-                            ) { planIdx ->
-                                PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
-                            }
+                    "horizontal_scroll", "carousel_cards", "carousel" -> {
+                        // Horizontally scrollable plan cards / carousel
+                        val pagerState = rememberPagerState(
+                            initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
+                            pageCount = { plans.size }
+                        )
+                        HorizontalPager(
+                            state = pagerState,
+                            contentPadding = PaddingValues(horizontal = 48.dp),
+                            pageSpacing = cardGap,
+                        ) { planIdx ->
+                            PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
                         }
                     }
                     "pill_selector", "segmented_toggle", "minimal_chips" -> {
