@@ -539,9 +539,10 @@ class ContentBlockParsingTest {
             )
         )
         assertEquals("stack", blocks[0].type)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].children)
-        assertNull(blocks[0].z_index)
+        assertEquals(2, blocks[0].children?.size)
+        assertEquals("text", blocks[0].children?.get(0)?.type)
+        assertEquals("Layer 1", blocks[0].children?.get(0)?.text)
+        assertEquals("image", blocks[0].children?.get(1)?.type)
     }
 
     @Test
@@ -561,12 +562,11 @@ class ContentBlockParsingTest {
             )
         )
         assertEquals("row", blocks[0].type)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].children)
-        assertNull(blocks[0].gap)
-        assertNull(blocks[0].wrap)
-        assertNull(blocks[0].justify)
-        assertNull(blocks[0].align_items)
+        assertEquals(2, blocks[0].children?.size)
+        assertEquals("button", blocks[0].children?.get(0)?.type)
+        assertEquals("Left", blocks[0].children?.get(0)?.text)
+        assertEquals("button", blocks[0].children?.get(1)?.type)
+        assertEquals("Right", blocks[0].children?.get(1)?.text)
     }
 
     @Test
