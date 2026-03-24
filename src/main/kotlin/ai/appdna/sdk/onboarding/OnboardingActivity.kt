@@ -293,15 +293,21 @@ internal fun OnboardingFlowHost(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
-            // Progress bar
+            // Progress bar (Gap 9: custom progress_color/progress_track_color)
             if (flow.settings.show_progress) {
+                val progressColor = flow.settings.progress_color?.let {
+                    ai.appdna.sdk.core.StyleEngine.parseColor(it)
+                } ?: MaterialTheme.colorScheme.primary
+                val progressTrackColor = flow.settings.progress_track_color?.let {
+                    ai.appdna.sdk.core.StyleEngine.parseColor(it)
+                } ?: Color.Gray.copy(alpha = 0.2f)
                 LinearProgressIndicator(
                     progress = progress,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(4.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    trackColor = Color.Gray.copy(alpha = 0.2f)
+                    color = progressColor,
+                    trackColor = progressTrackColor
                 )
             }
 

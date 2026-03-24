@@ -109,6 +109,8 @@ data class BlockStyle(
     val padding_left: Double? = null,
     val margin_top: Double? = null,
     val margin_bottom: Double? = null,
+    val margin_left: Double? = null,
+    val margin_right: Double? = null,
     val opacity: Double? = null,
 )
 
@@ -139,9 +141,14 @@ fun Modifier.applyBlockStyle(style: BlockStyle?): Modifier {
 
     var mod = this
 
-    // Outer margin (top/bottom only — blocks are full-width in a Column)
-    if (style.margin_top != null) mod = mod.then(Modifier.padding(top = style.margin_top.dp))
-    if (style.margin_bottom != null) mod = mod.then(Modifier.padding(bottom = style.margin_bottom.dp))
+    // Outer margin (top/bottom/left/right)
+    val mTop = style.margin_top ?: 0.0
+    val mBottom = style.margin_bottom ?: 0.0
+    val mLeft = style.margin_left ?: 0.0
+    val mRight = style.margin_right ?: 0.0
+    if (mTop > 0 || mBottom > 0 || mLeft > 0 || mRight > 0) {
+        mod = mod.then(Modifier.padding(top = mTop.dp, bottom = mBottom.dp, start = mLeft.dp, end = mRight.dp))
+    }
 
     // Opacity
     if (style.opacity != null) mod = mod.then(Modifier.alpha(style.opacity.toFloat()))
@@ -418,6 +425,10 @@ data class ContentBlock(
     val wrap: Boolean? = null,
     val justify: String? = null,
     val align_items: String? = null,
+    // Row direction and distribution (alignment gap fix)
+    val row_direction: String? = null,       // horizontal (default), vertical
+    val row_distribution: String? = null,    // start, center, end, space-between, space-around, space-evenly
+    val row_child_fill: Boolean? = null,     // true (default) — each child gets weight(1f)
     // SPEC-089d Phase F: custom_view fields
     val view_key: String? = null,
     val custom_config: Map<String, Any>? = null,
@@ -549,6 +560,7 @@ data class FormFieldBlockStyle(
 data class InputOption(
     val value: String,
     val label: String,
+    val image_url: String? = null,
 )
 
 /** Visibility condition (SPEC-089d §6.3). */
@@ -1029,40 +1041,98 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             .graphicsLayer(scaleX = pressedScale, scaleY = pressedScale, alpha = pressedAlpha)
     } else Modifier
 
+    // Gap 5: Gradient background support
+    val shape = RoundedCornerShape(cornerRadius)
+    val gradient = block.block_style?.background_gradient
+    val gradientModifier = if (gradient != null) {
+        val rads = gradient.angle * Math.PI / 180.0
+        val startX = (0.5 - sin(rads) / 2).toFloat()
+        val startY = (0.5 + cos(rads) / 2).toFloat()
+        val endX = (0.5 + sin(rads) / 2).toFloat()
+        val endY = (0.5 - cos(rads) / 2).toFloat()
+        Modifier.background(
+            Brush.linearGradient(
+                colors = listOf(StyleEngine.parseColor(gradient.start), StyleEngine.parseColor(gradient.end)),
+                start = Offset(startX * 1000f, startY * 1000f),
+                end = Offset(endX * 1000f, endY * 1000f),
+            ),
+            shape,
+        )
+    } else null
+
+    // Gap 6: Button content with optional icon_emoji / image_url
+    @Composable
+    fun ButtonContent(textColor: Color) {
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            block.icon_emoji?.let { emoji ->
+                if (emoji.isNotEmpty()) {
+                    Text(emoji, modifier = Modifier.padding(end = 8.dp))
+                }
+            }
+            if (block.icon_emoji.isNullOrEmpty() && !block.image_url.isNullOrEmpty()) {
+                ai.appdna.sdk.core.NetworkImage(
+                    url = block.image_url,
+                    modifier = Modifier.size(20.dp).padding(end = 8.dp),
+                    contentScale = ContentScale.Fit,
+                )
+            }
+            Text(text = displayText, style = effectiveStyle, color = textColor)
+        }
+    }
+
     when (btnVariant) {
         "outline" -> {
             // SPEC-089d §3.18: Outline variant — transparent bg, colored border + text
             OutlinedButton(
                 onClick = onClick,
                 modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
-                shape = RoundedCornerShape(cornerRadius),
+                shape = shape,
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, bgColor),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = bgColor),
                 interactionSource = interactionSource,
             ) {
-                Text(text = displayText, style = effectiveStyle, color = bgColor)
+                ButtonContent(textColor = bgColor)
             }
         }
         "text" -> {
             TextButton(
                 onClick = onClick,
                 modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
-                shape = RoundedCornerShape(cornerRadius),
+                shape = shape,
                 interactionSource = interactionSource,
             ) {
-                Text(text = displayText, style = effectiveStyle, color = bgColor)
+                ButtonContent(textColor = bgColor)
             }
         }
         else -> {
             // primary / secondary — filled button
-            Button(
-                onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
-                shape = RoundedCornerShape(cornerRadius),
-                colors = ButtonDefaults.buttonColors(containerColor = bgColor),
-                interactionSource = interactionSource,
-            ) {
-                Text(text = displayText, style = effectiveStyle, color = txtColor)
+            if (gradientModifier != null) {
+                // Gradient button: use Box with gradient background + clickable
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .then(pressedModifier)
+                        .clip(shape)
+                        .then(gradientModifier)
+                        .clickable { onClick() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    ButtonContent(textColor = txtColor)
+                }
+            } else {
+                Button(
+                    onClick = onClick,
+                    modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
+                    shape = shape,
+                    colors = ButtonDefaults.buttonColors(containerColor = bgColor),
+                    interactionSource = interactionSource,
+                ) {
+                    ButtonContent(textColor = txtColor)
+                }
             }
         }
     }
@@ -2348,26 +2418,66 @@ private fun RowBlock(
 ) {
     val childBlocks = block.children ?: emptyList()
     val rowGap = (block.gap ?: 8.0).dp
-    val vAlignment = when (block.align_items) {
-        "top" -> Alignment.Top
-        "bottom" -> Alignment.Bottom
-        else -> Alignment.CenterVertically
-    }
+    val direction = block.row_direction ?: "horizontal"
+    val distribution = block.row_distribution ?: "start"
+    val childFill = block.row_child_fill ?: true
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(rowGap),
-        verticalAlignment = vAlignment,
-    ) {
-        childBlocks.forEach { child ->
-            Box(modifier = Modifier.weight(1f)) {
-                RenderBlock(
-                    block = child,
-                    onAction = onAction,
-                    toggleValues = toggleValues,
-                    inputValues = inputValues,
-                    loc = loc,
-                )
+    if (direction == "vertical") {
+        // Vertical layout
+        val vArrangement = when (distribution) {
+            "center" -> Arrangement.Center
+            "end" -> Arrangement.Bottom
+            "space-between", "space_between" -> Arrangement.SpaceBetween
+            "space-around", "space_around" -> Arrangement.SpaceAround
+            "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
+            else -> Arrangement.Top
+        }
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = if (rowGap.value > 0 && distribution == "start") Arrangement.spacedBy(rowGap) else vArrangement,
+        ) {
+            childBlocks.forEach { child ->
+                Box(modifier = if (childFill) Modifier.fillMaxWidth() else Modifier) {
+                    RenderBlock(
+                        block = child,
+                        onAction = onAction,
+                        toggleValues = toggleValues,
+                        inputValues = inputValues,
+                        loc = loc,
+                    )
+                }
+            }
+        }
+    } else {
+        // Horizontal layout (default)
+        val hArrangement = when (distribution) {
+            "center" -> Arrangement.Center
+            "end" -> Arrangement.End
+            "space-between", "space_between" -> Arrangement.SpaceBetween
+            "space-around", "space_around" -> Arrangement.SpaceAround
+            "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
+            else -> Arrangement.spacedBy(rowGap)
+        }
+        val vAlignment = when (block.align_items) {
+            "top" -> Alignment.Top
+            "bottom" -> Alignment.Bottom
+            else -> Alignment.CenterVertically
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = hArrangement,
+            verticalAlignment = vAlignment,
+        ) {
+            childBlocks.forEach { child ->
+                Box(modifier = if (childFill) Modifier.weight(1f) else Modifier) {
+                    RenderBlock(
+                        block = child,
+                        onAction = onAction,
+                        toggleValues = toggleValues,
+                        inputValues = inputValues,
+                        loc = loc,
+                    )
+                }
             }
         }
     }
@@ -3040,7 +3150,7 @@ private fun FormInputDateBlock(
     }
 }
 
-/** Dropdown select input. */
+/** Dropdown/stacked/grid select input with display_style support. */
 @Composable
 private fun FormInputSelectBlock(
     block: ContentBlock,
@@ -3048,8 +3158,13 @@ private fun FormInputSelectBlock(
 ) {
     val fieldId = block.field_id ?: block.id
     val options = block.field_options ?: emptyList()
-    var expanded by remember { mutableStateOf(false) }
-    var selectedLabel by remember { mutableStateOf(block.field_placeholder ?: "Select...") }
+    // Gap 1: Read display_style from field_config; defaults to "dropdown".
+    val displayStyle = (block.field_config?.get("display_style") as? String) ?: "dropdown"
+    // Gap 8: Gracefully handle dynamic options (use_variable / use_webhook) — parse but ignore
+    val useVariable = block.field_config?.get("use_variable") as? String
+    val useWebhook = block.field_config?.get("use_webhook") as? String
+    // For now, dynamic options require server round-trip. Display static options if present.
+    var selectedValue by remember { mutableStateOf(inputValues[fieldId] as? String ?: "") }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3057,35 +3172,171 @@ private fun FormInputSelectBlock(
     ) {
         FormFieldLabel(block)
 
-        Box(modifier = Modifier.fillMaxWidth()) {
-            OutlinedButton(
-                onClick = { expanded = true },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
-                ),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
-            ) {
-                Row(
+        when (displayStyle) {
+            "stacked" -> {
+                // Stacked: Column of cards with RadioButton
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text(text = selectedLabel, fontSize = 14.sp)
-                    Text(text = "\u25BC", fontSize = 12.sp)
+                    options.forEach { option ->
+                        val isSelected = selectedValue == option.value
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedValue = option.value
+                                    inputValues[fieldId] = option.value
+                                },
+                            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
+                            ),
+                            border = if (isSelected) {
+                                androidx.compose.foundation.BorderStroke(2.dp, StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"))
+                            } else {
+                                androidx.compose.foundation.BorderStroke(1.dp, StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"))
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(
+                                    selected = isSelected,
+                                    onClick = {
+                                        selectedValue = option.value
+                                        inputValues[fieldId] = option.value
+                                    },
+                                    colors = RadioButtonDefaults.colors(
+                                        selectedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
+                                    ),
+                                )
+                                // Gap 7: Option image_url
+                                option.image_url?.let { url ->
+                                    if (url.isNotEmpty()) {
+                                        Spacer(Modifier.width(8.dp))
+                                        ai.appdna.sdk.core.NetworkImage(
+                                            url = url,
+                                            modifier = Modifier.size(24.dp).clip(CircleShape),
+                                            contentScale = ContentScale.Crop,
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
+                                Text(text = option.label, fontSize = 14.sp)
+                            }
+                        }
+                    }
                 }
             }
-            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                options.forEach { option ->
-                    DropdownMenuItem(
-                        text = { Text(option.label) },
-                        onClick = {
-                            selectedLabel = option.label
-                            inputValues[fieldId] = option.value
-                            expanded = false
-                        },
-                    )
+            "grid" -> {
+                // Grid: 2-column layout
+                val chunked = options.chunked(2)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    chunked.forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            row.forEach { option ->
+                                val isSelected = selectedValue == option.value
+                                Card(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable {
+                                            selectedValue = option.value
+                                            inputValues[fieldId] = option.value
+                                        },
+                                    shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
+                                    ),
+                                    border = if (isSelected) {
+                                        androidx.compose.foundation.BorderStroke(2.dp, StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"))
+                                    } else {
+                                        androidx.compose.foundation.BorderStroke(1.dp, StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"))
+                                    },
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    ) {
+                                        // Gap 7: Option image_url
+                                        option.image_url?.let { url ->
+                                            if (url.isNotEmpty()) {
+                                                ai.appdna.sdk.core.NetworkImage(
+                                                    url = url,
+                                                    modifier = Modifier.size(32.dp).clip(CircleShape),
+                                                    contentScale = ContentScale.Crop,
+                                                )
+                                                Spacer(Modifier.height(4.dp))
+                                            }
+                                        }
+                                        Text(text = option.label, fontSize = 14.sp, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                            // Fill empty slot in last row
+                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+            else -> {
+                // "dropdown" (default): Spinner/dropdown
+                var expanded by remember { mutableStateOf(false) }
+                var selectedLabel by remember { mutableStateOf(
+                    options.firstOrNull { it.value == selectedValue }?.label ?: block.field_placeholder ?: "Select..."
+                ) }
+
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(
+                        onClick = { expanded = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                        ),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(text = selectedLabel, fontSize = 14.sp)
+                            Text(text = "\u25BC", fontSize = 12.sp)
+                        }
+                    }
+                    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                        options.forEach { option ->
+                            DropdownMenuItem(
+                                text = {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Gap 7: Option image_url in dropdown
+                                        option.image_url?.let { url ->
+                                            if (url.isNotEmpty()) {
+                                                ai.appdna.sdk.core.NetworkImage(
+                                                    url = url,
+                                                    modifier = Modifier.size(24.dp).clip(CircleShape),
+                                                    contentScale = ContentScale.Crop,
+                                                )
+                                                Spacer(Modifier.width(8.dp))
+                                            }
+                                        }
+                                        Text(option.label)
+                                    }
+                                },
+                                onClick = {
+                                    selectedLabel = option.label
+                                    selectedValue = option.value
+                                    inputValues[fieldId] = option.value
+                                    expanded = false
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }

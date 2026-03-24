@@ -178,6 +178,18 @@ data class PaywallSectionData(
     val reviews: List<PaywallReview>? = null,
     val show_rating_stars: Boolean? = null,
     val star_color: String? = null,
+
+    // Gap 10-11: Plan display style + card/badge styling
+    val plan_display_style: String? = null,  // vertical_stack, radio_list, accordion, horizontal_scroll, carousel_cards, pill_selector, segmented_toggle, feature_comparison, pricing_table, minimal_chips, tiered_slider, toggle_cards
+    val card_corner_radius: Float? = null,
+    val card_padding: Float? = null,
+    val card_gap: Float? = null,
+    val card_shadow: Boolean? = null,
+    val badge_position: String? = null,       // top_right, top_left, top_center, inline
+    val badge_shape: String? = null,          // pill, rounded, square
+    val badge_bg_color: String? = null,
+    val badge_text_color: String? = null,
+    val badge_font_size: Float? = null,
 )
 
 // SPEC-089d: Sub-types for new paywall sections
@@ -591,6 +603,17 @@ internal object PaywallConfigParser {
                 },
                 show_rating_stars = d["show_rating_stars"] as? Boolean,
                 star_color = d["star_color"] as? String,
+                // Gap 10-11: Plan display style + card/badge styling
+                plan_display_style = d["plan_display_style"] as? String,
+                card_corner_radius = (d["card_corner_radius"] as? Number)?.toFloat(),
+                card_padding = (d["card_padding"] as? Number)?.toFloat(),
+                card_gap = (d["card_gap"] as? Number)?.toFloat(),
+                card_shadow = d["card_shadow"] as? Boolean,
+                badge_position = d["badge_position"] as? String,
+                badge_shape = d["badge_shape"] as? String,
+                badge_bg_color = d["badge_bg_color"] as? String,
+                badge_text_color = d["badge_text_color"] as? String,
+                badge_font_size = (d["badge_font_size"] as? Number)?.toFloat(),
             )
         }
 

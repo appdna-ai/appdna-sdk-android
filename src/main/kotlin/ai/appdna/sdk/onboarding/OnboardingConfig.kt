@@ -31,6 +31,9 @@ data class OnboardingSettings(
     // SPEC-085: Rich media config
     val haptic: HapticConfig? = null,
     val particle_effect: ParticleEffect? = null,
+    // Gap 9: Custom progress bar colors
+    val progress_color: String? = null,
+    val progress_track_color: String? = null,
 )
 
 /**
@@ -343,6 +346,8 @@ internal object OnboardingConfigParser {
             skip_to_step = settingsMap["skip_to_step"] as? String,
             haptic = haptic,
             particle_effect = particleEffect,
+            progress_color = settingsMap["progress_color"] as? String,
+            progress_track_color = settingsMap["progress_track_color"] as? String,
         )
 
         return OnboardingFlowConfig(
@@ -640,9 +645,12 @@ internal object OnboardingConfigParser {
                             InputOption(
                                 value = fm["id"] as? String ?: fm["value"] as? String ?: "",
                                 label = fm["label"] as? String ?: "",
+                                image_url = fm["image_url"] as? String,
                             )
                         } else null
                     },
+                    // Gap 8: Parse field_config for display_style, use_variable, use_webhook
+                    field_config = bm["field_config"] as? Map<String, Any>,
                     // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
                     visibility_condition = (bm["visibility_condition"] as? Map<String, Any>)?.let { vc ->
                         VisibilityCondition(
@@ -672,6 +680,15 @@ internal object OnboardingConfigParser {
                     bindings = (bm["bindings"] as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() },
                     element_width = bm["element_width"] as? String,
                     element_height = bm["element_height"] as? String,
+                    // Row / stack container fields
+                    children = parseChildBlocks(bm["children"]),
+                    row_direction = bm["row_direction"] as? String,
+                    row_distribution = bm["row_distribution"] as? String,
+                    row_child_fill = bm["row_child_fill"] as? Boolean,
+                    gap = (bm["gap"] as? Number)?.toDouble(),
+                    wrap = bm["wrap"] as? Boolean,
+                    justify = bm["justify"] as? String,
+                    align_items = bm["align_items"] as? String,
                 )
             } else null
         }
@@ -889,6 +906,8 @@ internal object OnboardingConfigParser {
             padding_left = (map["padding_left"] as? Number)?.toDouble(),
             margin_top = (map["margin_top"] as? Number)?.toDouble(),
             margin_bottom = (map["margin_bottom"] as? Number)?.toDouble(),
+            margin_left = (map["margin_left"] as? Number)?.toDouble(),
+            margin_right = (map["margin_right"] as? Number)?.toDouble(),
             opacity = (map["opacity"] as? Number)?.toDouble(),
         )
     }

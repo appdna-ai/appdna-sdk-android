@@ -491,190 +491,350 @@ private fun PaywallSectionView(
             }
         }
         "plans" -> {
-            val layoutType = config.layout.type
-            // SPEC-084: Grid / carousel / stack plan layouts
-            if (layoutType == "carousel") {
-                // Horizontally scrollable plan cards
-                val plans = section.data?.plans ?: emptyList()
-                val carouselPlanNameStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 16.sp),
-                    section.style?.elements?.get("plan_name")?.text_style
-                )
-                val carouselPriceStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp),
-                    section.style?.elements?.get("price")?.text_style
-                )
-                val carouselPeriodStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f)),
-                    section.style?.elements?.get("period")?.text_style
-                )
-                val carouselBadgeStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontSize = 11.sp, color = Color(0xFF22C55E), fontWeight = FontWeight.SemiBold),
-                    section.style?.elements?.get("badge")?.text_style
-                )
-                @OptIn(ExperimentalFoundationApi::class)
-                Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
-                    val pagerState = rememberPagerState(
-                        initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
-                        pageCount = { plans.size }
-                    )
-                    HorizontalPager(
-                        state = pagerState,
-                        contentPadding = PaddingValues(horizontal = 48.dp),
-                        pageSpacing = 12.dp,
-                    ) { planIdx ->
-                        val plan = plans[planIdx]
-                        val isSelected = selectedPlanId == plan.id
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
-                                .then(
-                                    if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp)) else Modifier
-                                )
-                                .clickable { onPlanSelect(plan.id) },
-                            shape = RoundedCornerShape(12.dp),
-                            colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f))
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(text = loc("plan.$planIdx.name", plan.name), style = carouselPlanNameStyle)
-                                Spacer(Modifier.height(4.dp))
-                                Text(text = loc("plan.$planIdx.price", plan.price), style = carouselPriceStyle)
-                                plan.period?.let {
-                                    Text(text = loc("plan.$planIdx.period", it), style = carouselPeriodStyle)
-                                }
-                                plan.badge?.let {
-                                    Spacer(Modifier.height(8.dp))
-                                    Text(text = loc("plan.$planIdx.badge", it), style = carouselBadgeStyle)
-                                }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onRestore, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text(loc("restore.text", "Restore Purchases"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
-                    }
-                }
-            } else if (layoutType == "grid") {
-                // 2-column grid
-                val plans = section.data?.plans ?: emptyList()
-                val chunked = plans.chunked(2)
-                val gridPlanNameStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 14.sp),
-                    section.style?.elements?.get("plan_name")?.text_style
-                )
-                val gridPriceStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 16.sp),
-                    section.style?.elements?.get("price")?.text_style
-                )
-                val gridPeriodStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontSize = 12.sp, color = Color.White.copy(alpha = 0.7f)),
-                    section.style?.elements?.get("period")?.text_style
-                )
-                val gridBadgeStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontSize = 11.sp, color = Color(0xFF22C55E), fontWeight = FontWeight.SemiBold),
-                    section.style?.elements?.get("badge")?.text_style
-                )
-                Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
-                    chunked.forEachIndexed { chunkIdx, row ->
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            row.forEachIndexed { colIdx, plan ->
-                                val planIdx = chunkIdx * 2 + colIdx
-                                val isSelected = selectedPlanId == plan.id
-                                Card(
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .padding(vertical = 4.dp)
-                                        .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
-                                        .then(
-                                            if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp)) else Modifier
-                                        )
-                                        .clickable { onPlanSelect(plan.id) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = CardDefaults.cardColors(containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f))
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(text = loc("plan.$planIdx.name", plan.name), style = gridPlanNameStyle)
-                                        Text(text = loc("plan.$planIdx.price", plan.price), style = gridPriceStyle)
-                                        plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = gridPeriodStyle) }
-                                        plan.badge?.let { Text(text = loc("plan.$planIdx.badge", it), style = gridBadgeStyle) }
-                                    }
-                                }
-                            }
-                            // Fill empty slot in last row
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
-                        }
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = onRestore, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text(loc("restore.text", "Restore Purchases"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
-                    }
-                }
-            } else {
-            // Default stack layout
-            val stackPlanNameStyle = StyleEngine.applyTextStyle(
-                TextStyle(fontWeight = FontWeight.SemiBold, color = Color.White),
+            // Gap 10-11: Read plan_display_style from section data, fallback to layout.type
+            val displayStyle = section.data?.plan_display_style ?: config.layout.type
+            val plans = section.data?.plans ?: emptyList()
+
+            // Card styling from config
+            val cardRadius = (section.data?.card_corner_radius ?: 12f).dp
+            val cardPad = (section.data?.card_padding ?: 16f).dp
+            val cardGap = (section.data?.card_gap ?: 8f).dp
+            val cardShape = RoundedCornerShape(cardRadius)
+            val cardShadowEnabled = section.data?.card_shadow ?: false
+
+            // Text styles
+            val planNameStyle = StyleEngine.applyTextStyle(
+                TextStyle(fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 16.sp),
                 section.style?.elements?.get("plan_name")?.text_style
             )
-            val stackPriceStyle = StyleEngine.applyTextStyle(
-                TextStyle(fontWeight = FontWeight.Bold, color = Color.White),
+            val priceStyle = StyleEngine.applyTextStyle(
+                TextStyle(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 18.sp),
                 section.style?.elements?.get("price")?.text_style
             )
-            val stackPeriodStyle = StyleEngine.applyTextStyle(
+            val periodStyle = StyleEngine.applyTextStyle(
                 TextStyle(fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f)),
                 section.style?.elements?.get("period")?.text_style
             )
-            val stackBadgeStyle = StyleEngine.applyTextStyle(
-                TextStyle(fontSize = 11.sp, color = Color(0xFF22C55E), fontWeight = FontWeight.SemiBold),
-                section.style?.elements?.get("badge")?.text_style
-            )
-            Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
-                section.data?.plans?.forEachIndexed { planIdx, plan ->
-                    val isSelected = selectedPlanId == plan.id
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 4.dp)
-                            .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
-                            .then(
-                                if (isSelected) Modifier.border(
-                                    2.dp,
-                                    Color(0xFF6366F1),
-                                    RoundedCornerShape(12.dp)
-                                ) else Modifier
-                            )
-                            .clickable { onPlanSelect(plan.id) },
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+
+            // Badge styling
+            val badgeBg = section.data?.badge_bg_color?.let { parseHexColor(it) } ?: Color(0xFF22C55E)
+            val badgeTxt = section.data?.badge_text_color?.let { parseHexColor(it) } ?: Color.White
+            val badgeFontSize = (section.data?.badge_font_size ?: 11f).sp
+            val badgeShapeStr = section.data?.badge_shape ?: "pill"
+            val badgeCorner = when (badgeShapeStr) {
+                "square" -> RoundedCornerShape(0.dp)
+                "rounded" -> RoundedCornerShape(4.dp)
+                else -> RoundedCornerShape(999.dp) // pill
+            }
+            val badgePosition = section.data?.badge_position ?: "inline"
+
+            @Composable
+            fun BadgeView(badgeText: String) {
+                Text(
+                    text = badgeText,
+                    color = badgeTxt,
+                    fontSize = badgeFontSize,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .background(badgeBg, badgeCorner)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+            }
+
+            @Composable
+            fun PlanCard(plan: PaywallPlan, planIdx: Int, modifier: Modifier = Modifier) {
+                val isSelected = selectedPlanId == plan.id
+                val elevation = if (cardShadowEnabled) 4.dp else 0.dp
+                Card(
+                    modifier = modifier
+                        .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
+                        .then(
+                            if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
                         )
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(
-                                    text = loc("plan.$planIdx.name", plan.name),
-                                    style = stackPlanNameStyle,
-                                )
-                                plan.period?.let {
-                                    Text(text = loc("plan.$planIdx.period", it), style = stackPeriodStyle)
+                        .clickable { onPlanSelect(plan.id) },
+                    shape = cardShape,
+                    elevation = CardDefaults.cardElevation(defaultElevation = elevation),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                    )
+                ) {
+                    Box {
+                        Column(modifier = Modifier.padding(cardPad)) {
+                            Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                            Spacer(Modifier.height(4.dp))
+                            Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                            plan.period?.let {
+                                Text(text = loc("plan.$planIdx.period", it), style = periodStyle)
+                            }
+                            plan.badge?.let {
+                                if (badgePosition == "inline") {
+                                    Spacer(Modifier.height(8.dp))
+                                    BadgeView(loc("plan.$planIdx.badge", it))
                                 }
                             }
-                            Column(horizontalAlignment = Alignment.End) {
-                                Text(
-                                    text = loc("plan.$planIdx.price", plan.price),
-                                    style = stackPriceStyle,
-                                )
-                                plan.badge?.let {
-                                    Text(
-                                        text = loc("plan.$planIdx.badge", it),
-                                        style = stackBadgeStyle,
+                        }
+                        // Positioned badge (non-inline)
+                        plan.badge?.let { badge ->
+                            if (badgePosition != "inline") {
+                                val alignment = when (badgePosition) {
+                                    "top_left" -> Alignment.TopStart
+                                    "top_center" -> Alignment.TopCenter
+                                    else -> Alignment.TopEnd // top_right default
+                                }
+                                Box(
+                                    modifier = Modifier.align(alignment).padding(8.dp),
+                                ) {
+                                    BadgeView(loc("plan.$planIdx.badge", badge))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
+                when (displayStyle) {
+                    "horizontal_scroll", "carousel_cards" -> {
+                        // Horizontally scrollable plan cards
+                        @OptIn(ExperimentalFoundationApi::class)
+                        run {
+                            val pagerState = rememberPagerState(
+                                initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
+                                pageCount = { plans.size }
+                            )
+                            HorizontalPager(
+                                state = pagerState,
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                pageSpacing = cardGap,
+                            ) { planIdx ->
+                                PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                    "carousel" -> {
+                        // Legacy carousel (same as horizontal_scroll)
+                        @OptIn(ExperimentalFoundationApi::class)
+                        run {
+                            val pagerState = rememberPagerState(
+                                initialPage = plans.indexOfFirst { it.id == selectedPlanId }.coerceAtLeast(0),
+                                pageCount = { plans.size }
+                            )
+                            HorizontalPager(
+                                state = pagerState,
+                                contentPadding = PaddingValues(horizontal = 48.dp),
+                                pageSpacing = cardGap,
+                            ) { planIdx ->
+                                PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                    "pill_selector", "segmented_toggle", "minimal_chips" -> {
+                        // Row of chips / segments
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(cardGap),
+                        ) {
+                            plans.forEachIndexed { planIdx, plan ->
+                                val isSelected = selectedPlanId == plan.id
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(cardShape)
+                                        .background(
+                                            if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.1f),
+                                            cardShape,
+                                        )
+                                        .border(
+                                            if (isSelected) 0.dp else 1.dp,
+                                            if (isSelected) Color.Transparent else Color.White.copy(alpha = 0.3f),
+                                            cardShape,
+                                        )
+                                        .clickable { onPlanSelect(plan.id) }
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(
+                                            text = loc("plan.$planIdx.name", plan.name),
+                                            style = planNameStyle.copy(fontSize = 14.sp),
+                                            textAlign = TextAlign.Center,
+                                        )
+                                        Text(
+                                            text = loc("plan.$planIdx.price", plan.price),
+                                            style = priceStyle.copy(fontSize = 14.sp),
+                                            textAlign = TextAlign.Center,
+                                        )
+                                        plan.badge?.let {
+                                            Spacer(Modifier.height(4.dp))
+                                            BadgeView(loc("plan.$planIdx.badge", it))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "radio_list" -> {
+                        // Column with radio buttons
+                        plans.forEachIndexed { planIdx, plan ->
+                            val isSelected = selectedPlanId == plan.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 2)
+                                    .clip(cardShape)
+                                    .background(
+                                        if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.Transparent,
+                                        cardShape,
                                     )
+                                    .border(
+                                        if (isSelected) 2.dp else 1.dp,
+                                        if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.2f),
+                                        cardShape,
+                                    )
+                                    .clickable { onPlanSelect(plan.id) }
+                                    .padding(cardPad),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                androidx.compose.material3.RadioButton(
+                                    selected = isSelected,
+                                    onClick = { onPlanSelect(plan.id) },
+                                    colors = androidx.compose.material3.RadioButtonDefaults.colors(
+                                        selectedColor = Color(0xFF6366F1),
+                                        unselectedColor = Color.White.copy(alpha = 0.5f),
+                                    ),
+                                )
+                                Spacer(Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                                    plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
+                                }
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                    plan.badge?.let {
+                                        Spacer(Modifier.height(4.dp))
+                                        BadgeView(loc("plan.$planIdx.badge", it))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "accordion" -> {
+                        // Expandable vertical list — selected plan shows expanded details
+                        plans.forEachIndexed { planIdx, plan ->
+                            val isSelected = selectedPlanId == plan.id
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 2)
+                                    .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
+                                    .then(
+                                        if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
+                                    )
+                                    .clickable { onPlanSelect(plan.id) },
+                                shape = cardShape,
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                                ),
+                            ) {
+                                Column(modifier = Modifier.padding(cardPad)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                                        Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                    }
+                                    if (isSelected) {
+                                        Spacer(Modifier.height(8.dp))
+                                        plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
+                                        plan.badge?.let {
+                                            Spacer(Modifier.height(4.dp))
+                                            BadgeView(loc("plan.$planIdx.badge", it))
+                                        }
+                                        plan.trial_duration?.let {
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(text = it, style = periodStyle)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    "grid" -> {
+                        // 2-column grid
+                        val chunked = plans.chunked(2)
+                        chunked.forEachIndexed { chunkIdx, row ->
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(cardGap)) {
+                                row.forEachIndexed { colIdx, plan ->
+                                    val planIdx = chunkIdx * 2 + colIdx
+                                    PlanCard(plan = plan, planIdx = planIdx, modifier = Modifier.weight(1f).padding(vertical = cardGap / 2))
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    "toggle_cards" -> {
+                        // Row of toggle-style cards (2 plans side by side)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(cardGap),
+                        ) {
+                            plans.forEachIndexed { planIdx, plan ->
+                                PlanCard(plan = plan, planIdx = planIdx, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    else -> {
+                        // vertical_stack (default), feature_comparison, pricing_table, tiered_slider → Column layout
+                        plans.forEachIndexed { planIdx, plan ->
+                            val isSelected = selectedPlanId == plan.id
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 2)
+                                    .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
+                                    .then(
+                                        if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
+                                    )
+                                    .clickable { onPlanSelect(plan.id) },
+                                shape = cardShape,
+                                elevation = CardDefaults.cardElevation(defaultElevation = if (cardShadowEnabled) 4.dp else 0.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                                )
+                            ) {
+                                Box {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().padding(cardPad),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                                            plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
+                                        }
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                            plan.badge?.let {
+                                                if (badgePosition == "inline") {
+                                                    BadgeView(loc("plan.$planIdx.badge", it))
+                                                }
+                                            }
+                                        }
+                                    }
+                                    plan.badge?.let { badge ->
+                                        if (badgePosition != "inline") {
+                                            val alignment = when (badgePosition) {
+                                                "top_left" -> Alignment.TopStart
+                                                "top_center" -> Alignment.TopCenter
+                                                else -> Alignment.TopEnd
+                                            }
+                                            Box(modifier = Modifier.align(alignment).padding(8.dp)) {
+                                                BadgeView(loc("plan.$planIdx.badge", badge))
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -687,7 +847,6 @@ private fun PaywallSectionView(
                 ) {
                     Text(loc("restore.text", "Restore Purchases"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
                 }
-            }
             }
         }
         "cta" -> {
