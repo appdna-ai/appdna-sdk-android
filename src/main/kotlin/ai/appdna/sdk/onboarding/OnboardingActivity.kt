@@ -408,9 +408,10 @@ internal fun OnboardingFlowHost(
                                 ))
                                 handleHookResult(result, step)
                             }
-                        } else if (step.hook?.enabled == true) {
+                        } else {
+                            val hookConfig = step.hook?.takeIf { it.enabled }
+                            if (hookConfig != null) {
                             // Server-side hook (P1)
-                            val hookConfig = step.hook ?: return@launch
                             loadingText = hookConfig.loading_text ?: "Processing..."
                             isProcessing = true
                             val startTime = System.currentTimeMillis()
@@ -450,8 +451,9 @@ internal fun OnboardingFlowHost(
                                 ))
                                 handleHookResult(result, step)
                             }
-                        } else {
-                            advanceOrComplete()
+                            } else {
+                                advanceOrComplete()
+                            }
                         }
                     },
                     onSkip = {
@@ -543,7 +545,7 @@ private suspend fun executeWebhook(
     try {
         val url = URL(hookConfig.webhook_url)
         val conn = url.openConnection() as? HttpURLConnection
-            ?: return@withContext StepAdvanceResult(proceed = false, error = "Webhook URL must use HTTP(S)")
+            ?: return@withContext StepAdvanceResult.Block("Webhook URL must use HTTP(S)")
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
         conn.connectTimeout = hookConfig.timeout_ms

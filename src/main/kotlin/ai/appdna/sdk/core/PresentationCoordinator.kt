@@ -79,7 +79,7 @@ internal class PresentationCoordinator private constructor() {
             lock.unlock()
         }
 
-        mainHandler.post(next.action)
+        next?.let { mainHandler.post(it.action) }
     }
 
     fun canPresent(type: PresentationType, isAutoTriggered: Boolean = false): Boolean {
