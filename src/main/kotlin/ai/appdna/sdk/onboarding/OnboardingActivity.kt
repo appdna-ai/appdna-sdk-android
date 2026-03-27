@@ -410,7 +410,7 @@ internal fun OnboardingFlowHost(
                             }
                         } else if (step.hook?.enabled == true) {
                             // Server-side hook (P1)
-                            val hookConfig = step.hook!!
+                            val hookConfig = step.hook ?: return@launch
                             loadingText = hookConfig.loading_text ?: "Processing..."
                             isProcessing = true
                             val startTime = System.currentTimeMillis()

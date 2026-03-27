@@ -52,8 +52,11 @@ internal class ReceiptVerifier(
 
         return try {
             val json = JSONObject(response)
-            val data = json.getJSONObject("data")
+            val data = json.optJSONObject("data")
+                ?: throw VerificationException("Missing 'data' in verification response")
             parseEntitlement(data)
+        } catch (e: VerificationException) {
+            throw e
         } catch (e: Exception) {
             Log.error("Failed to parse verification response: ${e.message}")
             throw VerificationException("Failed to parse verification response: ${e.message}", e)
@@ -95,13 +98,17 @@ internal class ReceiptVerifier(
 
         return try {
             val json = JSONObject(response)
-            val dataArray = json.getJSONArray("data")
+            val dataArray = json.optJSONArray("data")
+                ?: throw VerificationException("Missing 'data' in restore response")
             val entitlements = mutableListOf<Entitlement>()
             for (i in 0 until dataArray.length()) {
-                entitlements.add(parseEntitlement(dataArray.getJSONObject(i)))
+                val item = dataArray.optJSONObject(i) ?: continue
+                entitlements.add(parseEntitlement(item))
             }
             Log.info("Restored ${entitlements.size} entitlements")
             entitlements
+        } catch (e: VerificationException) {
+            throw e
         } catch (e: Exception) {
             Log.error("Failed to parse restore response: ${e.message}")
             throw VerificationException("Failed to parse restore response: ${e.message}", e)
@@ -120,11 +127,12 @@ internal class ReceiptVerifier(
             ?: return emptyList()
 
         return try {
-            val data = response.getJSONObject("data")
-            val subscriptions = data.getJSONArray("subscriptions")
+            val data = response.optJSONObject("data") ?: return emptyList()
+            val subscriptions = data.optJSONArray("subscriptions") ?: return emptyList()
             val entitlements = mutableListOf<Entitlement>()
             for (i in 0 until subscriptions.length()) {
-                entitlements.add(parseEntitlement(subscriptions.getJSONObject(i)))
+                val item = subscriptions.optJSONObject(i) ?: continue
+                entitlements.add(parseEntitlement(item))
             }
             entitlements
         } catch (e: Exception) {

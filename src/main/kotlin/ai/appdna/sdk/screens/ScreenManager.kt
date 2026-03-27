@@ -18,10 +18,10 @@ internal class ScreenManager private constructor() {
     private var interceptionEnabled = false
     private var interceptionFilter: List<String>? = null
 
-    fun updateIndex(index: ScreenIndex) { lock.lock(); screenIndex = index; lock.unlock() }
-    fun cacheScreen(id: String, config: ScreenConfig) { lock.lock(); screenCache[id] = config; lock.unlock() }
+    fun updateIndex(index: ScreenIndex) { lock.lock(); try { screenIndex = index } finally { lock.unlock() } }
+    fun cacheScreen(id: String, config: ScreenConfig) { lock.lock(); try { screenCache[id] = config } finally { lock.unlock() } }
     fun getCachedScreen(id: String): ScreenConfig? { lock.lock(); try { return screenCache[id] } finally { lock.unlock() } }
-    fun cacheFlow(id: String, config: FlowConfig) { lock.lock(); flowCache[id] = config; lock.unlock() }
+    fun cacheFlow(id: String, config: FlowConfig) { lock.lock(); try { flowCache[id] = config } finally { lock.unlock() } }
     fun getCachedFlow(id: String): FlowConfig? { lock.lock(); try { return flowCache[id] } finally { lock.unlock() } }
 
     fun showScreen(screenId: String, callback: ((ScreenResult) -> Unit)? = null) {
@@ -105,5 +105,5 @@ internal class ScreenManager private constructor() {
         return p == s
     }
 
-    fun reset() { lock.lock(); screenIndex = null; screenCache.clear(); flowCache.clear(); nestingDepth = 0; lock.unlock(); disableNavigationInterception() }
+    fun reset() { lock.lock(); try { screenIndex = null; screenCache.clear(); flowCache.clear(); nestingDepth = 0 } finally { lock.unlock() }; disableNavigationInterception() }
 }

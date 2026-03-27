@@ -260,7 +260,7 @@ class NativeBillingManager internal constructor(
         val transactions = result.purchasesList.map { purchase ->
             mapOf(
                 "token" to purchase.purchaseToken,
-                "productId" to purchase.products.first()
+                "productId" to (purchase.products.firstOrNull() ?: "unknown")
             )
         }
 

@@ -77,7 +77,7 @@ fun AppDNAScreenSlot(name: String) {
             )
         }
         screenConfig != null -> {
-            val config = screenConfig!!
+            val config = screenConfig ?: return
             val slotConfig = config.slotConfig
             val maxHeight = slotConfig?.maxHeight
 

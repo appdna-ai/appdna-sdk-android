@@ -78,21 +78,22 @@ internal class EventUploadWorker(
                 .post(compressed.toRequestBody("application/json".toMediaType()))
                 .build()
 
-            val response = client.newCall(request).execute()
-            if (response.isSuccessful) {
-                eventDatabase.removeByIds(batch.map { it.first })
-                Log.info("Background upload successful: ${batch.size} events")
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    eventDatabase.removeByIds(batch.map { it.first })
+                    Log.info("Background upload successful: ${batch.size} events")
 
-                // Check if more events remain
-                val remaining = eventDatabase.count()
-                if (remaining > 0) {
-                    Log.debug("$remaining events still pending after background upload")
+                    // Check if more events remain
+                    val remaining = eventDatabase.count()
+                    if (remaining > 0) {
+                        Log.debug("$remaining events still pending after background upload")
+                    }
+
+                    return@withContext Result.success()
+                } else {
+                    Log.warning("Background upload failed: ${response.code}")
+                    return@withContext Result.retry()
                 }
-
-                return@withContext Result.success()
-            } else {
-                Log.warning("Background upload failed: ${response.code}")
-                return@withContext Result.retry()
             }
         } catch (e: Exception) {
             Log.error("Background upload error: ${e.message}")

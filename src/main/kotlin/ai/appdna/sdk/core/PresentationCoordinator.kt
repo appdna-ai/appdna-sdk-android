@@ -68,15 +68,16 @@ internal class PresentationCoordinator private constructor() {
 
     fun onDismissed() {
         lock.lock()
-
-        if (presentationQueue.isEmpty()) {
-            isPresenting = false
+        val next: QueueEntry?
+        try {
+            if (presentationQueue.isEmpty()) {
+                isPresenting = false
+                return
+            }
+            next = presentationQueue.removeFirst()
+        } finally {
             lock.unlock()
-            return
         }
-
-        val next = presentationQueue.removeFirst()
-        lock.unlock()
 
         mainHandler.post(next.action)
     }

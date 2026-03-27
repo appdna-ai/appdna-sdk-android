@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.8"
+    const val sdkVersion = "1.0.9"
 
     // Module namespaces (v1.0)
     /** Push notification module. */
@@ -714,21 +714,21 @@ object AppDNA {
 
             // google-services.json format has project_info and client arrays
             val projectInfo = config.optJSONObject("project_info") ?: return null
-            val projectId = projectInfo.getString("project_id")
+            val projectId = projectInfo.optString("project_id", "").ifEmpty { return null }
             val storageBucket = projectInfo.optString("storage_bucket", "$projectId.appspot.com")
 
             // Find the first client entry
             val clients = config.optJSONArray("client") ?: return null
             if (clients.length() == 0) return null
-            val client = clients.getJSONObject(0)
+            val client = clients.optJSONObject(0) ?: return null
 
-            val clientInfo = client.getJSONObject("client_info")
-            val mobileSdkAppId = clientInfo.getString("mobilesdk_app_id")
+            val clientInfo = client.optJSONObject("client_info") ?: return null
+            val mobileSdkAppId = clientInfo.optString("mobilesdk_app_id", "").ifEmpty { return null }
 
             // API key from api_key array
-            val apiKeys = client.getJSONArray("api_key")
-            val apiKey = if (apiKeys.length() > 0) {
-                apiKeys.getJSONObject(0).getString("current_key")
+            val apiKeys = client.optJSONArray("api_key")
+            val apiKey = if (apiKeys != null && apiKeys.length() > 0) {
+                apiKeys.optJSONObject(0)?.optString("current_key", null)
             } else null
 
             val builder = FirebaseOptions.Builder()
