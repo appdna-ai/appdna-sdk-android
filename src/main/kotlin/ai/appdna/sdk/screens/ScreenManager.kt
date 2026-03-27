@@ -15,8 +15,8 @@ internal class ScreenManager private constructor() {
     private val maxNestingDepth = 5
     private val lock = ReentrantLock()
     private val autoTriggerEngine = AutoTriggerEngine()
-    private var interceptionEnabled = false
-    private var interceptionFilter: List<String>? = null
+    @Volatile private var interceptionEnabled = false
+    @Volatile private var interceptionFilter: List<String>? = null
 
     fun updateIndex(index: ScreenIndex) { lock.lock(); try { screenIndex = index } finally { lock.unlock() } }
     fun cacheScreen(id: String, config: ScreenConfig) { lock.lock(); try { screenCache[id] = config } finally { lock.unlock() } }
@@ -25,21 +25,29 @@ internal class ScreenManager private constructor() {
     fun getCachedFlow(id: String): FlowConfig? { lock.lock(); try { return flowCache[id] } finally { lock.unlock() } }
 
     fun showScreen(screenId: String, callback: ((ScreenResult) -> Unit)? = null) {
-        if (nestingDepth >= maxNestingDepth) {
-            callback?.invoke(ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.NESTING_DEPTH_EXCEEDED))
-            return
+        lock.lock()
+        try {
+            if (nestingDepth >= maxNestingDepth) {
+                callback?.invoke(ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.NESTING_DEPTH_EXCEEDED))
+                return
+            }
+            nestingDepth++
+        } finally {
+            lock.unlock()
         }
-        nestingDepth++
-        val config = getCachedScreen(screenId)
-        if (config == null) {
-            nestingDepth--
-            callback?.invoke(ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.SCREEN_NOT_FOUND))
-            return
+        try {
+            val config = getCachedScreen(screenId)
+            if (config == null) {
+                callback?.invoke(ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.SCREEN_NOT_FOUND))
+                return
+            }
+            // In production, launch ScreenActivity with config
+            AppDNA.track("screen_presented", mapOf("screen_id" to screenId, "screen_name" to config.name, "presentation" to config.presentation))
+            callback?.invoke(ScreenResult(screenId = screenId))
+        } finally {
+            lock.lock()
+            try { nestingDepth-- } finally { lock.unlock() }
         }
-        // In production, launch ScreenActivity with config
-        AppDNA.track("screen_presented", mapOf("screen_id" to screenId, "screen_name" to config.name, "presentation" to config.presentation))
-        nestingDepth--
-        callback?.invoke(ScreenResult(screenId = screenId))
     }
 
     fun showFlow(flowId: String, callback: ((FlowResult) -> Unit)? = null) {

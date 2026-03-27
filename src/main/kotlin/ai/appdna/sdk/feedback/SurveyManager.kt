@@ -25,7 +25,7 @@ internal class SurveyManager(
     internal var apiClient: ApiClient? = null
 ) {
     private val frequencyTracker = SurveyFrequencyTracker(context)
-    private var surveyConfigs: Map<String, SurveyConfig> = emptyMap()
+    @Volatile private var surveyConfigs: Map<String, SurveyConfig> = emptyMap()
     private val isPresenting = AtomicBoolean(false)
     private var currentSurveyId: String? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
