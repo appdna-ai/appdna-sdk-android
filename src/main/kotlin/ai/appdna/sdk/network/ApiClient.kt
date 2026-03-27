@@ -52,11 +52,12 @@ internal class ApiClient(
                         .post(body.toRequestBody(jsonMediaType))
                         .build()
 
-                    val response = client.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        return@withContext response.body?.string()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            return@withContext response.body?.string()
+                        }
+                        Log.warning("API request failed (${response.code}): $path")
                     }
-                    Log.warning("API request failed (${response.code}): $path")
                 } catch (e: IOException) {
                     lastError = e
                     Log.warning("API request error: ${e.message}")
@@ -92,11 +93,12 @@ internal class ApiClient(
                         .post(compressed.toRequestBody("application/json".toMediaType()))
                         .build()
 
-                    val response = client.newCall(request).execute()
-                    if (response.isSuccessful) {
-                        return@withContext response.body?.string()
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            return@withContext response.body?.string()
+                        }
+                        Log.warning("API compressed request failed (${response.code}): $path")
                     }
-                    Log.warning("API compressed request failed (${response.code}): $path")
                 } catch (e: IOException) {
                     lastError = e
                     Log.warning("API compressed request error: ${e.message}")
@@ -123,10 +125,10 @@ internal class ApiClient(
                     .get()
                     .build()
 
-                val response = client.newCall(request).execute()
-                if (response.isSuccessful) {
-                    response.body?.string()?.let { JSONObject(it) }
-                } else {
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        return@withContext response.body?.string()?.let { JSONObject(it) }
+                    }
                     Log.warning("GET failed (${response.code}): $path")
                     null
                 }

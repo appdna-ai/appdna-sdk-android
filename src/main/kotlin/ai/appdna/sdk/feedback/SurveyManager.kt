@@ -14,6 +14,7 @@ import ai.appdna.sdk.network.ApiClient
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Manages survey trigger evaluation, display queue, frequency tracking, and presentation.
@@ -25,7 +26,7 @@ internal class SurveyManager(
 ) {
     private val frequencyTracker = SurveyFrequencyTracker(context)
     private var surveyConfigs: Map<String, SurveyConfig> = emptyMap()
-    private var isPresenting = false
+    private val isPresenting = AtomicBoolean(false)
     private var currentSurveyId: String? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -37,7 +38,7 @@ internal class SurveyManager(
      * Evaluate all surveys against an event. Called on every tracked event.
      */
     fun onEvent(eventName: String, properties: Map<String, Any>?) {
-        if (isPresenting) return
+        if (isPresenting.get()) return
 
         for ((surveyId, config) in surveyConfigs) {
             // 1. Event match
@@ -95,8 +96,7 @@ internal class SurveyManager(
     }
 
     private fun presentSurvey(surveyId: String, config: SurveyConfig, triggerEvent: String) {
-        if (isPresenting) return
-        isPresenting = true
+        if (!isPresenting.compareAndSet(false, true)) return
         currentSurveyId = surveyId
 
         eventTracker.track("survey_shown", mapOf(
@@ -110,7 +110,7 @@ internal class SurveyManager(
         }
         SurveyActivity.launch(context, surveyId, config) { result ->
             SurveyActivity.questionAnsweredCallback = null
-            isPresenting = false
+            isPresenting.set(false)
 
             when (result) {
                 is SurveyResult.Completed -> {

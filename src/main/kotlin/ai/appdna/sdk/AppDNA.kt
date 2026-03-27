@@ -167,7 +167,10 @@ object AppDNA {
             }
 
             this.appContext = context.applicationContext
-            val appContext = this.appContext!!
+            val appContext = this.appContext ?: run {
+                Log.error("AppDNA not initialized — call configure() with valid context")
+                return
+            }
             val appVersion = try {
                 appContext.packageManager.getPackageInfo(appContext.packageName, 0).versionName ?: "0.0.0"
             } catch (_: Exception) { "0.0.0" }
@@ -622,9 +625,9 @@ object AppDNA {
         val result = client.get("/api/v1/sdk/bootstrap")
         if (result != null) {
             try {
-                val orgId = result.getString("orgId")
-                val appId = result.getString("appId")
-                val firestorePath = result.getString("firestorePath")
+                val orgId = result.optString("orgId", "").ifEmpty { throw IllegalArgumentException("Missing orgId") }
+                val appId = result.optString("appId", "").ifEmpty { throw IllegalArgumentException("Missing appId") }
+                val firestorePath = result.optString("firestorePath", "").ifEmpty { throw IllegalArgumentException("Missing firestorePath") }
 
                 Log.info("Bootstrap successful: orgId=$orgId, appId=$appId")
 
@@ -710,12 +713,12 @@ object AppDNA {
             val config = JSONObject(json)
 
             // google-services.json format has project_info and client arrays
-            val projectInfo = config.getJSONObject("project_info")
+            val projectInfo = config.optJSONObject("project_info") ?: return null
             val projectId = projectInfo.getString("project_id")
             val storageBucket = projectInfo.optString("storage_bucket", "$projectId.appspot.com")
 
             // Find the first client entry
-            val clients = config.getJSONArray("client")
+            val clients = config.optJSONArray("client") ?: return null
             if (clients.length() == 0) return null
             val client = clients.getJSONObject(0)
 

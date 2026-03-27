@@ -97,6 +97,7 @@ internal class WebEntitlementManager(
 
         val db = AppDNA.firestoreDB ?: run {
             Log.warning("WebEntitlementManager: Firestore not available — skipping real-time sync")
+            listener = null
             return
         }
         listener = db.document(path)

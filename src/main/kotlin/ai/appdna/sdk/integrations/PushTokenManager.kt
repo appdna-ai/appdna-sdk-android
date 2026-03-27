@@ -10,6 +10,7 @@ import android.os.Build
 import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -27,7 +28,7 @@ internal class PushTokenManager(
         private const val KEY_PUSH_TOKEN = "push_token"
     }
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     /** Current push token from local storage. */
     var currentToken: String?
