@@ -8,6 +8,7 @@ import ai.appdna.sdk.paywalls.PaywallConfigParser
 import ai.appdna.sdk.storage.LocalStorage
 import ai.appdna.sdk.AppDNA
 import org.json.JSONObject
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Manages remote config from Firestore with local caching.
@@ -31,7 +32,7 @@ internal class RemoteConfigManager(
         loadCachedConfigs()
     }
 
-    private val changeListeners = mutableListOf<(Map<String, Any>) -> Unit>()
+    private val changeListeners = CopyOnWriteArrayList<(Map<String, Any>) -> Unit>()
 
     fun getConfig(key: String): Any? = flags[key]
 

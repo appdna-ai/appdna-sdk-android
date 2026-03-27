@@ -1814,7 +1814,7 @@ private fun parseMarkdownToAnnotatedString(
                 break
             }
 
-            val (match, type) = matches.first()
+            val (match, type) = matches.firstOrNull() ?: break
 
             // Append text before the match
             if (match.range.first > 0) {
@@ -3919,13 +3919,13 @@ private suspend fun fetchLocationSuggestions(query: String): List<LocationSugges
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         val url = java.net.URL("https://appdna-app-156101819099.us-east1.run.app/api/v1/geocoding/autocomplete?q=$encodedQuery")
         val connection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            (url.openConnection() as java.net.HttpURLConnection).apply {
+            (url.openConnection() as? java.net.HttpURLConnection)?.apply {
                 requestMethod = "GET"
                 connectTimeout = 5000
                 readTimeout = 5000
             }
         }
-        if (connection.responseCode != 200) return emptyList()
+        if (connection == null || connection.responseCode != 200) return emptyList()
 
         val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             connection.inputStream.bufferedReader().readText()

@@ -6,6 +6,7 @@ import ai.appdna.sdk.events.EventTracker
 import ai.appdna.sdk.AppDNA
 import com.google.firebase.firestore.ListenerRegistration
 import org.json.JSONObject
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Web subscription entitlement model.
@@ -59,7 +60,7 @@ internal class WebEntitlementManager(
     private var previousStatus: String? = null
 
     /** Listeners for entitlement changes. */
-    private val changeListeners = mutableListOf<(WebEntitlement?) -> Unit>()
+    private val changeListeners = CopyOnWriteArrayList<(WebEntitlement?) -> Unit>()
 
     init {
         loadCachedEntitlement()

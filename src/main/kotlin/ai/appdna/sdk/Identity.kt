@@ -18,14 +18,15 @@ data class DeviceIdentity(
  * Persists identity to SharedPreferences (via LocalStorage).
  */
 internal class IdentityManager(private val storage: LocalStorage) {
-    private var _anonId: String
-    private var _userId: String? = null
-    private var _traits: Map<String, Any>? = null
+    private val lock = Any()
+    @Volatile private var _anonId: String = ""
+    @Volatile private var _userId: String? = null
+    @Volatile private var _traits: Map<String, Any>? = null
 
     val currentIdentity: DeviceIdentity
-        get() = DeviceIdentity(anonId = _anonId, userId = _userId, traits = _traits)
+        get() = synchronized(lock) { DeviceIdentity(anonId = _anonId, userId = _userId, traits = _traits) }
 
-    var sessionId: String = UUID.randomUUID().toString()
+    @Volatile var sessionId: String = UUID.randomUUID().toString()
         private set
 
     init {
@@ -41,8 +42,10 @@ internal class IdentityManager(private val storage: LocalStorage) {
     }
 
     fun identify(userId: String, traits: Map<String, Any>?) {
-        _userId = userId
-        _traits = traits
+        synchronized(lock) {
+            _userId = userId
+            _traits = traits
+        }
         storage.setString("user_id", userId)
         // SPEC-088: Persist traits to SharedPreferences
         persistTraits(traits)
@@ -50,16 +53,20 @@ internal class IdentityManager(private val storage: LocalStorage) {
     }
 
     fun reset() {
-        _userId = null
-        _traits = null
+        synchronized(lock) {
+            _userId = null
+            _traits = null
+            sessionId = UUID.randomUUID().toString()
+        }
         storage.remove("user_id")
         storage.remove("user_traits")
-        sessionId = UUID.randomUUID().toString()
         Log.info("Identity reset")
     }
 
     fun newSession() {
-        sessionId = UUID.randomUUID().toString()
+        synchronized(lock) {
+            sessionId = UUID.randomUUID().toString()
+        }
     }
 
     // SPEC-088: Trait persistence helpers

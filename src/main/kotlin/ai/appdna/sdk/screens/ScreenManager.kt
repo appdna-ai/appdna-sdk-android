@@ -25,6 +25,8 @@ internal class ScreenManager private constructor() {
     fun getCachedFlow(id: String): FlowConfig? { lock.lock(); try { return flowCache[id] } finally { lock.unlock() } }
 
     fun showScreen(screenId: String, callback: ((ScreenResult) -> Unit)? = null) {
+        // Acquire lock once for the entire nesting check + config lookup + decrement
+        val config: ScreenConfig?
         lock.lock()
         try {
             if (nestingDepth >= maxNestingDepth) {
@@ -32,11 +34,11 @@ internal class ScreenManager private constructor() {
                 return
             }
             nestingDepth++
+            config = screenCache[screenId]
         } finally {
             lock.unlock()
         }
         try {
-            val config = getCachedScreen(screenId)
             if (config == null) {
                 callback?.invoke(ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.SCREEN_NOT_FOUND))
                 return

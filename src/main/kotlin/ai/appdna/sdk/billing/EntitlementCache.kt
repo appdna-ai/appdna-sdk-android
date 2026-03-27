@@ -6,6 +6,7 @@ import ai.appdna.sdk.AppDNA
 import com.google.firebase.firestore.ListenerRegistration
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * Caches entitlements locally using SharedPreferences and optionally
@@ -32,7 +33,7 @@ internal class EntitlementCache(
         get() = entitlements.any { it.status in ACTIVE_STATUSES }
 
     /** Listeners notified when entitlements change. */
-    private val changeListeners = mutableListOf<(List<Entitlement>) -> Unit>()
+    private val changeListeners = CopyOnWriteArrayList<(List<Entitlement>) -> Unit>()
 
     /** Firestore real-time listener registration. */
     private var firestoreListener: ListenerRegistration? = null

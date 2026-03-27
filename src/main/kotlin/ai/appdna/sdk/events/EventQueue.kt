@@ -96,6 +96,10 @@ internal class EventQueue(
             batchArray.put(event)
         }
 
+        // Snapshot SQLite IDs BEFORE upload to avoid TOCTOU race
+        val dbBatch = eventDatabase.loadBatch(batch.size)
+        val dbIds = dbBatch.map { it.first }
+
         val body = JSONObject().apply {
             put("batch", batchArray)
         }.toString()
@@ -104,9 +108,8 @@ internal class EventQueue(
         val result = apiClient.postCompressed("/api/v1/ingest/events", body)
         if (result != null) {
             queue.removeAll(batch.toSet())
-            // Remove from SQLite — load batch IDs and remove
-            val dbBatch = eventDatabase.loadBatch(batch.size)
-            eventDatabase.removeByIds(dbBatch.map { it.first })
+            // Remove the exact IDs we snapshotted before upload
+            eventDatabase.removeByIds(dbIds)
             Log.debug("Flushed ${batch.size} events (gzip compressed)")
         }
     }

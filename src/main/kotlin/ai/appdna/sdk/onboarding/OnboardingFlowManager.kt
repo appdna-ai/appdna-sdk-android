@@ -51,7 +51,7 @@ internal class OnboardingFlowManager(
                     "flow_id" to flow.id,
                     "step_id" to stepId,
                     "step_index" to stepIndex,
-                    "step_type" to flow.steps[stepIndex].type.value
+                    "step_type" to (flow.steps.getOrNull(stepIndex)?.type?.value ?: "unknown")
                 ))
                 listener?.onOnboardingStepChanged(flowId = flow.id, stepId = stepId, stepIndex = stepIndex, totalSteps = flow.steps.size)
             },

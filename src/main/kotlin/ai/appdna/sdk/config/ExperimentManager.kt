@@ -105,7 +105,7 @@ internal class ExperimentManager(
             }
         }
 
-        return variants.last()
+        return variants.lastOrNull()
     }
 
     /**

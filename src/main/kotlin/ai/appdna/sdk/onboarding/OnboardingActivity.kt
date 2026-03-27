@@ -542,7 +542,8 @@ private suspend fun executeWebhook(
 ): StepAdvanceResult = withContext(Dispatchers.IO) {
     try {
         val url = URL(hookConfig.webhook_url)
-        val conn = url.openConnection() as HttpURLConnection
+        val conn = url.openConnection() as? HttpURLConnection
+            ?: return@withContext StepAdvanceResult(proceed = false, error = "Webhook URL must use HTTP(S)")
         conn.requestMethod = "POST"
         conn.setRequestProperty("Content-Type", "application/json")
         conn.connectTimeout = hookConfig.timeout_ms
