@@ -63,8 +63,8 @@ object RichPushHandler {
     private fun downloadBitmap(url: String): Bitmap? {
         return try {
             val connection = URL(url).openConnection()
-            connection.connectTimeout = 5000
-            connection.readTimeout = 5000
+            connection.connectTimeout = 10000
+            connection.readTimeout = 15000
             connection.getInputStream().use { stream ->
                 BitmapFactory.decodeStream(stream)
             }

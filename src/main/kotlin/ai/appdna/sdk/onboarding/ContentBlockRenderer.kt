@@ -3917,12 +3917,12 @@ private data class LocationSuggestion(
 private suspend fun fetchLocationSuggestions(query: String): List<LocationSuggestion> {
     return try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = java.net.URL("https://appdna-app-156101819099.us-east1.run.app/api/v1/geocoding/autocomplete?q=$encodedQuery")
+        val url = java.net.URL("https://api.appdna.ai/api/v1/geocoding/autocomplete?q=$encodedQuery")
         val connection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             (url.openConnection() as? java.net.HttpURLConnection)?.apply {
                 requestMethod = "GET"
-                connectTimeout = 5000
-                readTimeout = 5000
+                connectTimeout = 10000
+                readTimeout = 10000
             }
         }
         if (connection == null || connection.responseCode != 200) return emptyList()
