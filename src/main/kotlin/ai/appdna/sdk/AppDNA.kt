@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.12"
+    const val sdkVersion = "1.0.13"
 
     // Module namespaces (v1.0)
     /** Push notification module. */
