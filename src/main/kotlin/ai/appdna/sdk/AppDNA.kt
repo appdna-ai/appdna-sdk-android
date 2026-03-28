@@ -148,6 +148,11 @@ object AppDNA {
 
             // Configure Firebase for Firestore config access.
             // Priority: secondary app from google-services-appdna.json in assets > default FirebaseApp.
+            // Validate API key format
+            if (!apiKey.startsWith("adn_live_") && !apiKey.startsWith("adn_test_")) {
+                Log.error("API key format invalid. Keys must start with 'adn_live_' (production) or 'adn_test_' (sandbox). Got: ${apiKey.take(10)}...")
+            }
+
             val secondaryOptions = loadSecondaryFirebaseOptions(context)
             if (secondaryOptions != null) {
                 val existingApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
@@ -157,13 +162,16 @@ object AppDNA {
                 val secondaryApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
                 if (secondaryApp != null) {
                     firestoreDB = FirebaseFirestore.getInstance(secondaryApp)
-                    Log.info("Using secondary Firebase app 'appdna' for Firestore (google-services-appdna.json)")
+                    Log.info("Firebase: Using secondary app 'appdna' (google-services-appdna.json)")
+                } else {
+                    Log.error("Firebase: google-services-appdna.json found but failed to create secondary app. Check the JSON content.")
                 }
-            } else if (FirebaseApp.getApps(context).isNotEmpty()) {
-                firestoreDB = FirebaseFirestore.getInstance()
-                Log.info("Using default Firebase app for Firestore")
+            } else if (FirebaseApp.getApps(context).isEmpty()) {
+                // No Firebase at all — try standard google-services.json
+                Log.error("Firebase: No configuration found. Download google-services-appdna.json from Console -> Settings -> SDK and add it to your app/src/main/assets/ directory. See: https://docs.appdna.ai/sdks/android/installation#firebase-configuration")
             } else {
-                Log.error("Firebase not configured. Either add google-services-appdna.json to assets or configure Firebase via google-services.json. Remote config (paywalls, experiments, flags) will not work. See docs: https://docs.appdna.ai/sdks/android/installation")
+                // Host app has Firebase, but no AppDNA config file
+                Log.error("Firebase: Your app already has Firebase configured (its own project), but google-services-appdna.json was NOT found. AppDNA needs its own Firebase config. Download it from Console -> Settings -> SDK and add to app/src/main/assets/. Remote config will NOT work without this file.")
             }
 
             this.appContext = context.applicationContext
