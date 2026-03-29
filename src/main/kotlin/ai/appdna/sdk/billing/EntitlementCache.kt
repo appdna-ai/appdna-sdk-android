@@ -121,7 +121,7 @@ internal class EntitlementCache(
     fun startObserving(orgId: String, appId: String, userId: String) {
         stopObserving()
 
-        val path = "orgs/$orgId/apps/$appId/users/$userId/entitlements"
+        val path = "orgs/$orgId/apps/$appId/users/$userId/entitlements/current"
         Log.debug("EntitlementCache: observing Firestore at $path")
 
         val db = AppDNA.firestoreDB ?: run {

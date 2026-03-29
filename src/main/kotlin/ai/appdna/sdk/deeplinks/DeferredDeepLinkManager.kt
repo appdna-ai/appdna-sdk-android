@@ -52,7 +52,7 @@ internal class DeferredDeepLinkManager(
             return
         }
 
-        val path = "orgs/$orgId/apps/$appId/config/deferred_deep_links/$visitorId"
+        val path = "orgs/$orgId/apps/$appId/config/deferred_deep_links/visitors/$visitorId"
         Log.debug("DeferredDeepLink: checking $path")
 
         val db = AppDNA.firestoreDB
