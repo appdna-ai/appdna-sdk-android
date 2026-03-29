@@ -145,9 +145,12 @@ internal class RemoteConfigManager(
         Log.info("Fetching remote configs from Firestore")
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun parseExperiments(data: Map<String, Any>) {
+        // Unwrap "experiments" wrapper if present
+        val experimentsMap = (data["experiments"] as? Map<String, Any>) ?: data
         val parsed = mutableMapOf<String, ExperimentConfig>()
-        for ((key, value) in data) {
+        for ((key, value) in experimentsMap) {
             if (value is Map<*, *>) {
                 @Suppress("UNCHECKED_CAST")
                 val map = value as Map<String, Any>

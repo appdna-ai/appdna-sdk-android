@@ -312,8 +312,11 @@ internal object PaywallConfigParser {
 
     @Suppress("UNCHECKED_CAST")
     fun parsePaywalls(data: Map<String, Any>): Map<String, PaywallConfig> {
+        // Firestore doc structure: { "paywalls": { "uuid1": {...}, "uuid2": {...} } }
+        // Unwrap the "paywalls" wrapper if present, otherwise treat data as flat map
+        val paywallMap = (data["paywalls"] as? Map<String, Any>) ?: data
         val parsed = mutableMapOf<String, PaywallConfig>()
-        for ((key, value) in data) {
+        for ((key, value) in paywallMap) {
             if (value is Map<*, *>) {
                 try {
                     val map = value as Map<String, Any>
