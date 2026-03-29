@@ -217,6 +217,36 @@ internal fun OnboardingFlowHost(
 
     // Helper functions
     fun advanceOrComplete() {
+        val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
+        val rules = step?.next_step_rules
+        if (!rules.isNullOrEmpty()) {
+            // Evaluate next_step_rules: first matching rule wins
+            for (rule in rules) {
+                val target = rule.target_step_id
+                if (target.isBlank()) continue
+                // Paywall trigger — complete the flow with a paywall_trigger marker
+                if (target.startsWith("paywall_trigger_")) {
+                    val merged = responses.toMutableMap()
+                    merged["__paywall_trigger"] = target.removePrefix("paywall_trigger_")
+                    @Suppress("UNCHECKED_CAST")
+                    onFlowCompleted(merged.toMap() as Map<String, Any>)
+                    return
+                }
+                // End flow
+                if (target.startsWith("end_")) {
+                    @Suppress("UNCHECKED_CAST")
+                    onFlowCompleted(responses.toMap() as Map<String, Any>)
+                    return
+                }
+                // Navigate to specific step
+                val targetIndex = flow.steps.indexOfFirst { it.id == target }
+                if (targetIndex >= 0) {
+                    currentIndex = targetIndex
+                    return
+                }
+            }
+        }
+        // Fallback: sequential advance
         if (currentIndex + 1 >= flow.steps.size) {
             @Suppress("UNCHECKED_CAST")
             onFlowCompleted(responses.toMap() as Map<String, Any>)

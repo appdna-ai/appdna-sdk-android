@@ -39,13 +39,19 @@ data class OnboardingSettings(
 /**
  * A single step within a flow.
  */
+data class NextStepRule(
+    val condition: Any? = null,
+    val target_step_id: String = ""
+)
+
 data class OnboardingStep(
     val id: String,
     val type: StepType,
     val config: StepConfig,
     val hook: StepHookConfig? = null,
     /** When true, the progress indicator is hidden on this step but the step still counts toward total progress. */
-    val hide_progress: Boolean? = null
+    val hide_progress: Boolean? = null,
+    val next_step_rules: List<NextStepRule>? = null
 ) {
     enum class StepType(val value: String) {
         WELCOME("welcome"),
@@ -368,7 +374,9 @@ internal object OnboardingConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseStep(map: Map<String, Any>): OnboardingStep {
         val typeStr = map["type"] as? String ?: "custom"
-        val configMap = map["config"] as? Map<String, Any> ?: emptyMap()
+        val configMap = (map["config"] as? Map<String, Any>)
+            ?: (map["layout"] as? Map<String, Any>)
+            ?: emptyMap()
 
         val options = (configMap["options"] as? List<*>)?.mapNotNull { opt ->
             if (opt is Map<*, *>) {
@@ -463,9 +471,11 @@ internal object OnboardingConfigParser {
             } else null
         }
 
-        // SPEC-084: Parse content blocks
+        // SPEC-084: Parse content blocks (fallback to step-level content_blocks if not in configMap)
         @Suppress("UNCHECKED_CAST")
-        val contentBlocks = (configMap["content_blocks"] as? List<*>)?.mapNotNull { b ->
+        val rawContentBlocks = (configMap["content_blocks"] as? List<*>)
+            ?: (map["content_blocks"] as? List<*>)
+        val contentBlocks = rawContentBlocks?.mapNotNull { b ->
             if (b is Map<*, *>) {
                 val bm = b as Map<String, Any>
                 ContentBlock(
@@ -785,12 +795,25 @@ internal object OnboardingConfigParser {
             } else null
         }
 
+        // Parse next_step_rules
+        @Suppress("UNCHECKED_CAST")
+        val nextStepRules = (map["next_step_rules"] as? List<*>)?.mapNotNull { r ->
+            if (r is Map<*, *>) {
+                val rm = r as Map<String, Any>
+                NextStepRule(
+                    condition = rm["condition"],
+                    target_step_id = rm["target_step_id"] as? String ?: ""
+                )
+            } else null
+        }
+
         return OnboardingStep(
             id = map["id"] as? String ?: "",
             type = OnboardingStep.StepType.fromString(typeStr),
             config = config,
             hook = hook,
-            hide_progress = map["hide_progress"] as? Boolean
+            hide_progress = map["hide_progress"] as? Boolean,
+            next_step_rules = nextStepRules
         )
     }
 

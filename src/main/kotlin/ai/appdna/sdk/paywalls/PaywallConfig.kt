@@ -240,18 +240,26 @@ data class PaywallPlan(
     val period: String? = null,
     val badge: String? = null,
     val trial_duration: String? = null,
-    val is_default: Boolean? = null
+    val is_default: Boolean? = null,
+    val label: String = "",
+    val price_display: String = "",
+    val sort_order: Int = 0
 )
 
 data class PaywallCTA(
-    val text: String,
-    val style: String? = null // "primary", "gradient"
+    val text: String = "",
+    val style: Any? = null,  // String or Map
+    val bg_color: String? = null,
+    val text_color: String? = null,
+    val corner_radius: Double? = null,
 )
 
 data class PaywallDismiss(
-    val type: String, // "x_button", "swipe", "text_link"
+    val type: String = "x_button", // "x_button", "swipe", "text_link"
+    val style: String? = null,
+    val allowed: Boolean = true,
     val delay_seconds: Int? = null,
-    val text: String? = null
+    val text: String? = null,
 )
 
 data class PaywallBackground(
@@ -343,6 +351,8 @@ internal object PaywallConfigParser {
         val dismiss = dismissMap?.let {
             PaywallDismiss(
                 type = it["type"] as? String ?: "x_button",
+                style = it["style"] as? String,
+                allowed = it["allowed"] as? Boolean ?: true,
                 delay_seconds = (it["delay_seconds"] as? Number)?.toInt(),
                 text = it["text"] as? String
             )
@@ -426,7 +436,7 @@ internal object PaywallConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseSectionFromMap(map: Map<String, Any>): PaywallSection {
         val type = map["type"] as? String ?: ""
-        val dataMap = map["data"] as? Map<String, Any>
+        val dataMap = (map["data"] as? Map<String, Any>) ?: (map["config"] as? Map<String, Any>)
 
         val data = dataMap?.let { d ->
             PaywallSectionData(
@@ -440,9 +450,17 @@ internal object PaywallConfigParser {
                     } else null
                 },
                 cta = (d["cta"] as? Map<String, Any>)?.let { ctaMap ->
+                    val rawStyle = ctaMap["style"]
+                    val styleMap = rawStyle as? Map<*, *>
                     PaywallCTA(
                         text = ctaMap["text"] as? String ?: "",
-                        style = ctaMap["style"] as? String
+                        style = rawStyle,
+                        bg_color = ctaMap["bg_color"] as? String
+                            ?: (styleMap?.get("bg_color") as? String),
+                        text_color = ctaMap["text_color"] as? String
+                            ?: (styleMap?.get("text_color") as? String),
+                        corner_radius = (ctaMap["corner_radius"] as? Number)?.toDouble()
+                            ?: (styleMap?.get("corner_radius") as? Number)?.toDouble(),
                     )
                 },
                 rating = (d["rating"] as? Number)?.toDouble(),
@@ -714,7 +732,10 @@ internal object PaywallConfigParser {
             period = map["period"] as? String,
             badge = map["badge"] as? String,
             trial_duration = map["trial_duration"] as? String,
-            is_default = map["is_default"] as? Boolean
+            is_default = map["is_default"] as? Boolean,
+            label = map["label"] as? String ?: "",
+            price_display = map["price_display"] as? String ?: "",
+            sort_order = (map["sort_order"] as? Number)?.toInt() ?: 0
         )
     }
 }
