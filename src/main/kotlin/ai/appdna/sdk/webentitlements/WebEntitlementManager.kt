@@ -93,7 +93,7 @@ internal class WebEntitlementManager(
     fun startObserving(orgId: String, appId: String, userId: String) {
         stopObserving()
 
-        val path = "orgs/$orgId/apps/$appId/users/$userId/web_entitlements"
+        val path = "orgs/$orgId/apps/$appId/users/$userId/web_entitlements/current"
         Log.debug("WebEntitlementManager: observing $path")
 
         val db = AppDNA.firestoreDB ?: run {
