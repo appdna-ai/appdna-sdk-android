@@ -115,7 +115,26 @@ fun ChatStepComposable(
         dynamicQuickReplies = emptyList()
         focusManager.clearFocus()
 
+        // Track message sent
+        ai.appdna.sdk.AppDNA.track("chat_message_sent", mapOf(
+            "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount, "message_length" to trimmed.length
+        ))
+
         if (!chatConfig.isHardLimit && turnsRemaining == 1) showSoftLimitWarning = true
+
+        // Check turn actions
+        chatConfig.turn_actions?.filter { it.turn == userTurnCount }?.forEach { action ->
+            when (action.type) {
+                "rating_prompt" -> currentRating = 0
+                "auto_message" -> {
+                    val content = (action.config?.get("content") as? String) ?: return@forEach
+                    scope.launch {
+                        delay(500)
+                        messages = messages + ChatMessage(id = "action_$userTurnCount", role = ChatRole.AI, content = content)
+                    }
+                }
+            }
+        }
 
         isTyping = true
         scope.launch {
@@ -123,6 +142,10 @@ fun ChatStepComposable(
                 val response = fireWebhook(chatConfig.webhook, flowId, step.id, messages, userTurnCount - 1, maxTurns, turnsRemaining)
                 isTyping = false
                 if (response != null) {
+                    ai.appdna.sdk.AppDNA.track("chat_message_received", mapOf(
+                        "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
+                        "message_count" to (response.messages?.size ?: 0)
+                    ))
                     // Add AI messages
                     response.messages?.forEachIndexed { i, msg ->
                         messages = messages + ChatMessage(id = "msg_a${userTurnCount}_$i", role = ChatRole.AI, content = msg.content ?: "", media = msg.media)
@@ -138,19 +161,32 @@ fun ChatStepComposable(
                             messages = messages + ChatMessage(id = "completion", role = ChatRole.AI, content = completionMsg)
                         }
                         isCompleted = true
+                        ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
+                            "flow_id" to flowId, "step_id" to step.id, "user_turn_count" to userTurnCount,
+                            "total_messages" to messages.size, "completion_reason" to "ai_completed",
+                            "duration_ms" to (System.currentTimeMillis() - startTime).toInt()
+                        ))
                     }
                     // Max turns
-                    if (turnsRemaining <= 0) {
+                    if (turnsRemaining <= 0 && !isCompleted) {
                         chatConfig.completion_message?.content?.let {
                             messages = messages + ChatMessage(id = "completion", role = ChatRole.AI, content = it)
                         }
                         isCompleted = true
+                        ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
+                            "flow_id" to flowId, "step_id" to step.id, "user_turn_count" to userTurnCount,
+                            "total_messages" to messages.size, "completion_reason" to "max_turns",
+                            "duration_ms" to (System.currentTimeMillis() - startTime).toInt()
+                        ))
                     }
                 }
             } catch (e: Exception) {
                 isTyping = false
                 val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong."
                 messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
+                ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
+                    "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount, "error" to (e.message ?: "unknown")
+                ))
             }
         }
     }
@@ -259,7 +295,12 @@ fun ChatStepComposable(
             ) {
                 items(dynamicQuickReplies, key = { it.id }) { qr ->
                     OutlinedButton(
-                        onClick = { sendMessage(qr.text) },
+                        onClick = {
+                            ai.appdna.sdk.AppDNA.track("chat_quick_reply_tapped", mapOf(
+                                "flow_id" to flowId, "step_id" to step.id, "quick_reply_id" to qr.id, "turn" to userTurnCount
+                            ))
+                            sendMessage(qr.text)
+                        },
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.outlinedButtonColors(containerColor = qrBgColor, contentColor = qrTextColor),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
@@ -404,7 +445,9 @@ private suspend fun fireWebhook(
         val respMessages = json.optJSONArray("messages")?.let { arr ->
             (0 until arr.length()).map { i ->
                 val m = arr.getJSONObject(i)
-                ChatWebhookMessage(content = m.optString("content", null), media = null, delay_ms = if (m.has("delay_ms")) m.getInt("delay_ms") else null)
+                val mediaJson = m.optJSONObject("media")
+                val media = mediaJson?.let { ChatMedia(type = it.optString("type", "image"), url = it.optString("url", null), alt_text = it.optString("alt_text", null)) }
+                ChatWebhookMessage(content = m.optString("content", null), media = media, delay_ms = if (m.has("delay_ms")) m.getInt("delay_ms") else null)
             }
         }
 
