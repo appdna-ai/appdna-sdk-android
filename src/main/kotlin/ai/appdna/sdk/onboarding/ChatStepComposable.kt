@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+// ContentScale removed — no image loading dependency
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -25,7 +25,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+// Avatar uses initial-based circle (no coil dependency)
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -183,8 +183,11 @@ fun ChatStepComposable(
             step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             if (persona?.name != null && persona.role != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    persona.avatar_url?.let { url ->
-                        AsyncImage(model = url, contentDescription = null, modifier = Modifier.size(28.dp).clip(CircleShape), contentScale = ContentScale.Crop)
+                    // Avatar: initial-based circle
+                    persona?.name?.firstOrNull()?.let { initial ->
+                        Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(hex(style?.ai_bubble_bg, "#1E293B")), contentAlignment = Alignment.Center) {
+                            Text(initial.toString(), color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                     Text("${persona.name} - ${persona.role}", color = Color.Gray, fontSize = 12.sp)
                 }
