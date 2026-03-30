@@ -62,6 +62,7 @@ data class ChatMedia(
 )
 
 data class ChatStyleConfig(
+    val background_color: String? = null,
     val ai_bubble_bg: String? = null,
     val ai_bubble_text: String? = null,
     val user_bubble_bg: String? = null,
@@ -129,6 +130,7 @@ fun parseChatConfig(raw: Any?): ChatConfig? {
         webhook = parseStepHookFromMap(map["webhook"] as? Map<String, Any>),
         style = (map["style"] as? Map<String, Any>)?.let { s ->
             ChatStyleConfig(
+                background_color = s["background_color"] as? String,
                 ai_bubble_bg = s["ai_bubble_bg"] as? String,
                 ai_bubble_text = s["ai_bubble_text"] as? String,
                 user_bubble_bg = s["user_bubble_bg"] as? String,

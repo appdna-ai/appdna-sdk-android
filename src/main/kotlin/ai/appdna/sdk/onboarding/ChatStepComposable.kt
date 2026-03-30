@@ -176,7 +176,7 @@ fun ChatStepComposable(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(hex(style?.ai_bubble_bg, "#0F172A").copy(alpha = 0.95f))
+            .background(hex(style?.background_color, "#0F172A"))
     ) {
         // Header
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
