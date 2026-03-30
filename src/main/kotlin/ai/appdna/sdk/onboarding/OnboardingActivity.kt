@@ -403,6 +403,7 @@ internal fun OnboardingFlowHost(
                 OnboardingStepView(
                     step = step,
                     effectiveConfig = effectiveConfig,
+                    flowId = flow.id,
                     onNext = { data ->
                         if (data != null) {
                             responses[step.id] = data
@@ -685,6 +686,7 @@ fun OnboardingStepView(
     onNext: (Map<String, Any>?) -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    flowId: String = "",
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
 ) {
@@ -722,6 +724,7 @@ fun OnboardingStepView(
                 OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(step = step, flowId = flowId, onNext = { data -> onNext(data) }, onSkip = { onSkip() })
             }
 
             // Skip button

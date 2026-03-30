@@ -58,7 +58,8 @@ data class OnboardingStep(
         QUESTION("question"),
         VALUE_PROP("value_prop"),
         CUSTOM("custom"),
-        FORM("form");
+        FORM("form"),
+        INTERACTIVE_CHAT("interactive_chat");
 
         companion object {
             fun fromString(value: String): StepType {
@@ -95,6 +96,9 @@ data class StepConfig(
 
     // SPEC-083: Populated by applyOverrides from StepConfigOverride.fieldDefaults
     val field_defaults: Map<String, Any>? = null,
+
+    // SPEC-090: Interactive chat
+    val chat_config: ChatConfig? = null,
 
     // SPEC-084: Rendering fidelity
     val content_blocks: List<ContentBlock>? = null,
@@ -774,6 +778,7 @@ internal object OnboardingConfigParser {
             animation = animConfig,
             localizations = localizations,
             default_locale = configMap["default_locale"] as? String,
+            chat_config = parseChatConfig(configMap["chat_config"]),
         )
 
         // SPEC-083 P1: Parse hook config
