@@ -302,7 +302,8 @@ fun ChatStepComposable(
                     value = inputText,
                     onValueChange = { inputText = it },
                     modifier = Modifier.weight(1f),
-                    placeholder = { Text(chatConfig.input_placeholder ?: "Type your message...", fontSize = 14.sp, color = inputTextColor.copy(alpha = 0.5f)) },
+                    placeholder = { Text(chatConfig.input_placeholder ?: "Type your message...", fontSize = (style?.input_font_size ?: 14).sp, color = inputTextColor.copy(alpha = 0.5f)) },
+                    textStyle = LocalTextStyle.current.copy(fontSize = (style?.input_font_size ?: 14).sp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = inputBgColor,
                         unfocusedContainerColor = inputBgColor,
