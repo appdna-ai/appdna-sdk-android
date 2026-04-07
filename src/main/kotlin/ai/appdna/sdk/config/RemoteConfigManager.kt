@@ -82,11 +82,13 @@ internal class RemoteConfigManager(
         }
         val basePath = "$path/config"
 
-        // Fetch flags
+        // Fetch flags — unwrap "flags" wrapper from Firestore doc
         db.document("$basePath/flags").get().addOnSuccessListener { snapshot ->
             snapshot.data?.let { data ->
-                flags = data
-                cacheData("flags", JSONObject(data).toString())
+                @Suppress("UNCHECKED_CAST")
+                val unwrapped = (data["flags"] as? Map<String, Any>) ?: data
+                flags = unwrapped
+                cacheData("flags", JSONObject(unwrapped).toString())
                 notifyChangeListeners()
             }
         }.addOnFailureListener { e ->
@@ -259,6 +261,45 @@ internal class RemoteConfigManager(
                 @Suppress("UNCHECKED_CAST")
                 parseOnboarding(data)
             } catch (_: Exception) {}
+        }
+    }
+
+    /**
+     * Load config from the bundled appdna-config.json embedded in the app.
+     * Only populates empty caches — remote and cached data take priority.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun loadBundledConfig(json: Map<String, Any>) {
+        if (paywalls.isEmpty()) {
+            (json["paywalls"] as? Map<String, Any>)?.let { data ->
+                if (data.isNotEmpty()) { parsePaywalls(data); Log.debug("Loaded paywalls from bundled config") }
+            }
+        }
+        if (onboardingFlows.isEmpty()) {
+            (json["onboarding"] as? Map<String, Any>)?.let { data ->
+                if (data.isNotEmpty()) { parseOnboarding(data); Log.debug("Loaded onboarding from bundled config") }
+            }
+        }
+        if (experiments.isEmpty()) {
+            (json["experiments"] as? Map<String, Any>)?.let { data ->
+                if (data.isNotEmpty()) { parseExperiments(data); Log.debug("Loaded experiments from bundled config") }
+            }
+        }
+        if (surveys.isEmpty()) {
+            (json["surveys"] as? Map<String, Any>)?.let { data ->
+                if (data.isNotEmpty()) { parseSurveys(data); Log.debug("Loaded surveys from bundled config") }
+            }
+        }
+        if (flags.isEmpty()) {
+            val flagData = (json["remote_config"] as? Map<String, Any>)
+                ?: (json["feature_flags"] as? Map<String, Any>)
+            if (flagData != null && flagData.isNotEmpty()) {
+                flags = flagData
+                Log.debug("Loaded remote_config from bundled config")
+            }
+        }
+        (json["screen_index"] as? Map<String, Any>)?.let { data ->
+            if (data.isNotEmpty()) { parseScreenIndex(data); Log.debug("Loaded screen_index from bundled config") }
         }
     }
 

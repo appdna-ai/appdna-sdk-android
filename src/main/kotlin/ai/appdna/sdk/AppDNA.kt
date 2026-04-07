@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.17"
+    const val sdkVersion = "1.0.18"
 
     // Module namespaces (v1.0)
     /** Push notification module. */
@@ -696,6 +696,7 @@ object AppDNA {
      * Load config from bundle embedded in app assets.
      * Priority: remote (already fetched) > cached > bundled.
      */
+    @Suppress("UNCHECKED_CAST")
     private fun loadConfigBundle() {
         try {
             val ctx = appContext ?: return
@@ -704,6 +705,11 @@ object AppDNA {
             val config = JSONObject(json)
             val bundleVersion = config.optInt("bundle_version", 0)
             currentBundleVersion = bundleVersion
+
+            // Feed bundled config to RemoteConfigManager — only fills empty caches
+            // Convert JSONObject to Map recursively so parse methods work
+            val map = jsonObjectToMap(config)
+            remoteConfigManager?.loadBundledConfig(map)
             Log.info("Loaded bundled config (version $bundleVersion)")
         } catch (_: Exception) {
             Log.debug("No bundled config found at appdna-config.json — using remote/cached only")
@@ -714,6 +720,35 @@ object AppDNA {
      * Load FirebaseOptions from google-services-appdna.json in app assets.
      * Returns null if the file is not found or cannot be parsed.
      */
+    /** Recursively convert JSONObject to Map<String, Any> for parse methods. */
+    private fun jsonObjectToMap(obj: JSONObject): Map<String, Any> {
+        val map = mutableMapOf<String, Any>()
+        for (key in obj.keys()) {
+            val value = obj.get(key)
+            when (value) {
+                JSONObject.NULL -> {} // Skip null values
+                is JSONObject -> map[key] = jsonObjectToMap(value)
+                is org.json.JSONArray -> map[key] = jsonArrayToList(value)
+                else -> map[key] = value
+            }
+        }
+        return map
+    }
+
+    private fun jsonArrayToList(arr: org.json.JSONArray): List<Any> {
+        val list = mutableListOf<Any>()
+        for (i in 0 until arr.length()) {
+            val value = arr.get(i)
+            when (value) {
+                JSONObject.NULL -> {} // Skip null values
+                is JSONObject -> list.add(jsonObjectToMap(value))
+                is org.json.JSONArray -> list.add(jsonArrayToList(value))
+                else -> list.add(value)
+            }
+        }
+        return list
+    }
+
     private fun loadSecondaryFirebaseOptions(context: Context): FirebaseOptions? {
         return try {
             val inputStream = context.assets.open("google-services-appdna.json")
