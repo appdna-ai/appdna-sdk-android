@@ -286,6 +286,13 @@ internal class RemoteConfigManager(
             }
     }
 
+    // Raw data accumulators for disk cache rebuild during per-item fetches.
+    // When using index-based fetch, individual items bypass the mega-doc path
+    // that normally handles caching. These track raw Firestore data so we can
+    // rebuild the cache after each item is fetched.
+    private val rawPaywallData = mutableMapOf<String, Map<String, Any>>()
+    private val rawOnboardingData = mutableMapOf<String, Map<String, Any>>()
+
     @Suppress("UNCHECKED_CAST")
     private fun parseSinglePaywall(id: String, data: Map<String, Any>) {
         try {
@@ -296,6 +303,15 @@ internal class RemoteConfigManager(
         } catch (e: Exception) {
             Log.error("Failed to parse individual paywall '$id': ${e.message}")
         }
+        // Rebuild disk cache in mega-doc format for offline restart
+        rawPaywallData[id] = data
+        try {
+            val combined = JSONObject()
+            val paywallsObj = JSONObject()
+            for ((pid, pdata) in rawPaywallData) { paywallsObj.put(pid, JSONObject(pdata)) }
+            combined.put("paywalls", paywallsObj)
+            cacheData("paywalls", combined.toString())
+        } catch (_: Exception) {}
     }
 
     private fun parseSingleOnboardingFlow(id: String, data: Map<String, Any>) {
@@ -307,12 +323,30 @@ internal class RemoteConfigManager(
         } catch (e: Exception) {
             Log.error("Failed to parse individual onboarding flow '$id': ${e.message}")
         }
+        // Rebuild disk cache in mega-doc format for offline restart
+        rawOnboardingData[id] = data
+        try {
+            val combined = JSONObject()
+            val flowsObj = JSONObject()
+            for ((fid, fdata) in rawOnboardingData) { flowsObj.put(fid, JSONObject(fdata)) }
+            combined.put("flows", flowsObj)
+            activeOnboardingFlowId?.let { combined.put("active_flow_id", it) }
+            cacheData("onboarding", combined.toString())
+        } catch (_: Exception) {}
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseSingleSurvey(id: String, data: Map<String, Any>) {
         surveys = surveys + (id to data)
         surveyUpdateHandler?.invoke(surveys)
+        // Rebuild disk cache in mega-doc format
+        try {
+            val combined = JSONObject()
+            val surveysObj = JSONObject()
+            for ((sid, sdata) in surveys) { surveysObj.put(sid, JSONObject(sdata)) }
+            combined.put("surveys", surveysObj)
+            cacheData("surveys", combined.toString())
+        } catch (_: Exception) {}
     }
 
     private fun loadCachedConfigs() {
