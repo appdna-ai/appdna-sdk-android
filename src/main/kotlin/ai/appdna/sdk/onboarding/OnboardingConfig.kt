@@ -316,6 +316,16 @@ internal object OnboardingConfigParser {
         return activeFlowId to parsed
     }
 
+    /** Parse a single flow from a per-item Firestore document. */
+    @Suppress("UNCHECKED_CAST")
+    fun parseSingleFlow(id: String, data: Map<String, Any>): OnboardingFlowConfig? {
+        return try {
+            parseFlowConfig(id, data)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun parseFlowConfig(id: String, map: Map<String, Any>): OnboardingFlowConfig {
         val stepsList = map["steps"] as? List<Map<String, Any>> ?: emptyList()

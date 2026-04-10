@@ -105,35 +105,35 @@ internal class RemoteConfigManager(
             Log.error("Failed to fetch experiments: ${e.message}")
         }
 
-        // Fetch surveys (v0.3)
-        db.document("$basePath/surveys").get().addOnSuccessListener { snapshot ->
-            snapshot.data?.let { data ->
-                parseSurveys(data)
-                cacheData("surveys", JSONObject(data).toString())
-            }
-        }.addOnFailureListener { e ->
-            Log.error("Failed to fetch surveys: ${e.message}")
-        }
+        // Paywalls: prefer per-item docs via index → fallback to mega-doc
+        fetchViaIndex(
+            db = db, basePath = basePath,
+            indexPath = "paywall_index", indexKey = "paywalls",
+            itemCollection = "paywalls", megaDocPath = "paywalls",
+            parseItem = { id, data -> parseSinglePaywall(id, data) },
+            parseMegaDoc = { data -> parsePaywalls(data); cacheData("paywalls", JSONObject(data).toString()) }
+        )
 
-        // Fetch paywalls
-        db.document("$basePath/paywalls").get().addOnSuccessListener { snapshot ->
-            snapshot.data?.let { data ->
-                parsePaywalls(data)
-                cacheData("paywalls", JSONObject(data).toString())
+        // Onboarding: prefer per-item docs via index → fallback to mega-doc
+        fetchViaIndex(
+            db = db, basePath = basePath,
+            indexPath = "onboarding_index", indexKey = "flows",
+            itemCollection = "onboarding", megaDocPath = "onboarding",
+            parseItem = { id, data -> parseSingleOnboardingFlow(id, data) },
+            parseMegaDoc = { data -> parseOnboarding(data); cacheData("onboarding", JSONObject(data).toString()) },
+            extraIndexParse = { indexData ->
+                (indexData["active_flow_id"] as? String)?.let { activeOnboardingFlowId = it }
             }
-        }.addOnFailureListener { e ->
-            Log.error("Failed to fetch paywalls: ${e.message}")
-        }
+        )
 
-        // Fetch onboarding (v0.2)
-        db.document("$basePath/onboarding").get().addOnSuccessListener { snapshot ->
-            snapshot.data?.let { data ->
-                parseOnboarding(data)
-                cacheData("onboarding", JSONObject(data).toString())
-            }
-        }.addOnFailureListener { e ->
-            Log.error("Failed to fetch onboarding: ${e.message}")
-        }
+        // Surveys: prefer per-item docs via index → fallback to mega-doc
+        fetchViaIndex(
+            db = db, basePath = basePath,
+            indexPath = "survey_index", indexKey = "surveys",
+            itemCollection = "surveys", megaDocPath = "surveys",
+            parseItem = { id, data -> parseSingleSurvey(id, data) },
+            parseMegaDoc = { data -> parseSurveys(data); cacheData("surveys", JSONObject(data).toString()) }
+        )
 
         // SPEC-089c: Fetch screen_index for server-driven UI
         db.document("$basePath/screen_index").get().addOnSuccessListener { snapshot ->
@@ -221,6 +221,98 @@ internal class RemoteConfigManager(
         } catch (e: Exception) {
             Log.error("Failed to parse screen_index: ${e.message}")
         }
+    }
+
+    // MARK: - Per-item fetch via index (enterprise-grade)
+
+    /**
+     * Generic helper: try to load items via a lightweight index document.
+     * If the index exists, fan out to individual per-item documents.
+     * If no index, fall back to the legacy mega-document.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun fetchViaIndex(
+        db: com.google.firebase.firestore.FirebaseFirestore,
+        basePath: String,
+        indexPath: String,
+        indexKey: String,
+        itemCollection: String,
+        megaDocPath: String,
+        parseItem: (String, Map<String, Any>) -> Unit,
+        parseMegaDoc: (Map<String, Any>) -> Unit,
+        extraIndexParse: ((Map<String, Any>) -> Unit)? = null
+    ) {
+        db.document("$basePath/$indexPath").get()
+            .addOnSuccessListener { snapshot ->
+                val indexData = snapshot.data
+                val itemsMap = indexData?.get(indexKey) as? Map<String, Any>
+                if (indexData != null && !itemsMap.isNullOrEmpty()) {
+                    // Index exists — fetch individual docs
+                    Log.debug("[$indexPath] Found index with ${itemsMap.size} items, fetching individually")
+                    extraIndexParse?.invoke(indexData)
+                    for (itemId in itemsMap.keys) {
+                        db.document("$basePath/$itemCollection/$itemId").get()
+                            .addOnSuccessListener { itemSnapshot ->
+                                itemSnapshot.data?.let { itemData ->
+                                    parseItem(itemId, itemData)
+                                }
+                            }
+                            .addOnFailureListener { e ->
+                                Log.warning("[$indexPath] Failed to fetch item $itemId: ${e.message}")
+                            }
+                    }
+                } else {
+                    // No index — fall back to legacy mega-doc
+                    Log.debug("[$indexPath] No index found, falling back to mega-doc $megaDocPath")
+                    db.document("$basePath/$megaDocPath").get()
+                        .addOnSuccessListener { megaSnapshot ->
+                            megaSnapshot.data?.let { data -> parseMegaDoc(data) }
+                        }
+                        .addOnFailureListener { e ->
+                            Log.error("Failed to fetch $megaDocPath config: ${e.message}")
+                        }
+                }
+            }
+            .addOnFailureListener { e ->
+                // Index fetch failed — try mega-doc as fallback
+                Log.debug("[$indexPath] Index fetch failed (${e.message}), trying mega-doc")
+                db.document("$basePath/$megaDocPath").get()
+                    .addOnSuccessListener { megaSnapshot ->
+                        megaSnapshot.data?.let { data -> parseMegaDoc(data) }
+                    }
+                    .addOnFailureListener { e2 ->
+                        Log.error("Failed to fetch $megaDocPath config: ${e2.message}")
+                    }
+            }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSinglePaywall(id: String, data: Map<String, Any>) {
+        try {
+            val config = PaywallConfigParser.parseSinglePaywall(id, data)
+            if (config != null) {
+                paywalls = paywalls + (id to config)
+            }
+        } catch (e: Exception) {
+            Log.error("Failed to parse individual paywall '$id': ${e.message}")
+        }
+    }
+
+    private fun parseSingleOnboardingFlow(id: String, data: Map<String, Any>) {
+        try {
+            val config = OnboardingConfigParser.parseSingleFlow(id, data)
+            if (config != null) {
+                onboardingFlows = onboardingFlows + (id to config)
+            }
+        } catch (e: Exception) {
+            Log.error("Failed to parse individual onboarding flow '$id': ${e.message}")
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSingleSurvey(id: String, data: Map<String, Any>) {
+        surveys = surveys + (id to data)
+        surveyUpdateHandler?.invoke(surveys)
     }
 
     private fun loadCachedConfigs() {

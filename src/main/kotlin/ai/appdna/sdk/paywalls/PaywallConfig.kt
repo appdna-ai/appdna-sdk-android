@@ -335,6 +335,16 @@ internal object PaywallConfigParser {
         return parsed
     }
 
+    /** Parse a single paywall from a per-item Firestore document. */
+    @Suppress("UNCHECKED_CAST")
+    fun parseSinglePaywall(id: String, data: Map<String, Any>): PaywallConfig? {
+        return try {
+            parsePaywallConfig(id, data)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun parsePaywallConfig(id: String, map: Map<String, Any>): PaywallConfig {
         val layoutMap = map["layout"] as? Map<String, Any> ?: emptyMap()
