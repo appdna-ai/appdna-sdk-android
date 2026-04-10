@@ -109,7 +109,7 @@ internal class RemoteConfigManager(
         fetchViaIndex(
             db = db, basePath = basePath,
             indexPath = "paywall_index", indexKey = "paywalls",
-            itemCollection = "paywalls", megaDocPath = "paywalls",
+            itemCollection = "paywall_index/paywalls", megaDocPath = "paywalls",
             parseItem = { id, data -> parseSinglePaywall(id, data) },
             parseMegaDoc = { data -> parsePaywalls(data); cacheData("paywalls", JSONObject(data).toString()) }
         )
@@ -118,7 +118,7 @@ internal class RemoteConfigManager(
         fetchViaIndex(
             db = db, basePath = basePath,
             indexPath = "onboarding_index", indexKey = "flows",
-            itemCollection = "onboarding", megaDocPath = "onboarding",
+            itemCollection = "onboarding_index/flows", megaDocPath = "onboarding",
             parseItem = { id, data -> parseSingleOnboardingFlow(id, data) },
             parseMegaDoc = { data -> parseOnboarding(data); cacheData("onboarding", JSONObject(data).toString()) },
             extraIndexParse = { indexData ->
@@ -130,7 +130,7 @@ internal class RemoteConfigManager(
         fetchViaIndex(
             db = db, basePath = basePath,
             indexPath = "survey_index", indexKey = "surveys",
-            itemCollection = "surveys", megaDocPath = "surveys",
+            itemCollection = "survey_index/surveys", megaDocPath = "surveys",
             parseItem = { id, data -> parseSingleSurvey(id, data) },
             parseMegaDoc = { data -> parseSurveys(data); cacheData("surveys", JSONObject(data).toString()) }
         )
