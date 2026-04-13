@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.28"
+    const val sdkVersion = "1.0.29"
 
     // Module namespaces (v1.0)
     /** Push notification module. */
@@ -110,6 +110,8 @@ object AppDNA {
     private var onboardingFlowManager: OnboardingFlowManager? = null
     private var surveyManager: SurveyManager? = null
     private var webEntitlementManager: WebEntitlementManager? = null
+    // SPEC-203: journey-triggered pending-messages listener.
+    private var pendingMessageListener: ai.appdna.sdk.messages.PendingMessageListener? = null
     private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
     // SPEC-067: Scale Layer 1 components
     private var eventDatabase: ai.appdna.sdk.storage.EventDatabase? = null
@@ -253,6 +255,8 @@ object AppDNA {
             // v0.3 managers
             this.surveyManager = SurveyManager(appContext, tracker, client)
             this.webEntitlementManager = WebEntitlementManager(tracker, appContext)
+            // SPEC-203: per-user journey message listener.
+            this.pendingMessageListener = ai.appdna.sdk.messages.PendingMessageListener(tracker, appContext)
 
             // Wire survey config updates from RemoteConfigManager to SurveyManager
             remoteCfg.surveyUpdateHandler = { rawSurveys ->
@@ -282,6 +286,8 @@ object AppDNA {
         val appId = bootstrapAppId
         if (orgId != null && appId != null) {
             webEntitlementManager?.startObserving(orgId, appId, userId)
+            // SPEC-203: start journey-triggered pending-messages listener.
+            pendingMessageListener?.startObserving(orgId, appId, userId)
         }
     }
 
@@ -300,6 +306,7 @@ object AppDNA {
         experimentManager?.resetExposures()
         surveyManager?.resetSession()
         webEntitlementManager?.stopObserving()
+        pendingMessageListener?.stopObserving()
         Log.info("Identity reset")
     }
 
@@ -651,6 +658,8 @@ object AppDNA {
                     // Start web entitlement observer if user is already identified
                     identityManager?.currentIdentity?.userId?.let { userId ->
                         webEntitlementManager?.startObserving(orgId, appId, userId)
+                        // SPEC-203: pending-messages listener when already identified.
+                        pendingMessageListener?.startObserving(orgId, appId, userId)
                     }
                 }
 
@@ -806,6 +815,7 @@ object AppDNA {
             }
             connectivityMonitor?.shutdown()
             webEntitlementManager?.stopObserving()
+            pendingMessageListener?.stopObserving()
             scope.cancel()
             isConfigured = false
             Log.info("SDK shut down")
