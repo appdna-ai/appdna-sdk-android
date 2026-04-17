@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -301,6 +302,9 @@ data class ContentBlock(
     val badge_bg_color: String? = null,
     val badge_text_color: String? = null,
     val badge_corner_radius: Double? = null,
+    // Pulsing avatar — image shape override (legacy default = circle).
+    val image_shape: String? = null,           // "circle" (default) | "square" | "rounded"
+    val image_corner_radius: Double? = null,   // Used when image_shape == "rounded" (default 16)
     val icon_emoji: String? = null,
     val icon_size: Double? = null,
     val icon_alignment: String? = null,
@@ -2753,13 +2757,21 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                 )
             }
 
-            // Avatar image
+            // Avatar image — shape honors block.image_shape ("circle" default |
+            // "square" | "rounded"). block.image_corner_radius controls the
+            // rounded corner radius (default 16). Missing field preserves
+            // previous circle-crop behavior so existing flows look identical.
+            val avatarShape = when (block.image_shape) {
+                "square" -> RectangleShape
+                "rounded" -> RoundedCornerShape((block.image_corner_radius ?: 16.0).dp)
+                else -> CircleShape
+            }
             Box(
                 modifier = Modifier
                     .size(avatarSize)
-                    .clip(CircleShape)
+                    .clip(avatarShape)
                     .then(
-                        if (borderW.value > 0) Modifier.border(borderW, borderCol, CircleShape) else Modifier
+                        if (borderW.value > 0) Modifier.border(borderW, borderCol, avatarShape) else Modifier
                     ),
             ) {
                 if (block.image_url != null) {
