@@ -318,15 +318,56 @@ fun ChatStepComposable(
 
         // Input or CTA
         if (isCompleted || (turnsRemaining <= 0 && chatConfig.isHardLimit)) {
-            // Completion CTA
+            // Completion CTA — styling mirrors the normal CTA button block.
+            // Any unset field in completion_button falls back to the chat
+            // theme's user bubble colors so existing flows render unchanged.
+            val btn = chatConfig.completion_button
+            val variant = btn?.variant ?: "primary"
+            val resolvedBg = btn?.bg_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleBg
+            val resolvedText = btn?.text_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleTextColor
+            val radius = (btn?.button_corner_radius ?: 14.0).dp
+            val height = (btn?.button_height ?: 52.0).dp
+            val fontSize = (btn?.style?.font_size ?: 17.0).sp
+            val weight = when ((btn?.style?.font_weight ?: 600.0).toInt()) {
+                400 -> FontWeight.Normal
+                500 -> FontWeight.Medium
+                700 -> FontWeight.Bold
+                else -> FontWeight.SemiBold
+            }
+            val label = chatConfig.completion_cta_text ?: step.config.cta_text ?: "Continue"
+
             Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Button(
-                    onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
-                    modifier = Modifier.fillMaxWidth().height(52.dp),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = userBubbleBg)
-                ) {
-                    Text(chatConfig.completion_cta_text ?: step.config.cta_text ?: "Continue", color = userBubbleTextColor, fontWeight = FontWeight.Bold)
+                when (variant) {
+                    "text" -> {
+                        TextButton(
+                            onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
+                            modifier = Modifier.fillMaxWidth().height(height)
+                        ) { Text(label, color = resolvedBg, fontWeight = weight, fontSize = fontSize) }
+                    }
+                    "outline" -> {
+                        OutlinedButton(
+                            onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
+                            modifier = Modifier.fillMaxWidth().height(height),
+                            shape = RoundedCornerShape(radius),
+                            border = androidx.compose.foundation.BorderStroke(2.dp, resolvedBg)
+                        ) { Text(label, color = resolvedBg, fontWeight = weight, fontSize = fontSize) }
+                    }
+                    "secondary" -> {
+                        Button(
+                            onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
+                            modifier = Modifier.fillMaxWidth().height(height),
+                            shape = RoundedCornerShape(radius),
+                            colors = ButtonDefaults.buttonColors(containerColor = resolvedBg.copy(alpha = 0.15f))
+                        ) { Text(label, color = resolvedText, fontWeight = weight, fontSize = fontSize) }
+                    }
+                    else -> { // primary
+                        Button(
+                            onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
+                            modifier = Modifier.fillMaxWidth().height(height),
+                            shape = RoundedCornerShape(radius),
+                            colors = ButtonDefaults.buttonColors(containerColor = resolvedBg)
+                        ) { Text(label, color = resolvedText, fontWeight = weight, fontSize = fontSize) }
+                    }
                 }
                 if (step.config.skip_enabled == true) {
                     TextButton(onClick = onSkip) { Text("Skip", color = Color.Gray, fontSize = 12.sp) }

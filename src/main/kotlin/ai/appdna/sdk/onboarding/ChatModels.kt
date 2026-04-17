@@ -12,6 +12,7 @@ data class ChatConfig(
     val auto_messages: List<ChatAutoMessage>? = null,
     val completion_message: ChatCompletionMessage? = null,
     val completion_cta_text: String? = null,
+    val completion_button: ChatCompletionButton? = null,
     val quick_replies: List<ChatQuickReply>? = null,
     val turn_actions: List<ChatTurnAction>? = null,
     val input_placeholder: String? = null,
@@ -23,6 +24,25 @@ data class ChatConfig(
     val resolvedMinTurns: Int get() = min_user_turns ?: 1
     val isHardLimit: Boolean get() = turn_limit_behavior != "soft"
 }
+
+/**
+ * Completion CTA button styling. Mirrors the regular CTA button block
+ * shape — product users edit both with the same controls. Any nil field
+ * falls back to the chat theme user bubble colors.
+ */
+data class ChatCompletionButton(
+    val variant: String? = null, // "primary" | "secondary" | "outline" | "text"
+    val bg_color: String? = null,
+    val text_color: String? = null,
+    val button_corner_radius: Double? = null,
+    val button_height: Double? = null,
+    val style: ChatCompletionButtonStyle? = null
+)
+
+data class ChatCompletionButtonStyle(
+    val font_size: Double? = null,
+    val font_weight: Double? = null
+)
 
 data class ChatPersona(
     val name: String? = null,
@@ -118,6 +138,21 @@ fun parseChatConfig(raw: Any?): ChatConfig? {
             ChatCompletionMessage(content = it["content"] as? String ?: "", delay_ms = (it["delay_ms"] as? Number)?.toInt())
         },
         completion_cta_text = map["completion_cta_text"] as? String,
+        completion_button = (map["completion_button"] as? Map<String, Any>)?.let { cb ->
+            ChatCompletionButton(
+                variant = cb["variant"] as? String,
+                bg_color = cb["bg_color"] as? String,
+                text_color = cb["text_color"] as? String,
+                button_corner_radius = (cb["button_corner_radius"] as? Number)?.toDouble(),
+                button_height = (cb["button_height"] as? Number)?.toDouble(),
+                style = (cb["style"] as? Map<String, Any>)?.let { s ->
+                    ChatCompletionButtonStyle(
+                        font_size = (s["font_size"] as? Number)?.toDouble(),
+                        font_weight = (s["font_weight"] as? Number)?.toDouble()
+                    )
+                }
+            )
+        },
         quick_replies = (map["quick_replies"] as? List<*>)?.mapNotNull { q ->
             val qm = q as? Map<String, Any> ?: return@mapNotNull null
             ChatQuickReply(id = qm["id"] as? String ?: "", text = qm["text"] as? String ?: "", show_at_turn = (qm["show_at_turn"] as? Number)?.toInt())
