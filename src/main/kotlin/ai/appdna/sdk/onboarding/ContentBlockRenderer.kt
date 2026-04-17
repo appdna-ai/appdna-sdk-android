@@ -302,6 +302,8 @@ data class ContentBlock(
     val badge_bg_color: String? = null,
     val badge_text_color: String? = null,
     val badge_corner_radius: Double? = null,
+    val badge_position: String? = null,        // "top_trailing" (default) | "top_leading" | "bottom_trailing" | "bottom_leading"
+    val badge_size: Double? = null,            // Scale factor (default 1.0 — matches native defaults)
     // Pulsing avatar — image shape override (legacy default = circle).
     val image_shape: String? = null,           // "circle" (default) | "square" | "rounded"
     val image_corner_radius: Double? = null,   // Used when image_shape == "rounded" (default 16)
@@ -2790,20 +2792,33 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                 }
             }
 
-            // Badge
+            // Badge — honors badge_position (4-corner alignment), badge_size
+            // (font + padding scale factor), badge_corner_radius (999 = capsule).
+            // Missing fields preserve the previous hardcoded behavior.
             if (!block.badge_text.isNullOrEmpty()) {
+                val badgeScale = (block.badge_size ?: 1.0).toFloat()
+                val badgeFontSize = 10.sp * badgeScale
+                val badgeHPadding = (6f * badgeScale).dp
+                val badgeVPadding = (2f * badgeScale).dp
+                val badgeRadius = (block.badge_corner_radius ?: 999.0).dp
+                val badgeAlignment = when (block.badge_position) {
+                    "top_leading" -> Alignment.TopStart
+                    "bottom_trailing" -> Alignment.BottomEnd
+                    "bottom_leading" -> Alignment.BottomStart
+                    else -> Alignment.TopEnd   // top_trailing is the default
+                }
                 Text(
                     text = block.badge_text,
-                    fontSize = 10.sp,
+                    fontSize = badgeFontSize,
                     fontWeight = FontWeight.SemiBold,
                     color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
+                        .align(badgeAlignment)
                         .background(
                             StyleEngine.parseColor(block.badge_bg_color ?: "#EF4444"),
-                            RoundedCornerShape(999.dp),
+                            RoundedCornerShape(badgeRadius),
                         )
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                        .padding(horizontal = badgeHPadding, vertical = badgeVPadding),
                 )
             }
         }
