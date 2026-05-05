@@ -54,8 +54,9 @@ afterEvaluate {
 
                     licenses {
                         license {
-                            name.set("MIT License")
-                            url.set("https://opensource.org/licenses/MIT")
+                            name.set("AppDNA SDK Proprietary License")
+                            url.set("https://github.com/appdna-ai/appdna-sdk-android/blob/main/LICENSE")
+                            distribution.set("repo")
                         }
                     }
 
