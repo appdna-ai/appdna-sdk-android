@@ -164,6 +164,18 @@ class MessageManager(
         isPresenting.set(false)
     }
 
+    /**
+     * SPEC-070-A final audit pass C F2 — release `delay_seconds`-queued
+     * runnables on SDK shutdown so Dialog presentations don't fire on a
+     * stale Activity reference after `AppDNA.shutdown()`. Mirrors the
+     * (ARC-driven) iOS DispatchWorkItem cancellation in InAppMessaging.
+     */
+    fun shutdown() {
+        mainHandler.removeCallbacksAndMessages(null)
+        isPresenting.set(false)
+        suppress.set(false)
+    }
+
     // MARK: - Presentation
 
     private fun present(messageId: String, config: MessageConfig, triggerEvent: String) {

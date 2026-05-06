@@ -938,38 +938,46 @@ private suspend fun executeWebhook(
         val url = URL(hookConfig.webhook_url)
         val conn = url.openConnection() as? HttpURLConnection
             ?: return@withContext StepAdvanceResult.Block("Webhook URL must use HTTP(S)")
-        conn.requestMethod = "POST"
-        conn.setRequestProperty("Content-Type", "application/json")
-        conn.connectTimeout = hookConfig.timeout_ms
-        conn.readTimeout = hookConfig.timeout_ms
-        conn.doOutput = true
+        // SPEC-070-A final audit pass C F1 — ensure socket + input stream are
+        // released on every exit path. Without this, retry_count up to 3 ×
+        // every step → keep-alive sockets accumulate until GC. Mirrors the
+        // sibling pattern in ChatStepComposable.fireWebhook.
+        try {
+            conn.requestMethod = "POST"
+            conn.setRequestProperty("Content-Type", "application/json")
+            conn.connectTimeout = hookConfig.timeout_ms
+            conn.readTimeout = hookConfig.timeout_ms
+            conn.doOutput = true
 
-        // Apply custom headers with variable interpolation
-        hookConfig.headers?.forEach { (key, value) ->
-            conn.setRequestProperty(key, interpolateVariables(value))
+            // Apply custom headers with variable interpolation
+            hookConfig.headers?.forEach { (key, value) ->
+                conn.setRequestProperty(key, interpolateVariables(value))
+            }
+
+            // Build request body
+            val body = JSONObject().apply {
+                put("flow_id", flow.id)
+                put("step_id", step.id)
+                put("step_index", currentIndex)
+                put("step_type", step.type.value)
+                put("step_data", JSONObject(data ?: emptyMap<String, Any>()))
+                put("responses", JSONObject(responses))
+                put("user_id", AppDNA.getCurrentUserId() ?: "")
+                put("app_id", AppDNA.getCurrentAppId() ?: "")
+            }
+
+            OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
+
+            val responseCode = conn.responseCode
+            if (responseCode in 200..299) {
+                val responseBody = conn.inputStream.use { it.bufferedReader().readText() }
+                return@withContext parseWebhookResponse(responseBody, hookConfig)
+            }
+
+            throw java.io.IOException("HTTP $responseCode")
+        } finally {
+            runCatching { conn.disconnect() }
         }
-
-        // Build request body
-        val body = JSONObject().apply {
-            put("flow_id", flow.id)
-            put("step_id", step.id)
-            put("step_index", currentIndex)
-            put("step_type", step.type.value)
-            put("step_data", JSONObject(data ?: emptyMap<String, Any>()))
-            put("responses", JSONObject(responses))
-            put("user_id", AppDNA.getCurrentUserId() ?: "")
-            put("app_id", AppDNA.getCurrentAppId() ?: "")
-        }
-
-        OutputStreamWriter(conn.outputStream).use { it.write(body.toString()) }
-
-        val responseCode = conn.responseCode
-        if (responseCode in 200..299) {
-            val responseBody = conn.inputStream.bufferedReader().readText()
-            return@withContext parseWebhookResponse(responseBody, hookConfig)
-        }
-
-        throw java.io.IOException("HTTP $responseCode")
 
     } catch (e: SocketTimeoutException) {
         val maxRetries = minOf(hookConfig.retry_count, 3)

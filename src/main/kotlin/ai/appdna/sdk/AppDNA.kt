@@ -1451,6 +1451,12 @@ object AppDNA {
             // explicit `lifecycle.removeObserver(...)` call inside stop().
             try { sessionManager?.stop() } catch (_: Throwable) {}
 
+            // SPEC-070-A final audit pass C F2 — drain MessageManager's
+            // mainHandler so a `delay_seconds`-postponed Dialog
+            // presentation can't fire on a stale Activity ref after the
+            // SDK has been told to shut down.
+            try { messageManager?.shutdown() } catch (_: Throwable) {}
+
             // SPEC-070-A H.24: close the SQLite handle. EventDatabase extends
             // SQLiteOpenHelper, so close() releases the underlying db file
             // without losing pending rows (they live on disk until uploaded).
