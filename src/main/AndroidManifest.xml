@@ -3,7 +3,7 @@
     AppDNA Android SDK — library manifest.
 
     SPEC-070-A Phase A.4 (A.4.1–A.4.4): ship a library AndroidManifest so host
-    apps integrating `ai.appdna:sdk-android:1.0.60` get all required SDK
+    apps integrating `ai.appdna:sdk-android:1.0.32` get all required SDK
     declarations via manifest-merger without copy/pasting boilerplate.
 
     Reference:
