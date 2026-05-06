@@ -1,22 +1,29 @@
 package ai.appdna.sdk.messages
 
-import ai.appdna.sdk.core.SessionDataStore
+import android.content.Context
+import android.content.SharedPreferences
 
 /**
  * Tracks in-app message display frequency. Mirrors iOS
  * `InAppMessaging/MessageFrequencyTracker.swift` (SPEC-070-A F.12).
  *
  * Three frequency modes are supported, all evaluated by [canShow]:
- *  - `once` — persisted across sessions; uses `${prefix}<id>.shown` flag.
+ *  - `once` — persisted across sessions; uses `<id>.shown` flag.
  *  - `once_per_session` — in-memory only; cleared by [resetSession].
  *  - `every_time` — always returns `true`.
  *  - `max_times` — persisted counter; show until `count >= max_displays`.
  *
- * Persistence is delegated to [SessionDataStore] (already wired in Phase A);
- * keys are namespaced under `msg_freq.*` so they don't collide with onboarding
- * responses or other session data.
+ * SPEC-070-A audit attempt 6 F1: persisted counters live in a dedicated
+ * `SharedPreferences` instance (`ai.appdna.sdk.msg_freq`) rather than
+ * SessionDataStore. SessionDataStore is wiped by [AppDNA.clearSessionData]
+ * which would otherwise reset cross-session `once` and `max_times` counters,
+ * breaking parity with iOS UserDefaults isolation
+ * (`InAppMessaging/MessageFrequencyTracker.swift:5-6`).
  */
-internal class MessageFrequencyTracker {
+internal class MessageFrequencyTracker(context: Context) {
+
+    private val prefs: SharedPreferences =
+        context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     /** In-memory set for `once_per_session` tracking. */
     private val sessionShownIds: MutableSet<String> = mutableSetOf()
@@ -44,14 +51,14 @@ internal class MessageFrequencyTracker {
     fun recordShown(messageId: String, frequency: String) {
         when (frequency) {
             "once" -> {
-                SessionDataStore.instance?.setSessionData(shownKey(messageId), true)
+                prefs.edit().putBoolean(shownKey(messageId), true).apply()
             }
             "once_per_session" -> {
                 sessionShownIds.add(messageId)
             }
             "max_times" -> {
                 val next = displayCount(messageId) + 1
-                SessionDataStore.instance?.setSessionData(countKey(messageId), next)
+                prefs.edit().putInt(countKey(messageId), next).apply()
             }
             // every_time / unknown → nothing to record
         }
@@ -65,19 +72,16 @@ internal class MessageFrequencyTracker {
     // MARK: - Private
 
     private fun hasBeenShown(messageId: String): Boolean {
-        return (SessionDataStore.instance?.getSessionData(shownKey(messageId)) as? Boolean) == true
+        return prefs.getBoolean(shownKey(messageId), false)
     }
 
     private fun displayCount(messageId: String): Int {
-        return when (val v = SessionDataStore.instance?.getSessionData(countKey(messageId))) {
-            is Number -> v.toInt()
-            else -> 0
-        }
+        return prefs.getInt(countKey(messageId), 0)
     }
 
     companion object {
-        private const val PREFIX = "msg_freq"
-        private fun shownKey(id: String) = "$PREFIX.$id.shown"
-        private fun countKey(id: String) = "$PREFIX.$id.count"
+        private const val PREFS_NAME = "ai.appdna.sdk.msg_freq"
+        private fun shownKey(id: String) = "$id.shown"
+        private fun countKey(id: String) = "$id.count"
     }
 }

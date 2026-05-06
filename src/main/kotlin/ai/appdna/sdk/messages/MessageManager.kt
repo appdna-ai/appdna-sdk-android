@@ -73,7 +73,7 @@ class MessageManager(
 
     private val isPresenting = AtomicBoolean(false)
     private val suppress = AtomicBoolean(false)
-    private val frequencyTracker = MessageFrequencyTracker()
+    private val frequencyTracker = MessageFrequencyTracker(context)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
