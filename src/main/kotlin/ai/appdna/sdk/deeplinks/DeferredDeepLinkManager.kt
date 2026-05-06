@@ -12,6 +12,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -277,5 +278,14 @@ internal class DeferredDeepLinkManager(
     private fun markLaunched() {
         val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
         prefs.edit().putBoolean(FIRST_LAUNCH_KEY, true).apply()
+    }
+
+    /**
+     * SPEC-070-A audit Round 2 finding 6 — cancel the private scope so
+     * pending Install-Referrer reads and Firestore deferred-deep-link
+     * listeners don't outlive [AppDNA.shutdown].
+     */
+    internal fun shutdown() {
+        scope.cancel()
     }
 }

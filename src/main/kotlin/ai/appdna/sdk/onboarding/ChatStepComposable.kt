@@ -141,7 +141,17 @@ fun ChatStepComposable(
         isTyping = true
         scope.launch {
             try {
-                val response = fireWebhook(chatConfig.webhook, flowId, step.id, messages, userTurnCount - 1, maxTurns, turnsRemaining)
+                val response = fireWebhook(
+                    webhook = chatConfig.webhook,
+                    flowId = flowId,
+                    stepId = step.id,
+                    messages = messages,
+                    turn = userTurnCount - 1,
+                    maxTurns = maxTurns,
+                    remaining = turnsRemaining,
+                    rating = currentRating,
+                    context = webhookData.toMap(),
+                )
                 isTyping = false
                 if (response != null) {
                     ai.appdna.sdk.AppDNA.track("chat_message_received", mapOf(
@@ -477,7 +487,9 @@ private suspend fun fireWebhook(
     messages: List<ChatMessage>,
     turn: Int,
     maxTurns: Int,
-    remaining: Int
+    remaining: Int,
+    rating: Int? = null,
+    context: Map<String, Any> = emptyMap(),
 ): WebhookResponse? = withContext(Dispatchers.IO) {
     webhook ?: return@withContext null
     val url = webhook.webhook_url ?: return@withContext null
@@ -507,6 +519,23 @@ private suspend fun fireWebhook(
             put("max_turns", maxTurns)
             put("remaining_turns", remaining)
         })
+        // SPEC-070-A audit Round 2 finding 2: include `rating`, `context`,
+        // and `responses` keys to match iOS `ChatStepView.swift:454-470`
+        // ChatWebhookRequest. AI/webhook backends key off these for
+        // chat satisfaction surveys + accumulated webhook_data carry-over.
+        if (rating != null) put("rating", rating)
+        if (context.isNotEmpty()) {
+            put("context", JSONObject(context as Map<*, *>))
+        }
+        // `responses` mirrors iOS — top-level accumulated step responses.
+        // Read from SessionDataStore which the host onboarding accumulator
+        // writes into via `mergeData`.
+        ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
+            val accumulated = sds.getSessionData("onboarding.responses") as? Map<*, *>
+            if (accumulated != null && accumulated.isNotEmpty()) {
+                put("responses", JSONObject(accumulated))
+            }
+        }
     }
 
     val conn = (URL(url).openConnection() as HttpURLConnection).apply {

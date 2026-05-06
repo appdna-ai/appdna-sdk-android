@@ -271,21 +271,32 @@ class BillingModule internal constructor() {
         scope.future { purchase(activity, productId, options) }
 
     /**
-     * Restore previously completed purchases.
+     * SPEC-070-A A.30 — typed suspend restore. Mirrors iOS
+     * `AppDNA+Modules.swift:88` `restorePurchases() async throws -> [String]`.
+     * Returns the list of restored product IDs so hosts can show a confirmation
+     * UI; the underlying [Entitlement] objects are still surfaced via
+     * [AppDNABillingDelegate.onRestoreCompleted] for hosts that prefer the
+     * delegate flow.
      */
-    fun restorePurchases() {
+    suspend fun restorePurchases(): List<String> {
         val mgr = manager ?: run {
             Log.warning("BillingModule: manager not available — cannot restore")
-            return
+            return emptyList()
         }
-        scope.launch {
-            try {
-                mgr.restorePurchases()
-            } catch (e: Exception) {
-                Log.error("BillingModule.restorePurchases failed: ${e.message}")
-            }
+        return try {
+            mgr.restorePurchases().map { it.productId }
+        } catch (e: Exception) {
+            Log.error("BillingModule.restorePurchases failed: ${e.message}")
+            emptyList()
         }
     }
+
+    /**
+     * Java-compatible `CompletableFuture` adapter for [restorePurchases].
+     */
+    @JvmName("restorePurchasesAsync")
+    fun restorePurchasesAsync(): CompletableFuture<List<String>> =
+        scope.future { restorePurchases() }
 
     /**
      * SPEC-070-A A.30 — typed suspend entitlements fetch.

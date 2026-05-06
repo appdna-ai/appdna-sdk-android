@@ -162,6 +162,10 @@ class NavigationInterceptorActivityCallbacks(
 
     override fun onActivityResumed(activity: Activity) {
         interceptor.notifyScreenAppeared(activity.javaClass.simpleName)
+        // Track top-most resumed Activity so AppDNA.showPaywall(id) (and
+        // other shorthand routes) can present without needing an explicit
+        // Activity arg from the SDUI action dispatcher.
+        ai.appdna.sdk.AppDNA.setTopActivity(activity)
     }
 }
 

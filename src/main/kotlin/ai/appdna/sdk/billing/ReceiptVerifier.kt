@@ -54,7 +54,13 @@ internal class ReceiptVerifier(
             val json = JSONObject(response)
             val data = json.optJSONObject("data")
                 ?: throw VerificationException("Missing 'data' in verification response")
-            parseEntitlement(data)
+            // SPEC-070-A audit Round 2 finding 1: backend returns
+            // `{ data: { entitled, subscription: <entity> } }` — must unwrap
+            // `subscription` before parsing, otherwise every verify response
+            // returns an Entitlement with productId="" and expiresAt=null.
+            // iOS reference: Billing/ReceiptVerifier.swift:7-23.
+            val subscription = data.optJSONObject("subscription") ?: data
+            parseEntitlement(subscription)
         } catch (e: VerificationException) {
             throw e
         } catch (e: Exception) {

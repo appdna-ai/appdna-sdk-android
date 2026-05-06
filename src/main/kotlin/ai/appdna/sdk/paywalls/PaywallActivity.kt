@@ -329,7 +329,13 @@ fun PaywallScreen(
                     .padding((config.layout.padding ?: 20f).dp)
             ) {
                 val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
-                config.sections.forEachIndexed { index, section ->
+                // SPEC-070-A audit Round 2 finding 3: filter `sticky_footer`
+                // (rendered separately below) so it doesn't render twice.
+                // Mirrors iOS PaywallRenderer.swift:38-67,119 partition.
+                val scrollableSections = config.sections.filter {
+                    it.type != "sticky_footer"
+                }
+                scrollableSections.forEachIndexed { index, section ->
                     Box(
                         modifier = Modifier.sectionStagger(
                             config.animation?.section_stagger,

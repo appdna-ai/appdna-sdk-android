@@ -53,9 +53,12 @@ fun CsatQuestionView(
                     Icon(
                         imageVector = if (selectedRating >= rating) Icons.Filled.Star else Icons.Outlined.Star,
                         contentDescription = "Rating $rating",
-                        tint = if (selectedRating >= rating) Color(0xFFFFD700) else Color.Gray.copy(alpha = 0.3f),
+                        // SPEC-070-A audit Round 2 finding 4: match iOS
+                        // CSATQuestionView.swift:35-37 — amber-400 (#FBBF24)
+                        // filled / gray-300 (#D1D5DB) empty / 28dp size.
+                        tint = if (selectedRating >= rating) Color(0xFFFBBF24) else Color(0xFFD1D5DB),
                         modifier = Modifier
-                            .size(36.dp)
+                            .size(28.dp)
                             .clickable { onAnswer(SurveyAnswer(question.id, rating)) }
                     )
                 }

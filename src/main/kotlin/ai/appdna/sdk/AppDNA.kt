@@ -800,10 +800,33 @@ object AppDNA {
         return eventTracker?.isConsentGranted ?: true
     }
 
-    /** Shorthand to show a paywall by ID (used by screen action routing). */
+    /**
+     * Shorthand to show a paywall by ID (used by SDUI screen action routing).
+     *
+     * Resolves the most-recently-resumed Activity (tracked by
+     * [NavigationInterceptorActivityCallbacks]) and routes through
+     * [presentPaywall]. Mirrors iOS `AppDNA.showPaywall(_:)` which
+     * presents from the top-most view controller.
+     */
     fun showPaywall(id: String) {
-        // Route through existing paywall presentation
-        Log.info("showPaywall($id) triggered from SDUI screen")
+        val activity = topActivityRef?.get()
+        if (activity == null) {
+            Log.warning("showPaywall($id): no resumed Activity available; paywall not presented")
+            return
+        }
+        presentPaywall(activity = activity, id = id)
+    }
+
+    /**
+     * Top-most resumed Activity, tracked via the lifecycle callback registered
+     * in [configure]. Used by [showPaywall] (and any future shorthands) to
+     * route SDUI actions that lack an explicit Activity context.
+     */
+    @Volatile
+    private var topActivityRef: java.lang.ref.WeakReference<Activity>? = null
+
+    internal fun setTopActivity(activity: Activity?) {
+        topActivityRef = activity?.let { java.lang.ref.WeakReference(it) }
     }
 
     /** Shorthand to show a survey by ID (used by screen action routing). */
@@ -1393,6 +1416,11 @@ object AppDNA {
             // coroutines stop emitting events after shutdown.
             try { surveyManager?.shutdown() } catch (_: Throwable) {}
             try { pushTokenManager?.shutdown() } catch (_: Throwable) {}
+
+            // SPEC-070-A audit Round 2 finding 6: cancel paywall + deferred
+            // deep-link scopes so they don't outlive shutdown.
+            try { paywallManager?.shutdown() } catch (_: Throwable) {}
+            try { deferredDeepLinkManager?.shutdown() } catch (_: Throwable) {}
 
             // SPEC-070-A H.24: close the SQLite handle. EventDatabase extends
             // SQLiteOpenHelper, so close() releases the underlying db file

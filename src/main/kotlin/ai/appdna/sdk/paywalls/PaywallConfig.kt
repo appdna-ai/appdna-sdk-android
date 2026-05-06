@@ -556,9 +556,18 @@ internal object PaywallConfigParser {
             ai.appdna.sdk.core.HapticConfig(
                 enabled = h["enabled"] as? Boolean ?: false,
                 triggers = triggersMap?.let { t ->
+                    // SPEC-070-A F.11: read all 8 fields, not just 3.
+                    // Without the missing 5, console-saved haptic configs
+                    // for step_advance/option_select/toggle/form_submit/
+                    // error events silently no-op on Android paywalls.
                     ai.appdna.sdk.core.HapticTriggers(
+                        on_step_advance = t["on_step_advance"] as? String,
                         on_button_tap = t["on_button_tap"] as? String,
                         on_plan_select = t["on_plan_select"] as? String,
+                        on_option_select = t["on_option_select"] as? String,
+                        on_toggle = t["on_toggle"] as? String,
+                        on_form_submit = t["on_form_submit"] as? String,
+                        on_error = t["on_error"] as? String,
                         on_success = t["on_success"] as? String,
                     )
                 } ?: ai.appdna.sdk.core.HapticTriggers(),

@@ -128,7 +128,14 @@ object TemplateEngine {
     private fun deviceInfo(): Map<String, String> {
         val info = mutableMapOf(
             "platform" to "android",
-            "os_version" to android.os.Build.VERSION.RELEASE,
+            // SPEC-070-A G.15 sibling — match the EventSchema 3-part dotted
+            // shape ("14.0.1") iOS emits, not the bare integer ("14") that
+            // Build.VERSION.RELEASE returns. Without this, console copy
+            // referencing {{device.os_version}} renders as "14" on Android
+            // and "14.0.1" on iOS.
+            "os_version" to ai.appdna.sdk.events.EventSchema.normalizeOsVersion(
+                android.os.Build.VERSION.RELEASE,
+            ),
             "locale" to java.util.Locale.getDefault().language,
         )
         java.util.Locale.getDefault().country.takeIf { it.isNotEmpty() }?.let {

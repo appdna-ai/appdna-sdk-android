@@ -11,6 +11,7 @@ import ai.appdna.sdk.events.EventTracker
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -389,5 +390,15 @@ internal class PaywallManager(
                 Log.error("Restore failed: ${e.message}")
             }
         }
+    }
+
+    /**
+     * SPEC-070-A audit Round 2 finding 6 — cancel the private scope so
+     * pending paywall metadata fetches and post-purchase dispatches don't
+     * outlive [AppDNA.shutdown]. Mirrors the equivalent tear-down already
+     * present on EventQueue, BillingModule, etc.
+     */
+    internal fun shutdown() {
+        scope.cancel()
     }
 }
