@@ -346,10 +346,11 @@ internal class SurveyManager(
                     // SPEC-070-A G.9 — emit canonical `feedback_form_submitted`
                     // event so backend Growth Memory + reports surface it
                     // independently of the survey-followup tracking shape.
-                    val surveyId = currentSurveyId
-                    val props = mutableMapOf<String, Any>("feedback" to feedback)
-                    if (!surveyId.isNullOrEmpty()) props["survey_id"] = surveyId
-                    eventTracker.track("feedback_form_submitted", props)
+                    // Audit Round 2-restart F1: payload shape mirrors iOS
+                    // SurveyManager.swift:223-225 exactly (`feedback` only) so
+                    // backend dedup/parity logic sees identical events
+                    // cross-platform.
+                    eventTracker.track("feedback_form_submitted", mapOf("feedback" to feedback))
                 }
                 .setNegativeButton("Cancel") { _, _ ->
                     eventTracker.track("feedback_form_dismissed")
