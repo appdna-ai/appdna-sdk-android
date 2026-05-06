@@ -323,7 +323,8 @@ class NativeBillingManager internal constructor(
             val out = mutableMapOf<String, SubSnapshot>()
             for (i in 0 until arr.length()) {
                 val obj = arr.getJSONObject(i)
-                val pid = obj.optString("productId", "").ifEmpty { continue }
+                val pid = obj.optString("productId", "")
+                if (pid.isEmpty()) continue
                 out[pid] = SubSnapshot(
                     productId = pid,
                     purchaseTime = obj.optLong("purchaseTime", 0L),

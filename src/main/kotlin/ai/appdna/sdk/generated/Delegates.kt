@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 1f044a080af4990ec055bb0373197136b2f263f1
+// Last codegen commit: 00c22ea0fc29a0e1d693a294bb51364467a2c298
 
 package ai.appdna.sdk.generated
 
@@ -90,10 +90,10 @@ interface AppDNADeepLinkDelegate {
 interface AppDNAScreenDelegate {
     fun onScreenPresented(screenId: String) = Unit
 
-    fun onScreenDismissed(screenId: String, result: ScreenResult) = Unit
+    fun onScreenDismissed(screenId: String, result: Map<String, Any?>) = Unit
 
-    fun onFlowCompleted(flowId: String, result: FlowResult) = Unit
+    fun onFlowCompleted(flowId: String, result: Map<String, Any?>) = Unit
 
     /** Veto. Return false to intercept the action and prevent default handling. */
-    fun onScreenAction(screenId: String, action: SectionAction): Boolean = true
+    fun onScreenAction(screenId: String, action: Map<String, Any?>): Boolean = true
 }

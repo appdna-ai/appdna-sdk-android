@@ -41,7 +41,9 @@ import java.util.concurrent.atomic.AtomicReference
  * references so any other reader (event-envelope builder on the IO queue)
  * sees a consistent snapshot.
  */
-class SessionManager(
+// Internal because EventTracker (the parameter type) is internal — Kotlin
+// would otherwise reject the public constructor for leaking an internal type.
+internal class SessionManager(
     private val context: Context,
     private val eventTracker: EventTracker,
     private val sessionDataStore: SessionDataStore,

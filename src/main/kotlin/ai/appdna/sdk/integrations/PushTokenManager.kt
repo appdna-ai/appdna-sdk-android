@@ -154,8 +154,12 @@ internal class PushTokenManager(
      */
     private fun appdnaScopedMessaging(): com.google.firebase.messaging.FirebaseMessaging? {
         return try {
+            // SPEC-070-A A.24: scope FCM to the secondary "appdna" FirebaseApp.
+            // FirebaseMessaging.getInstance(FirebaseApp) is package-private; we
+            // resolve via the FirebaseApp's component container (the same path
+            // the public no-arg getInstance uses for the default app).
             val app = com.google.firebase.FirebaseApp.getInstance("appdna")
-            com.google.firebase.messaging.FirebaseMessaging.getInstance(app)
+            app.get(com.google.firebase.messaging.FirebaseMessaging::class.java)
         } catch (_: Exception) {
             null
         }

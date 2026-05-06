@@ -189,6 +189,11 @@ internal class RevenueCatBridge {
                             return@suspendCancellableCoroutine
                         }
                     val callbackCls = Class.forName("com.revenuecat.purchases.interfaces.ReceiveCustomerInfoCallback")
+                    // Forward-reference workaround: the lambda body needs to refer back
+                    // to the proxy itself for equals/hashCode, but we can't reference a
+                    // val inside its own initializer. Holding an Array<Any?> lets us
+                    // late-bind via a captured reference.
+                    val self = arrayOfNulls<Any>(1)
                     val proxy = java.lang.reflect.Proxy.newProxyInstance(
                         callbackCls.classLoader,
                         arrayOf(callbackCls),
@@ -202,12 +207,13 @@ internal class RevenueCatBridge {
                                 if (cont.isActive) cont.resume(null) {}
                             }
                             // equals/hashCode/toString from Object — return sane defaults
-                            "equals" -> return@newProxyInstance args?.getOrNull(0) === proxy
-                            "hashCode" -> return@newProxyInstance System.identityHashCode(proxy)
+                            "equals" -> return@newProxyInstance args?.getOrNull(0) === self[0]
+                            "hashCode" -> return@newProxyInstance System.identityHashCode(self[0])
                             "toString" -> return@newProxyInstance "RcCallbackProxy"
                         }
                         null
                     }
+                    self[0] = proxy
                     val method = sharedInstance.javaClass.getMethod(methodName, callbackCls)
                     method.invoke(sharedInstance, proxy)
                 } catch (e: Exception) {
