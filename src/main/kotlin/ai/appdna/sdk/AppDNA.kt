@@ -740,6 +740,12 @@ object AppDNA {
                     bootstrapOrgId = orgId
                     bootstrapAppId = appId
 
+                    // Propagate the Firestore tenant scope into RemoteConfigManager.
+                    // Without this assignment, fetchConfigs() always falls through
+                    // to "No Firestore path available — serving cached config only"
+                    // because the manager was constructed with a null path.
+                    remoteCfg.setFirestorePath(firestorePath)
+
                     // v0.3: Create deferred deep link manager
                     appContext?.let { ctx ->
                         deferredDeepLinkManager = DeferredDeepLinkManager(ctx, orgId, appId, tracker)

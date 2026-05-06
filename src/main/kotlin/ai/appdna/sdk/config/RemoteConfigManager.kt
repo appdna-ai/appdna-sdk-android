@@ -14,10 +14,20 @@ import java.util.concurrent.CopyOnWriteArrayList
  * Manages remote config from Firestore with local caching.
  */
 internal class RemoteConfigManager(
-    private val firestorePath: String?,
+    firestorePath: String?,
     private val storage: LocalStorage,
     private val configTTL: Long
 ) {
+    // Mutable so AppDNA.performBootstrap can supply the path returned by
+    // /api/v1/sdk/bootstrap. Without this setter the manager forever falls
+    // through to "No Firestore path available — serving cached config only"
+    // because the path is null at construction.
+    @Volatile
+    private var firestorePath: String? = firestorePath
+
+    fun setFirestorePath(path: String) {
+        this.firestorePath = path
+    }
     private var flags: Map<String, Any> = emptyMap()
     private var experiments: Map<String, ExperimentConfig> = emptyMap()
     private var surveys: Map<String, Map<String, Any>> = emptyMap()
