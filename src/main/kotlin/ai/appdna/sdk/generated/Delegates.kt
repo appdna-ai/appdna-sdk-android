@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 6fd004b5c21e59f4be687ce38d7fa348724a1370
+// Last codegen commit: 1f63af072d8c4839595d3795fb27f094282cc367
 
 package ai.appdna.sdk.generated
 
@@ -27,7 +27,7 @@ interface AppDNAPaywallDelegate {
 
     fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: Map<String, Any?>) = Unit
 
-    /** error type: Swift Error / Kotlin Throwable / Dart dynamic / TS unknown. */
+    /** error type: Swift Error / Kotlin Throwable / Dart Object / TS unknown. */
     fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) = Unit
 
     fun onPaywallRestoreStarted(paywallId: String) = Unit
