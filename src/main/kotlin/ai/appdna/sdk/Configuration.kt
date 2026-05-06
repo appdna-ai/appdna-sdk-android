@@ -4,8 +4,12 @@ package ai.appdna.sdk
  * SDK environment targeting.
  */
 enum class Environment(val baseUrl: String) {
+    // Both environments share the same backend host — iOS parity. The
+    // SANDBOX vs PRODUCTION distinction is enforced by API-key prefix
+    // (adn_test_* vs adn_live_*) which the backend routes accordingly.
+    // iOS reference: Core/Network/APIClient.swift:107-108.
     PRODUCTION("https://api.appdna.ai"),
-    SANDBOX("https://sandbox-api.appdna.ai")
+    SANDBOX("https://api.appdna.ai")
 }
 
 /**
