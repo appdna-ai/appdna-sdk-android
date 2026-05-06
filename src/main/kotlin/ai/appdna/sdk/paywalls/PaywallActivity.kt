@@ -1158,8 +1158,11 @@ private fun PaywallSectionView(
                 )
             }
         }
-        // SPEC-085: Video section
-        "video" -> {
+        // SPEC-085 + SPEC-070-A audit attempt 9 F1: also handle
+        // `video_background` so console-published full-bleed background-video
+        // sections render. iOS PaywallRenderer.swift:549 dispatches both
+        // strings to the same renderer.
+        "video", "video_background" -> {
             section.data?.video_url?.let { url ->
                 CoreVideoBlockView(
                     block = CoreVideoBlock(
