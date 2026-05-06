@@ -196,8 +196,26 @@ object AppDNA {
     private var bootstrapOrgId: String? = null
     private var bootstrapAppId: String? = null
 
+    // SPEC-070-A final audit pass H F1 — captured to enable
+    // `unregisterActivityLifecycleCallbacks` from shutdown().
+    private var navigationInterceptorCallbacks:
+        ai.appdna.sdk.screens.NavigationInterceptorActivityCallbacks? = null
+
     private var isConfigured = false
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    // SPEC-070-A final audit pass H F3 — `isConfiguring` flips true
+    // synchronously inside the `configure()` guard (before the bootstrap
+    // coroutine launches) so concurrent / early second `configure(...)`
+    // calls don't double-construct EventTracker/EventQueue, double-register
+    // NavigationInterceptorActivityCallbacks, double-fetch FCM token, or
+    // launch `performBootstrap` twice. `isConfigured` keeps its post-
+    // bootstrap semantic for the `onReady` callback gate.
+    @Volatile
+    private var isConfiguring = false
+    // SPEC-070-A final audit pass H F2 — `scope` must be reassignable so
+    // `configure()` after `shutdown()` lands on a live CoroutineScope.
+    // Previously `val scope` + `scope.cancel()` in shutdown() left the
+    // SDK silently unready on re-configure (performBootstrap would skip).
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val readyCallbacks = mutableListOf<() -> Unit>()
 
     // SPEC-070-A G.18: pre-init event buffer. Calls to track() that arrive before
@@ -228,10 +246,16 @@ object AppDNA {
         options: AppDNAOptions = AppDNAOptions()
     ) {
         synchronized(this) {
-            if (isConfigured) {
+            // SPEC-070-A final audit pass H F3 — guard against BOTH
+            // post-bootstrap (`isConfigured`) and in-flight (`isConfiguring`)
+            // re-entrancy. Without the in-flight guard, a second configure()
+            // call before bootstrap completes would double-construct managers
+            // and double-register lifecycle callbacks.
+            if (isConfigured || isConfiguring) {
                 Log.warning("AppDNA.configure() called multiple times — ignoring")
                 return
             }
+            isConfiguring = true
 
             this.apiKey = apiKey
             this.environment = environment
@@ -436,11 +460,15 @@ object AppDNA {
 
             // SPEC-070-A A.10: NavigationInterceptor — observes Activity resume to
             // fire registered hooks. Compose-only screens use AppDNA.notifyScreenAppeared(...).
-            (appContext as? android.app.Application)?.registerActivityLifecycleCallbacks(
-                ai.appdna.sdk.screens.NavigationInterceptorActivityCallbacks(
-                    ai.appdna.sdk.screens.NavigationInterceptor.shared
-                )
+            // SPEC-070-A final audit pass H F1 — capture the callback
+            // instance so shutdown() can `unregisterActivityLifecycleCallbacks`
+            // and a subsequent configure() doesn't double-register (which
+            // would fire screen events twice).
+            val navCallbacks = ai.appdna.sdk.screens.NavigationInterceptorActivityCallbacks(
+                ai.appdna.sdk.screens.NavigationInterceptor.shared
             )
+            navigationInterceptorCallbacks = navCallbacks
+            (appContext as? android.app.Application)?.registerActivityLifecycleCallbacks(navCallbacks)
 
             // SPEC-070-A H.3: schedule periodic 15-minute remote-config refresh
             // via WorkManager. Idempotent — safe across configure() races.
@@ -1196,6 +1224,11 @@ object AppDNA {
         // Mark ready
         synchronized(this@AppDNA) {
             isConfigured = true
+            // SPEC-070-A final audit pass H F3 — release the in-flight
+            // configure-guard so future shutdown-then-configure cycles can
+            // re-arm it. Together with `scope` reassign in shutdown() this
+            // makes the SDK fully re-initializable.
+            isConfiguring = false
             tracker.track("sdk_initialized")
             Log.info("SDK ready")
 
@@ -1463,7 +1496,55 @@ object AppDNA {
             try { eventDatabase?.close() } catch (_: Throwable) {}
 
             scope.cancel()
+
+            // SPEC-070-A final audit pass H F1 — null out manager + cache
+            // refs so a subsequent `configure()` doesn't leak the prior
+            // EventTracker/SessionManager/etc. iOS does the equivalent via
+            // ARC (`shared.eventTracker = nil` etc. at AppDNA.swift:1126).
+            eventQueue = null
+            eventTracker = null
+            eventDatabase = null
+            connectivityMonitor = null
+            apiClient = null
+            identityManager = null
+            sessionManager = null
+            pushTokenManager = null
+            paywallManager = null
+            onboardingFlowManager = null
+            surveyManager = null
+            messageManager = null
+            remoteConfigManager = null
+            featureFlagManager = null
+            experimentManager = null
+            webEntitlementManager = null
+            pendingMessageListener = null
+            deferredDeepLinkManager = null
+            firestoreDB = null
+            bootstrapOrgId = null
+            bootstrapAppId = null
+            apiKey = null
+
+            // SPEC-070-A final audit pass H F1 — release the registered
+            // NavigationInterceptor lifecycle callbacks so a re-`configure()`
+            // doesn't double-fire screen events. Mirrors iOS dealloc.
+            try {
+                val ctx = appContext
+                val cbs = navigationInterceptorCallbacks
+                if (ctx != null && cbs != null) {
+                    (ctx as? android.app.Application)?.unregisterActivityLifecycleCallbacks(cbs)
+                }
+            } catch (_: Throwable) {}
+            navigationInterceptorCallbacks = null
+            appContext = null
+
+            // SPEC-070-A final audit pass H F2 — reassign `scope` so a
+            // future `configure()` lands on a live CoroutineScope. Without
+            // this, the second performBootstrap{} dispatches onto the
+            // cancelled scope and never fires.
+            scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
             isConfigured = false
+            isConfiguring = false
             Log.info("SDK shut down")
         }
     }
