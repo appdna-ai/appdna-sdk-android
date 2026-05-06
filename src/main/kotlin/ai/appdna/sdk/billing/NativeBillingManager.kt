@@ -277,6 +277,45 @@ class NativeBillingManager internal constructor(
                 isAcknowledged = purchase.isAcknowledged,
                 isAutoRenewing = purchase.isAutoRenewing,
             )
+
+            // SPEC-070-A audit attempt 3 F1: verify + acknowledge any
+            // background-resolved purchases the synchronous
+            // PurchasesUpdatedListener never saw. Google Play auto-refunds
+            // unacknowledged purchases after 3 days, so on every foreground
+            // reconcile we must look for `PURCHASED && !isAcknowledged` and
+            // run the full verify → acknowledge → entitlementCache.update
+            // pipeline (mirroring iOS Billing/NativeBillingManager.swift:233-
+            // 253 `Transaction.updates`-driven verify+finish flow).
+            if (purchase.purchaseState == Purchase.PurchaseState.PURCHASED &&
+                !purchase.isAcknowledged
+            ) {
+                try {
+                    val entitlement = receiptVerifier.verify(
+                        purchaseToken = purchase.purchaseToken,
+                        productId = productId,
+                        platform = "android",
+                        paywallId = null,
+                        experimentId = null,
+                    )
+                    val ackParams = AcknowledgePurchaseParams.newBuilder()
+                        .setPurchaseToken(purchase.purchaseToken)
+                        .build()
+                    client.acknowledgePurchase(ackParams) { ackResult ->
+                        if (ackResult.responseCode != BillingClient.BillingResponseCode.OK) {
+                            Log.warning(
+                                "reconcileSubscriptionState: ack failed " +
+                                    "for $productId: ${ackResult.debugMessage}",
+                            )
+                        }
+                    }
+                    entitlementCache.update(entitlement)
+                } catch (e: Throwable) {
+                    Log.warning(
+                        "reconcileSubscriptionState: verify+ack for " +
+                            "background-resolved $productId threw: ${e.message}",
+                    )
+                }
+            }
         }
 
         val previous = loadLastSnapshot()
