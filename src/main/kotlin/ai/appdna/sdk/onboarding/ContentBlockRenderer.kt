@@ -3977,19 +3977,28 @@ private suspend fun fetchLocationSuggestions(query: String): List<LocationSugges
         val baseUrl = ai.appdna.sdk.AppDNA.getApiBaseUrl()
         val apiKey = ai.appdna.sdk.AppDNA.getApiKey()
         val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete?q=$encodedQuery")
-        val connection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            (url.openConnection() as? java.net.HttpURLConnection)?.apply {
+        // SPEC-070-A audit Round 2 finding 3: HttpURLConnection.responseCode
+        // triggers the actual `connect()` + network round-trip, so it MUST run
+        // on Dispatchers.IO. Previously only `openConnection()` and
+        // `inputStream.bufferedReader()` were wrapped — `responseCode` ran on
+        // whatever dispatcher the suspend caller was on (Compose `launch{}`
+        // defaults to Main → NetworkOnMainThreadException under StrictMode).
+        // Single IO block now covers the whole HTTP read.
+        val body: String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val connection = (url.openConnection() as? java.net.HttpURLConnection)?.apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
                 if (apiKey != null) setRequestProperty("x-api-key", apiKey)
+            } ?: return@withContext null
+            try {
+                if (connection.responseCode != 200) return@withContext null
+                connection.inputStream.bufferedReader().readText()
+            } finally {
+                runCatching { connection.disconnect() }
             }
         }
-        if (connection == null || connection.responseCode != 200) return emptyList()
-
-        val body = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            connection.inputStream.bufferedReader().readText()
-        }
+        if (body == null) return emptyList()
         val json = org.json.JSONObject(body)
         val results = json.optJSONArray("data") ?: return emptyList()
 

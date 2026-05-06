@@ -219,18 +219,22 @@ internal class SurveyManager(
             sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
             sdf.format(java.util.Date())
         }
+        // SPEC-070-A audit Round 2 finding 1: align body shape to iOS
+        // SurveyManager.swift:154-167. iOS does NOT emit top-level
+        // `survey_type` (that lives on the `survey_completed` event) nor
+        // `sdk_version`/`platform` inside `context`; instead `platform` is
+        // top-level. Drop the extras and move `platform` outward so backend
+        // dedup/parity logic sees identical JSON across both natives.
         val body = JSONObject().apply {
             put("survey_id", surveyId)
-            put("survey_type", config.surveyType)
-            if (!userId.isNullOrEmpty()) put("user_id", userId)
-            put("completed_at", completedAt)
+            put("user_id", userId ?: "anonymous")
+            put("platform", "android")
             put("answers", JSONArray(answers.map { JSONObject(it.toMap()) }))
+            put("completed_at", completedAt)
             put("context", JSONObject().apply {
-                put("sdk_version", AppDNA.sdkVersion)
-                put("platform", "android")
+                put("app_version", getAppVersion())
                 // SPEC-070-A G.20 — `device_type` (not `device`) per backend schema.
                 put("device_type", Build.MODEL)
-                put("app_version", getAppVersion())
                 val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
                 put("session_count", prefs.getInt("session_count", 0))
                 put("days_since_install", daysSinceInstall())

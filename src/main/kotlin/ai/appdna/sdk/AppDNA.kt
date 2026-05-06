@@ -471,7 +471,6 @@ object AppDNA {
         val previousUserId = identityManager?.currentIdentity?.userId
 
         identityManager?.identify(userId, traits)
-        val deviceId = identityManager?.currentIdentity?.anonId
 
         // SPEC-070-A G.3: emit local `identify` event so the existing client
         // pipeline (BigQuery alias resolution + experiment exposure ledger)
@@ -492,11 +491,14 @@ object AppDNA {
         // backend can stitch anon → user identities even if the user never
         // emits another event. Retries on 5xx/network are handled inside
         // ApiClient.post() (called by postFireAndForget).
+        // SPEC-070-A audit Round 2 finding 2: align body to iOS
+        // AppDNA.swift:206-210 (`anon_id`, `user_id`, optional `traits`
+        // only). The previous code added `device_id` which iOS never
+        // emits, breaking backend canonical-shape parity.
         try {
             val body = JSONObject()
             body.put("anon_id", previousAnonId ?: "")
             body.put("user_id", userId)
-            if (deviceId != null) body.put("device_id", deviceId)
             if (traits != null) body.put("traits", JSONObject(traits))
             apiClient?.postFireAndForget("/api/v1/sdk/identify", body.toString())
         } catch (e: Exception) {

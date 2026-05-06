@@ -196,18 +196,24 @@ private suspend fun fetchLocationSuggestions(
             params.append("&language=").append(java.net.URLEncoder.encode(language, "UTF-8"))
         }
         val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete?$params")
-        val connection = withContext(Dispatchers.IO) {
-            (url.openConnection() as? java.net.HttpURLConnection)?.apply {
+        // SPEC-070-A audit Round 2 finding 3: single IO block so
+        // `responseCode` (which triggers connect()) doesn't run on the caller's
+        // dispatcher (Compose launch{} defaults to Main → StrictMode crash).
+        val body: String? = withContext(Dispatchers.IO) {
+            val connection = (url.openConnection() as? java.net.HttpURLConnection)?.apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
                 if (apiKey != null) setRequestProperty("x-api-key", apiKey)
+            } ?: return@withContext null
+            try {
+                if (connection.responseCode != 200) return@withContext null
+                connection.inputStream.bufferedReader().readText()
+            } finally {
+                runCatching { connection.disconnect() }
             }
         }
-        if (connection == null || connection.responseCode != 200) return emptyList()
-        val body = withContext(Dispatchers.IO) {
-            connection.inputStream.bufferedReader().readText()
-        }
+        if (body == null) return emptyList()
         val json = JSONObject(body)
         val results = json.optJSONArray("data") ?: return emptyList()
         (0 until minOf(results.length(), 5)).mapNotNull { i ->
