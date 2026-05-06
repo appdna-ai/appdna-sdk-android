@@ -309,6 +309,13 @@ fun SurveyScreen(
                     lowLabel = question.npsConfig.lowLabel?.let { te.interpolate(it, tCtx) },
                     highLabel = question.npsConfig.highLabel?.let { te.interpolate(it, tCtx) }
                 ),
+                // SPEC-070-A J.1: interpolate Likert anchor labels too so
+                // template tokens like "{{user.name}}" work consistently
+                // with the NPS path.
+                likertConfig = question.likertConfig?.copy(
+                    lowLabel = question.likertConfig.lowLabel?.let { te.interpolate(it, tCtx) },
+                    highLabel = question.likertConfig.highLabel?.let { te.interpolate(it, tCtx) },
+                ),
                 options = question.options?.map { opt ->
                     opt.copy(text = te.interpolate(opt.text, tCtx))
                 }
@@ -324,6 +331,11 @@ fun SurveyScreen(
                 "free_text" -> FreeTextView(q, answer, onAnswer, questionTextStyle)
                 "yes_no" -> YesNoView(q, answer, onAnswer, questionTextStyle)
                 "emoji_scale" -> EmojiScaleView(q, answer, onAnswer, questionTextStyle)
+                // SPEC-070-A J.1: Likert scale (numeric scale with optional
+                // anchor labels). Accept both `likert` (canonical) and
+                // `scale` (legacy alias) so older console payloads still
+                // render on newer SDKs.
+                "likert", "scale" -> LikertQuestionView(q, answer, onAnswer, questionTextStyle)
             }
         }
 

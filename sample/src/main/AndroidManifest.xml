@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPEC-070-A J.18 — sample/example app manifest.
+  Demonstrates: Application subclass that calls AppDNA.configure() on launch,
+  a single MainActivity for the demo grid, an FCM service stub that forwards
+  tokens to AppDNA.setPushToken(), and an intent-filter for deep links so the
+  sample can exercise the SDK's deep-link handoff flow.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- POST_NOTIFICATIONS is runtime-requested on Android 13+ via the SDK's
+         PushModule.requestPermission() demo button. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <application
+        android:name=".SampleApp"
+        android:label="@string/app_name"
+        android:icon="@android:drawable/sym_def_app_icon"
+        android:theme="@style/Theme.AppDNASample"
+        android:allowBackup="false">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.AppDNASample">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Sample deep link: appdnasample://demo/<path>. Handed off to
+                 AppDNA.deepLinks.handle(...) inside MainActivity.onNewIntent. -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="appdnasample" />
+            </intent-filter>
+        </activity>
+
+        <!-- FCM service stub. SPEC-070-A J.18 demo: forwards tokens +
+             messages straight to the SDK so the host app sees push out
+             of the box. -->
+        <service
+            android:name=".SampleMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+    </application>
+
+</manifest>

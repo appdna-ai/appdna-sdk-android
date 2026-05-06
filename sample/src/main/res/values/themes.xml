@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material3 (Compose-friendly) base theme. NoActionBar because all
+         chrome is rendered by Compose inside the Activity. -->
+    <style name="Theme.AppDNASample" parent="Theme.Material3.DayNight.NoActionBar" />
+</resources>

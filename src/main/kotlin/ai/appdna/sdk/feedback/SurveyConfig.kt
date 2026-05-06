@@ -66,6 +66,14 @@ data class SurveyQuestion(
     val emojiConfig: EmojiConfig?,
     val freeTextConfig: FreeTextConfig?,
     /**
+     * SPEC-070-A J.1: Likert scale config — horizontal numeric scale with
+     * optional left/right anchor labels (e.g. "Strongly Disagree" → "Strongly
+     * Agree"). Read from `likert_config` (canonical) or `scale_config` (legacy
+     * alias) on the question payload. Null when the question type isn't
+     * `likert` / `scale`.
+     */
+    val likertConfig: LikertConfig? = null,
+    /**
      * SPEC-070-A F.6 / SPEC-085: optional question-level hero image rendered
      * above the question text. Mirrors iOS `SurveyQuestion.image_url`.
      */
@@ -85,6 +93,11 @@ data class SurveyQuestion(
             val emojiData = data["emoji_config"] as? Map<String, Any>
             @Suppress("UNCHECKED_CAST")
             val freeTextData = data["free_text_config"] as? Map<String, Any>
+            // SPEC-070-A J.1: Likert config — accept canonical `likert_config`
+            // and the legacy `scale_config` alias.
+            @Suppress("UNCHECKED_CAST")
+            val likertData = (data["likert_config"] as? Map<String, Any>)
+                ?: (data["scale_config"] as? Map<String, Any>)
             // SPEC-070-A audit Round 2-restart attempt 2 F3: prefer the
             // Firestore-canonical `choice_config.options` container, fall back
             // to the legacy flat `options` field. Mirrors iOS
@@ -136,6 +149,20 @@ data class SurveyQuestion(
                     EmojiConfig((it["emojis"] as? List<String>) ?: listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D"))
                 },
                 freeTextConfig = freeTextData?.let { FreeTextConfig(it["placeholder"] as? String, (it["max_length"] as? Number)?.toInt() ?: 500) },
+                // SPEC-070-A J.1: Likert scale config (numeric scale +
+                // optional left/right anchor labels).
+                likertConfig = likertData?.let {
+                    LikertConfig(
+                        min = (it["min"] as? Number)?.toInt() ?: 1,
+                        max = (it["max"] as? Number)?.toInt()
+                            ?: (it["scale"] as? Number)?.toInt()
+                            ?: 5,
+                        lowLabel = (it["low_label"] as? String)
+                            ?: (it["left_label"] as? String),
+                        highLabel = (it["high_label"] as? String)
+                            ?: (it["right_label"] as? String),
+                    )
+                },
                 // SPEC-070-A F.6: question-level hero image
                 imageUrl = data["image_url"] as? String,
             )
@@ -203,6 +230,20 @@ data class RatingConfig(
 data class QuestionOption(val id: String, val text: String, val icon: String?)
 data class EmojiConfig(val emojis: List<String> = listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D"))
 data class FreeTextConfig(val placeholder: String?, val maxLength: Int = 500)
+
+/**
+ * SPEC-070-A J.1: Likert scale question config. Renders a horizontal numeric
+ * scale from [min]..[max] with optional left/right anchor labels (e.g.
+ * "Strongly Disagree" \u2192 "Strongly Agree"). Server may serialize with `min` /
+ * `max` (canonical) or `scale` (single-int max alias). Anchor labels accept
+ * either `low_label`/`high_label` or `left_label`/`right_label`.
+ */
+data class LikertConfig(
+    val min: Int = 1,
+    val max: Int = 5,
+    val lowLabel: String? = null,
+    val highLabel: String? = null,
+)
 
 data class ScoreRange(val min: Int, val max: Int)
 

@@ -1,7 +1,9 @@
 package ai.appdna.sdk.core
 
+import android.os.Build
 import android.view.HapticFeedbackConstants
 import android.view.View
+import androidx.annotation.RequiresApi
 
 enum class HapticType {
     LIGHT, MEDIUM, HEAVY, SELECTION, SUCCESS, WARNING, ERROR;
@@ -43,9 +45,9 @@ object HapticEngine {
             HapticType.MEDIUM -> HapticFeedbackConstants.CONTEXT_CLICK
             HapticType.HEAVY -> HapticFeedbackConstants.LONG_PRESS
             HapticType.SELECTION -> HapticFeedbackConstants.KEYBOARD_TAP
-            HapticType.SUCCESS -> if (android.os.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.CONFIRM else HapticFeedbackConstants.CONTEXT_CLICK
-            HapticType.WARNING -> if (android.os.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
-            HapticType.ERROR -> if (android.os.Build.VERSION.SDK_INT >= 30) HapticFeedbackConstants.REJECT else HapticFeedbackConstants.LONG_PRESS
+            HapticType.SUCCESS -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) confirmConstant() else HapticFeedbackConstants.CONTEXT_CLICK
+            HapticType.WARNING -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) rejectConstant() else HapticFeedbackConstants.LONG_PRESS
+            HapticType.ERROR -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) rejectConstant() else HapticFeedbackConstants.LONG_PRESS
         }
         view.performHapticFeedback(feedbackConstant)
     }
@@ -55,4 +57,21 @@ object HapticEngine {
         val hapticType = HapticType.fromString(type) ?: return
         trigger(view, hapticType)
     }
+
+    /**
+     * SPEC-070-A J.15 — extracted helper that ASSUMES API 30+ so Android Lint
+     * flags any accidental call that isn't behind a
+     * `Build.VERSION.SDK_INT >= R` guard. [HapticFeedbackConstants.CONFIRM]
+     * was introduced in API 30; on older devices the field is absent and
+     * referencing it would `NoSuchFieldError` at class verification.
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun confirmConstant(): Int = HapticFeedbackConstants.CONFIRM
+
+    /**
+     * SPEC-070-A J.15 — see [confirmConstant]. [HapticFeedbackConstants.REJECT]
+     * is also API 30+.
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun rejectConstant(): Int = HapticFeedbackConstants.REJECT
 }

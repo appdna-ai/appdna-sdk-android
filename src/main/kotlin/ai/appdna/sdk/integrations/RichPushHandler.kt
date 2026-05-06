@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -204,7 +205,7 @@ object RichPushHandler {
         } finally {
             try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    retriever.close()
+                    closeRetriever(retriever)
                 } else {
                     @Suppress("DEPRECATION")
                     retriever.release()
@@ -213,6 +214,18 @@ object RichPushHandler {
                 // best-effort
             }
         }
+    }
+
+    /**
+     * SPEC-070-A J.15 — extracted helper that ASSUMES API 29+ so Android Lint
+     * flags any accidental call that isn't behind a
+     * `Build.VERSION.SDK_INT >= Q` guard. [MediaMetadataRetriever.close] was
+     * added in API 29 (`AutoCloseable` was implemented on the same release);
+     * on older devices `release()` is the supported teardown path.
+     */
+    @RequiresApi(Build.VERSION_CODES.Q)
+    private fun closeRetriever(retriever: MediaMetadataRetriever) {
+        retriever.close()
     }
 
     /**
@@ -228,6 +241,25 @@ object RichPushHandler {
         group: String? = null,
     ) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        ensureChannelOreoPlus(context, channelId, channelName, importance, description, group)
+    }
+
+    /**
+     * SPEC-070-A J.15 — extracted helper that ASSUMES API 26+ so Android Lint
+     * flags any accidental call that isn't behind a
+     * `Build.VERSION.SDK_INT >= O` guard. [NotificationChannel],
+     * `NotificationManager.getNotificationChannel`, and
+     * `createNotificationChannel` were all introduced in API 26.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun ensureChannelOreoPlus(
+        context: Context,
+        channelId: String,
+        channelName: String,
+        importance: Int,
+        description: String?,
+        group: String?,
+    ) {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         if (manager.getNotificationChannel(channelId) != null) return
         val channel = NotificationChannel(channelId, channelName, importance).apply {

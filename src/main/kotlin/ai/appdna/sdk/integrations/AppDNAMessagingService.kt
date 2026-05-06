@@ -13,6 +13,7 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.google.firebase.messaging.FirebaseMessagingService
@@ -211,13 +212,25 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
      */
     private fun ensureNotificationChannel(data: Map<String, String>) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        ensureNotificationChannelOreoPlus(data)
+    }
+
+    /**
+     * SPEC-070-A J.15 — extracted helper that ASSUMES API 26+ so Android Lint
+     * flags any accidental call that isn't behind a
+     * `Build.VERSION.SDK_INT >= O` guard. [NotificationChannel] and the
+     * `NotificationManager.getNotificationChannel` / `createNotificationChannel`
+     * APIs were introduced in API 26.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun ensureNotificationChannelOreoPlus(data: Map<String, String>) {
         val manager = getSystemService(NotificationManager::class.java) ?: return
         val channelId = data["channel_id"] ?: DEFAULT_CHANNEL_ID
         if (manager.getNotificationChannel(channelId) != null) return
 
         val channelName = data["channel_name"] ?: "Push Notifications"
         val channelDescription = data["channel_description"]
-        val channelImportance = mapImportance(data["channel_importance"])
+        val channelImportance = mapImportanceOreoPlus(data["channel_importance"])
 
         val channel = NotificationChannel(channelId, channelName, channelImportance).apply {
             channelDescription?.let { description = it }
@@ -237,13 +250,25 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
 
     private fun mapImportance(raw: String?): Int {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return 0
-        return when (raw?.lowercase()) {
-            "high" -> NotificationManager.IMPORTANCE_HIGH
-            "default" -> NotificationManager.IMPORTANCE_DEFAULT
-            "low" -> NotificationManager.IMPORTANCE_LOW
-            "min" -> NotificationManager.IMPORTANCE_MIN
-            else -> NotificationManager.IMPORTANCE_HIGH
-        }
+        return mapImportanceOreoPlus(raw)
+    }
+
+    /**
+     * SPEC-070-A J.15 — extracted helper that ASSUMES API 26+ so Android Lint
+     * flags any accidental call that isn't behind a
+     * `Build.VERSION.SDK_INT >= O` guard. The `NotificationManager.IMPORTANCE_*`
+     * constants surfaced from this helper are the ones consumed by
+     * [NotificationChannel] (API 26+); even though the constant values were
+     * declared in older API levels, callers using them must be on a path
+     * where the channel APIs are available.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    private fun mapImportanceOreoPlus(raw: String?): Int = when (raw?.lowercase()) {
+        "high" -> NotificationManager.IMPORTANCE_HIGH
+        "default" -> NotificationManager.IMPORTANCE_DEFAULT
+        "low" -> NotificationManager.IMPORTANCE_LOW
+        "min" -> NotificationManager.IMPORTANCE_MIN
+        else -> NotificationManager.IMPORTANCE_HIGH
     }
 
     /**
