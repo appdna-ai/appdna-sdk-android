@@ -34,10 +34,29 @@
 -keep class ai.appdna.sdk.config.** { *; }
 -keep class ai.appdna.sdk.billing.** { *; }
 -keep class ai.appdna.sdk.core.** { *; }
+# SPEC-070-A final audit pass G F2/F3 — additional packages whose data
+# classes/types are reflectively materialised by Firestore + JSON parsers
+# or referenced from the codegen layer.
+-keep class ai.appdna.sdk.generated.** { *; }
+-keep class ai.appdna.sdk.network.** { *; }
+-keep class ai.appdna.sdk.storage.** { *; }
+-keep class ai.appdna.sdk.deeplinks.** { *; }
+-keep class ai.appdna.sdk.webentitlements.** { *; }
 
 # -- Integrations: FCM service must remain because the manifest binds it --
 
 -keep class ai.appdna.sdk.integrations.AppDNAMessagingService { *; }
+
+# -- WorkManager: Worker classes are instantiated by name via reflection --
+# SPEC-070-A final audit pass G F1 — without this, R8 renames
+# EventUploadWorker / ConfigRefreshWorker classes and
+# `OneTimeWorkRequestBuilder<EventUploadWorker>()` resolves to a stale
+# name at runtime → silent event-upload + config-refresh failure on
+# release builds.
+-keep class ai.appdna.sdk.background.** { *; }
+-keep class * extends androidx.work.ListenableWorker {
+    public <init>(...);
+}
 
 # -- Delegates / public listener interfaces (host implements) -------------
 
