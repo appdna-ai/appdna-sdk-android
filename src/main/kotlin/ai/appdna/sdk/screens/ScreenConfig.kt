@@ -1,10 +1,26 @@
 package ai.appdna.sdk.screens
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import ai.appdna.sdk.core.AudienceRuleSet
 import ai.appdna.sdk.core.FrequencyConfig
 import ai.appdna.sdk.core.TraitCondition
 import ai.appdna.sdk.core.UnifiedTriggerRules
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
+/**
+ * SPEC-070-A J.10 — Screens DTOs annotated for Compose stability.
+ *
+ * `ScreenSection.data: Map<String, Any?>` is a passthrough JSON bag (per
+ * SPEC-070-A J.22 EXCLUDE rule for raw JSON parsing maps + caller-supplied
+ * payloads consumed by per-section renderers via `SectionRegistry`). Because
+ * of that one field, `ScreenConfig` and `ScreenSection` are `@Stable` rather
+ * than `@Immutable`. The `sections` hot iteration list IS migrated to
+ * `ImmutableList<ScreenSection>` so a parent re-emit of `ScreenConfig` with
+ * the same sections short-circuits per-section recomposition.
+ */
+@Stable
 data class ScreenConfig(
     val id: String,
     val name: String,
@@ -12,7 +28,9 @@ data class ScreenConfig(
     val presentation: String = "fullscreen",
     val transition: String? = null,
     val layout: ScreenLayout,
-    val sections: List<ScreenSection>,
+    // SPEC-070-A J.22 — sections list is the hot Compose iteration in
+    // AppDNAScreenSlot / ScreenManager; migrated to ImmutableList.
+    val sections: ImmutableList<ScreenSection>,
     val background: BackgroundConfig? = null,
     val dismiss: DismissConfig? = null,
     val navBar: NavBarConfig? = null,
@@ -54,7 +72,9 @@ data class ScreenConfig(
                 presentation = data["presentation"] as? String ?: "fullscreen",
                 transition = data["transition"] as? String,
                 layout = ScreenLayout.fromMap(data["layout"] as? Map<String, Any?> ?: emptyMap()),
-                sections = (data["sections"] as? List<Map<String, Any?>>)?.map { ScreenSection.fromMap(it) } ?: emptyList(),
+                // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
+                sections = (data["sections"] as? List<Map<String, Any?>>)?.map { ScreenSection.fromMap(it) }?.toImmutableList()
+                    ?: kotlinx.collections.immutable.persistentListOf(),
                 background = (data["background"] as? Map<String, Any?>)?.let { BackgroundConfig.fromMap(it) },
                 dismiss = (data["dismiss"] as? Map<String, Any?>)?.let { DismissConfig.fromMap(it) },
                 navBar = (data["nav_bar"] as? Map<String, Any?>)?.let { NavBarConfig.fromMap(it) },
@@ -154,6 +174,14 @@ data class FlowSettings(
     }
 }
 
+// SPEC-070-A J.10 — @Stable: `data: Map<String, Any?>` is the SDK's passthrough
+// JSON bag for per-section renderers (per SPEC-070-A J.22 EXCLUDE rule —
+// passthrough Map<String, Any?>). All other fields are nullable primitives or
+// fully-immutable holders. The data field is intentionally NOT migrated to
+// PersistentMap because consumers receive it raw and pass it into custom
+// renderers — widening the contract would force every host renderer to
+// understand kotlinx.collections.immutable.
+@Stable
 data class ScreenSection(
     val id: String,
     val type: String,
@@ -179,6 +207,7 @@ data class ScreenSection(
     }
 }
 
+@Immutable
 data class ScreenLayout(
     val type: String = "scroll",
     val padding: Double? = null,
@@ -199,6 +228,7 @@ data class ScreenLayout(
     }
 }
 
+@Immutable
 data class SectionStyle(
     val backgroundColor: String? = null,
     val backgroundGradient: GradientConfig? = null,

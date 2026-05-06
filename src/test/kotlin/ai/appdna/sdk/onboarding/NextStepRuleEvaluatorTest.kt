@@ -4,6 +4,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+// SPEC-070-A J.22 — NextStepRule.conditions migrated to ImmutableList<Map<String, Any?>>.
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 
 /**
  * SPEC-070-A A.21 — coverage for [NextStepRuleEvaluator] + [classifyRuleTarget].
@@ -44,7 +47,7 @@ class NextStepRuleEvaluatorTest {
 
     @Test
     fun `empty conditions list matches as always`() {
-        val rule = NextStepRule(conditions = emptyList(), target_step_id = "next")
+        val rule = NextStepRule(conditions = persistentListOf(), target_step_id = "next")
         val ok = NextStepRuleEvaluator.evaluateRule(rule, "step1", emptyMap())
         assertTrue(ok)
     }
@@ -107,7 +110,7 @@ class NextStepRuleEvaluatorTest {
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "a", "value" to 1),
                 mapOf("type" to "answer_equals", "answer_key" to "b", "value" to 2),
-            ),
+            ).toImmutableList(),
             logic = "and",
             target_step_id = "next",
         )
@@ -125,7 +128,7 @@ class NextStepRuleEvaluatorTest {
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "a", "value" to 1),
                 mapOf("type" to "answer_equals", "answer_key" to "b", "value" to 2),
-            ),
+            ).toImmutableList(),
             logic = "and",
             target_step_id = "next",
         )
@@ -143,7 +146,7 @@ class NextStepRuleEvaluatorTest {
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "a", "value" to 1),
                 mapOf("type" to "answer_equals", "answer_key" to "b", "value" to 2),
-            ),
+            ).toImmutableList(),
             logic = null,
             target_step_id = "next",
         )
@@ -163,7 +166,7 @@ class NextStepRuleEvaluatorTest {
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "a", "value" to 99),
                 mapOf("type" to "answer_equals", "answer_key" to "b", "value" to 2),
-            ),
+            ).toImmutableList(),
             logic = "or",
             target_step_id = "next",
         )
@@ -181,7 +184,7 @@ class NextStepRuleEvaluatorTest {
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "a", "value" to 99),
                 mapOf("type" to "answer_equals", "answer_key" to "b", "value" to 99),
-            ),
+            ).toImmutableList(),
             logic = "or",
             target_step_id = "next",
         )
@@ -203,7 +206,7 @@ class NextStepRuleEvaluatorTest {
             condition = mapOf("type" to "always"),
             conditions = listOf(
                 mapOf("type" to "answer_equals", "answer_key" to "x", "value" to "yes"),
-            ),
+            ).toImmutableList(),
             target_step_id = "next",
         )
         val ok = NextStepRuleEvaluator.evaluateRule(

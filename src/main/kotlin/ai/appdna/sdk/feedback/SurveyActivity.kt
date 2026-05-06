@@ -1,5 +1,7 @@
 package ai.appdna.sdk.feedback
 
+// SPEC-070-A J.22 — re-wrap interpolated options as ImmutableList for Compose stability.
+import kotlinx.collections.immutable.toImmutableList
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -316,9 +318,11 @@ fun SurveyScreen(
                     lowLabel = question.likertConfig.lowLabel?.let { te.interpolate(it, tCtx) },
                     highLabel = question.likertConfig.highLabel?.let { te.interpolate(it, tCtx) },
                 ),
+                // SPEC-070-A J.22 — re-wrap as ImmutableList after interpolation
+                // map (SurveyQuestion.options is ImmutableList<QuestionOption>?).
                 options = question.options?.map { opt ->
                     opt.copy(text = te.interpolate(opt.text, tCtx))
-                }
+                }?.toImmutableList()
             )
 
             when (q.type) {

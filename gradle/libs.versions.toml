@@ -33,6 +33,12 @@ workRuntimeKtx = "2.9.0"
 # Coroutines + serialization
 kotlinxCoroutines = "1.8.1"
 kotlinxSerialization = "1.6.3"
+# SPEC-070-A J.22 — kotlinx-collections-immutable. Backs J.10 @Immutable
+# annotations on Compose-consumed config DTOs: stock List<T>/Map<K,V> are
+# structural-equal but mutable-by-interface, so Compose can't prove parameter
+# equivalence and skip recompositions. ImmutableList<T> / PersistentMap<K,V>
+# carry a runtime guarantee Compose's stability inference recognizes.
+kotlinxCollectionsImmutable = "0.3.7"
 
 # Networking / images
 okhttp = "4.12.0"
@@ -89,6 +95,9 @@ kotlinx-coroutines-core      = { module = "org.jetbrains.kotlinx:kotlinx-corouti
 kotlinx-coroutines-android   = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-jdk8      = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-jdk8", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test      = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+
+# SPEC-070-A J.22 — immutable collections backing J.10 Compose stability annotations.
+kotlinx-collections-immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version.ref = "kotlinxCollectionsImmutable" }
 
 # Billing / Play
 billing-ktx                  = { module = "com.android.billingclient:billing-ktx", version.ref = "billing" }

@@ -1,13 +1,27 @@
 package ai.appdna.sdk.onboarding
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import ai.appdna.sdk.core.TextStyleConfig
 import ai.appdna.sdk.core.HapticConfig
 import ai.appdna.sdk.core.HapticTriggers
 import ai.appdna.sdk.core.ParticleEffect
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 /**
  * Firestore schema types for onboarding flows (Android).
  * Mirrors the iOS OnboardingConfig.swift.
+ *
+ * SPEC-070-A J.10 + J.22 — Compose stability:
+ *   These config DTOs are hot-path Compose parameters threaded into
+ *   OnboardingFlowHost / FormStepComposable / ContentBlockRenderer.
+ *   They're annotated `@Immutable` (or `@Stable` for the few that still hold
+ *   passthrough JSON Maps) so Compose can skip recompositions when an outer
+ *   parent re-emits with structurally-equal contents. The annotation is only
+ *   honored when iterable fields use `ImmutableList<T>` rather than stock
+ *   `List<T>` — Kotlin's stock List is mutable-by-interface so Compose's
+ *   stability inference can't prove safety on its own.
  */
 
 /**
@@ -16,12 +30,18 @@ import ai.appdna.sdk.core.ParticleEffect
  * SPEC-070-A A.5: `@Keep` so R8/minify cannot strip getters used by
  * reflective `fromMap`-style parsing in [OnboardingConfigParser].
  */
+// SPEC-070-A J.10 — @Stable rather than @Immutable: graph_layout / graph_nodes
+// are passthrough JSON bags from Firestore (Map<String, Any?>) that we don't
+// migrate (per SPEC-070-A J.22 EXCLUDE rule for raw JSON parsing maps), and
+// audience_rules is `Any?` (untyped passthrough). Steps IS migrated to
+// ImmutableList<OnboardingStep> so the hot-path step list is Compose-stable.
+@Stable
 @androidx.annotation.Keep
 data class OnboardingFlowConfig(
     val id: String,
     val name: String,
     val version: Int,
-    val steps: List<OnboardingStep>,
+    val steps: ImmutableList<OnboardingStep>,
     val settings: OnboardingSettings,
     // SPEC-070-A F.1: top-level fields mirroring iOS OnboardingFlowConfig
     val status: String? = null,
@@ -45,6 +65,7 @@ data class OnboardingFlowConfig(
  * SPEC-070-A A.5: `@Keep` so R8/minify cannot strip getters used by reflection
  * via [OnboardingConfigParser].
  */
+@Immutable
 @androidx.annotation.Keep
 data class BackButtonStyle(
     val icon_size: Double? = null,
@@ -52,6 +73,7 @@ data class BackButtonStyle(
     val position: String? = null,  // "left" | "right"
 )
 
+@Immutable
 @androidx.annotation.Keep
 data class OnboardingSettings(
     val show_progress: Boolean = true,
@@ -85,14 +107,21 @@ data class OnboardingSettings(
  *   2. Else if `condition` is non-null → wrap as a 1-element list.
  *   3. Else → treat as `always` (rule matches unconditionally).
  */
+// SPEC-070-A J.10 — @Stable: `condition: Any?` and `conditions: List<Map<String, Any?>>`
+// are passthrough condition expressions evaluated at runtime; the inner Map is the
+// exception listed in J.22 EXCLUDE (raw JSON parsing map — we don't deep-migrate
+// the per-condition map). The OUTER list IS migrated to ImmutableList so Compose
+// can prove the rule list itself is stable.
+@Stable
 @androidx.annotation.Keep
 data class NextStepRule(
     val condition: Any? = null,
-    val conditions: List<Map<String, Any?>>? = null,
+    val conditions: ImmutableList<Map<String, Any?>>? = null,
     val logic: String? = null,  // "and" | "or" — null defaults to "and" at evaluation time
     val target_step_id: String = ""
 )
 
+@Immutable
 data class OnboardingStep(
     val id: String,
     val type: StepType,
@@ -100,7 +129,7 @@ data class OnboardingStep(
     val hook: StepHookConfig? = null,
     /** When true, the progress indicator is hidden on this step but the step still counts toward total progress. */
     val hide_progress: Boolean? = null,
-    val next_step_rules: List<NextStepRule>? = null
+    val next_step_rules: ImmutableList<NextStepRule>? = null
 ) {
     enum class StepType(val value: String) {
         WELCOME("welcome"),
@@ -120,7 +149,14 @@ data class OnboardingStep(
 
 /**
  * Step configuration -- varies by step type.
+ *
+ * SPEC-070-A J.10 — @Stable rather than @Immutable: `layout`, `field_defaults`
+ * and `localizations` are JSON passthrough Map fields (per J.22 EXCLUDE rule).
+ * Compose-stable iterables (options/items/fields/content_blocks/next_step_rules)
+ * are migrated to ImmutableList<T> below so a re-emit with structurally-equal
+ * lists doesn't trigger downstream recomposition.
  */
+@Stable
 data class StepConfig(
     // welcome
     val title: String? = null,
@@ -130,32 +166,35 @@ data class StepConfig(
     val skip_enabled: Boolean? = null,
 
     // question
-    val options: List<QuestionOption>? = null,
+    val options: ImmutableList<QuestionOption>? = null,
     val selection_mode: SelectionMode? = null,
 
     // value_prop
-    val items: List<ValuePropItem>? = null,
+    val items: ImmutableList<ValuePropItem>? = null,
 
     // custom
+    // J.22 EXCLUDE: passthrough JSON map from `step.config.layout` — left raw.
     val layout: Map<String, Any>? = null,
 
     // form (SPEC-082)
-    val fields: List<FormField>? = null,
+    val fields: ImmutableList<FormField>? = null,
     val validation_mode: String? = null,  // "on_submit" or "realtime"
 
     // SPEC-083: Populated by applyOverrides from StepConfigOverride.fieldDefaults
+    // J.22 EXCLUDE: caller-provided defaults bag — left raw.
     val field_defaults: Map<String, Any>? = null,
 
     // SPEC-090: Interactive chat
     val chat_config: ChatConfig? = null,
 
     // SPEC-084: Rendering fidelity
-    val content_blocks: List<ContentBlock>? = null,
+    val content_blocks: ImmutableList<ContentBlock>? = null,
     val layout_variant: String? = null,  // image_top, image_bottom, image_fullscreen, image_split, no_image
     val background: ai.appdna.sdk.core.BackgroundStyleConfig? = null,
     val text_style: ai.appdna.sdk.core.TextStyleConfig? = null,
     val element_style: ai.appdna.sdk.core.ElementStyleConfig? = null,
     val animation: ai.appdna.sdk.core.AnimationConfig? = null,
+    // J.22 EXCLUDE: `localizations` is a nested JSON passthrough.
     val localizations: Map<String, Map<String, String>>? = null,
     val default_locale: String? = null,
 
@@ -166,10 +205,11 @@ data class StepConfig(
     //      when richer than step-level).
     // (F2) per-step `progress_color` override consulted by OnboardingActivity
     //      progress-bar theming (mirrors iOS OnboardingRenderer.swift:174-186).
-    val next_step_rules: List<NextStepRule>? = null,
+    val next_step_rules: ImmutableList<NextStepRule>? = null,
     val progress_color: String? = null
 )
 
+@Immutable
 data class QuestionOption(
     val id: String,
     val label: String,
@@ -187,6 +227,7 @@ enum class SelectionMode(val value: String) {
     }
 }
 
+@Immutable
 data class ValuePropItem(
     val icon: String,
     val title: String,
@@ -267,6 +308,7 @@ data class FormFieldConfig(
     val location_min_chars: Int? = null
 )
 
+@Immutable
 data class FormField(
     val id: String,
     val type: FormFieldType,
@@ -274,7 +316,7 @@ data class FormField(
     val placeholder: String? = null,
     val required: Boolean = false,
     val validation: FormFieldValidation? = null,
-    val options: List<FormFieldOption>? = null,
+    val options: ImmutableList<FormFieldOption>? = null,
     val config: FormFieldConfig? = null,
     val depends_on: FormFieldDependency? = null
 )
@@ -399,7 +441,9 @@ internal object OnboardingConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun parseFlowConfig(id: String, map: Map<String, Any>): OnboardingFlowConfig {
         val stepsList = map["steps"] as? List<Map<String, Any>> ?: emptyList()
-        val steps = stepsList.map { parseStep(it) }
+        // SPEC-070-A J.22 — wrap as ImmutableList so the @Stable
+        // OnboardingFlowConfig contract holds (Compose stability inference).
+        val steps = stepsList.map { parseStep(it) }.toImmutableList()
 
         val settingsMap = map["settings"] as? Map<String, Any> ?: emptyMap()
         // SPEC-085: Parse haptic config
@@ -487,6 +531,7 @@ internal object OnboardingConfigParser {
             ?: (map["layout"] as? Map<String, Any>)
             ?: emptyMap()
 
+        // SPEC-070-A J.22 — ImmutableList wraps for Compose-stable iteration.
         val options = (configMap["options"] as? List<*>)?.mapNotNull { opt ->
             if (opt is Map<*, *>) {
                 val optMap = opt as Map<String, Any>
@@ -496,7 +541,7 @@ internal object OnboardingConfigParser {
                     icon = optMap["icon"] as? String
                 )
             } else null
-        }
+        }?.toImmutableList()
 
         val items = (configMap["items"] as? List<*>)?.mapNotNull { item ->
             if (item is Map<*, *>) {
@@ -507,7 +552,7 @@ internal object OnboardingConfigParser {
                     subtitle = itemMap["subtitle"] as? String ?: ""
                 )
             } else null
-        }
+        }?.toImmutableList()
 
         val selectionModeStr = configMap["selection_mode"] as? String
         val selectionMode = selectionModeStr?.let { SelectionMode.fromString(it) }
@@ -516,6 +561,7 @@ internal object OnboardingConfigParser {
         val fields = (configMap["fields"] as? List<*>)?.mapNotNull { f ->
             if (f is Map<*, *>) {
                 val fm = f as Map<String, Any>
+                // SPEC-070-A J.22 — wrap form-field options as ImmutableList.
                 val fieldOptions = (fm["options"] as? List<*>)?.mapNotNull { o ->
                     if (o is Map<*, *>) {
                         val om = o as Map<String, Any>
@@ -526,7 +572,7 @@ internal object OnboardingConfigParser {
                             value = om["value"]
                         )
                     } else null
-                }
+                }?.toImmutableList()
                 val fieldConfigMap = fm["config"] as? Map<String, Any>
                 val fieldConfig = fieldConfigMap?.let { fc ->
                     FormFieldConfig(
@@ -578,7 +624,7 @@ internal object OnboardingConfigParser {
                     depends_on = dependency
                 )
             } else null
-        }
+        }?.toImmutableList()
 
         // SPEC-084: Parse content blocks (fallback to step-level content_blocks if not in configMap)
         @Suppress("UNCHECKED_CAST")
@@ -603,7 +649,7 @@ internal object OnboardingConfigParser {
                     text_color = bm["text_color"] as? String,
                     button_corner_radius = (bm["button_corner_radius"] as? Number)?.toDouble(),
                     spacer_height = (bm["spacer_height"] as? Number)?.toDouble(),
-                    items = (bm["items"] as? List<*>)?.filterIsInstance<String>(),
+                    items = (bm["items"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
                     list_style = bm["list_style"] as? String,
                     divider_color = bm["divider_color"] as? String,
                     divider_thickness = (bm["divider_thickness"] as? Number)?.toDouble(),
@@ -665,7 +711,7 @@ internal object OnboardingConfigParser {
                                 enabled = pm["enabled"] as? Boolean ?: true,
                             )
                         } else null
-                    },
+                    }?.toImmutableList(),
                     button_style = bm["button_style"] as? String,
                     button_height = (bm["button_height"] as? Number)?.toDouble(),
                     spacing = (bm["spacing"] as? Number)?.toDouble(),
@@ -730,7 +776,7 @@ internal object OnboardingConfigParser {
                                 status = tm["status"] as? String ?: "upcoming",
                             )
                         } else null
-                    },
+                    }?.toImmutableList(),
                     line_color = bm["line_color"] as? String,
                     completed_color = bm["completed_color"] as? String,
                     current_color = bm["current_color"] as? String,
@@ -751,7 +797,7 @@ internal object OnboardingConfigParser {
                                 icon = lm["icon"] as? String,
                             )
                         } else null
-                    },
+                    }?.toImmutableList(),
                     progress_color = bm["progress_color"] as? String,
                     check_color = bm["check_color"] as? String,
                     total_duration_ms = (bm["total_duration_ms"] as? Number)?.toInt(),
@@ -771,7 +817,7 @@ internal object OnboardingConfigParser {
                                 image_url = fm["image_url"] as? String,
                             )
                         } else null
-                    },
+                    }?.toImmutableList(),
                     // Gap 8: Parse field_config for display_style, use_variable, use_webhook
                     field_config = bm["field_config"] as? Map<String, Any>,
                     // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
@@ -815,7 +861,7 @@ internal object OnboardingConfigParser {
                     align_items = bm["align_items"] as? String,
                 )
             } else null
-        }
+        }?.toImmutableList()
 
         // SPEC-084: Parse background config
         @Suppress("UNCHECKED_CAST")
@@ -937,9 +983,12 @@ internal object OnboardingConfigParser {
      * Shared parser for `next_step_rules` arrays — used at both the step level
      * and the step.config (layout) level so the editor's Logic panel can write
      * to either path. Mirrors iOS `OnboardingRenderer.swift:761-766`.
+     *
+     * SPEC-070-A J.22 — returns ImmutableList so step / step.config
+     * `next_step_rules` fields satisfy Compose's stability inference.
      */
     @Suppress("UNCHECKED_CAST")
-    private fun parseNextStepRulesList(raw: Any?): List<NextStepRule>? {
+    private fun parseNextStepRulesList(raw: Any?): ImmutableList<NextStepRule>? {
         return (raw as? List<*>)?.mapNotNull { r ->
             if (r is Map<*, *>) {
                 val rm = r as Map<String, Any>
@@ -950,7 +999,7 @@ internal object OnboardingConfigParser {
                         is String -> mapOf<String, Any?>("type" to entry)
                         else -> null
                     }
-                }
+                }?.toImmutableList()
                 NextStepRule(
                     condition = rm["condition"],
                     conditions = conditionsList,
@@ -958,7 +1007,7 @@ internal object OnboardingConfigParser {
                     target_step_id = rm["target_step_id"] as? String ?: ""
                 )
             } else null
-        }
+        }?.toImmutableList()
     }
 
     /**
@@ -1087,9 +1136,12 @@ internal object OnboardingConfigParser {
      * Recursively parse child ContentBlocks for row/stack containers.
      * Accepts the raw `children` value from a Firestore map and returns a list of ContentBlock,
      * or null if no children are present.
+     *
+     * SPEC-070-A J.22 — returns ImmutableList so ContentBlock.children stays
+     * Compose-stable through the recursive tree.
      */
     @Suppress("UNCHECKED_CAST")
-    private fun parseChildBlocks(raw: Any?): List<ContentBlock>? {
+    private fun parseChildBlocks(raw: Any?): kotlinx.collections.immutable.ImmutableList<ContentBlock>? {
         val list = raw as? List<*> ?: return null
         return list.mapNotNull { child ->
             if (child is Map<*, *>) {
@@ -1130,6 +1182,6 @@ internal object OnboardingConfigParser {
                     overflow = cm["overflow"] as? String,
                 )
             } else null
-        }.takeIf { it.isNotEmpty() }
+        }.takeIf { it.isNotEmpty() }?.toImmutableList()
     }
 }

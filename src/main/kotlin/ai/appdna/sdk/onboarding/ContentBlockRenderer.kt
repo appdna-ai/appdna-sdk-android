@@ -95,7 +95,13 @@ import androidx.compose.foundation.Image
 
 // MARK: - Block Style Design Tokens (SPEC-089d §6.1)
 
-/** Per-block styling: background, border, shadow, padding, margin, opacity. */
+/**
+ * Per-block styling: background, border, shadow, padding, margin, opacity.
+ *
+ * SPEC-070-A J.10 — `@Immutable`: every field is a primitive / nullable
+ * primitive / nested fully-immutable holder; no iterables to migrate.
+ */
+@androidx.compose.runtime.Immutable
 data class BlockStyle(
     val background_color: String? = null,
     val background_gradient: BlockGradientStyle? = null,
@@ -116,6 +122,7 @@ data class BlockStyle(
 )
 
 /** Shadow definition for block_style. */
+@androidx.compose.runtime.Immutable
 data class BlockShadowStyle(
     val x: Double = 0.0,
     val y: Double = 2.0,
@@ -125,6 +132,7 @@ data class BlockShadowStyle(
 )
 
 /** Gradient definition for block_style background. */
+@androidx.compose.runtime.Immutable
 data class BlockGradientStyle(
     val angle: Double = 135.0,
     val start: String = "#6366f1",
@@ -277,6 +285,19 @@ internal fun mapBlockAlignment(horizontal: String?, vertical: String?): Alignmen
 
 // MARK: - Content Block data class
 
+/**
+ * SPEC-070-A J.10 — `@Stable`, not `@Immutable`: ContentBlock still carries
+ * passthrough JSON Map/Any? fields per J.22 EXCLUDE rules (`lottie_json`,
+ * `custom_config`, `field_config`, `icon_ref: Any?`, `bindings`) that we
+ * deliberately don't migrate — they're caller-supplied JSON bags consumed by
+ * specialized renderers, not Compose-iterated lists.
+ *
+ * SPEC-070-A J.22 — typed iterable fields (`children`, `items`, `providers`,
+ * `timeline_items`, `loading_items`, `field_options`, `pricing_plans`,
+ * `columns`, `size_range`) are migrated to ImmutableList<T> below so Compose
+ * can short-circuit recompositions when contents are structurally equal.
+ */
+@androidx.compose.runtime.Stable
 data class ContentBlock(
     val id: String,
     val type: String,  // heading, text, image, button, spacer, list, divider, badge, icon, toggle, video, ...
@@ -293,7 +314,8 @@ data class ContentBlock(
     val text_color: String? = null,
     val button_corner_radius: Double? = null,
     val spacer_height: Double? = null,
-    val items: List<String>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability (list block items).
+    val items: kotlinx.collections.immutable.ImmutableList<String>? = null,
     val list_style: String? = null,
     val divider_color: String? = null,
     val divider_thickness: Double? = null,
@@ -353,7 +375,8 @@ data class ContentBlock(
     val dot_spacing: Double? = null,
     val active_dot_width: Double? = null,
     // SPEC-089d: social_login fields
-    val providers: List<SocialProvider>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val providers: kotlinx.collections.immutable.ImmutableList<SocialProvider>? = null,
     val button_style: String? = null,
     val button_height: Double? = null,
     val spacing: Double? = null,
@@ -396,7 +419,8 @@ data class ContentBlock(
     val show_label: Boolean? = null,
     val label_style: TextStyleConfig? = null,
     // SPEC-089d: timeline fields
-    val timeline_items: List<TimelineItem>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val timeline_items: kotlinx.collections.immutable.ImmutableList<TimelineItem>? = null,
     val line_color: String? = null,
     val completed_color: String? = null,
     val current_color: String? = null,
@@ -406,7 +430,8 @@ data class ContentBlock(
     val title_style: TextStyleConfig? = null,
     val subtitle_style: TextStyleConfig? = null,
     // SPEC-089d: animated_loading fields
-    val loading_items: List<LoadingItem>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val loading_items: kotlinx.collections.immutable.ImmutableList<LoadingItem>? = null,
     val progress_color: String? = null,
     val check_color: String? = null,
     val total_duration_ms: Int? = null,
@@ -422,14 +447,16 @@ data class ContentBlock(
     val animate: Boolean? = null,
     val animation_duration_ms: Int? = null,
     // SPEC-089d Phase F: date_wheel_picker fields
-    val columns: List<DateWheelColumn>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val columns: kotlinx.collections.immutable.ImmutableList<DateWheelColumn>? = null,
     val default_date_value: String? = null,
     val min_date: String? = null,
     val max_date: String? = null,
     val highlight_color: String? = null,
     val haptic_on_scroll: Boolean? = null,
     // SPEC-089d Phase F: stack / row fields (container blocks)
-    val children: List<ContentBlock>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability of recursive children.
+    val children: kotlinx.collections.immutable.ImmutableList<ContentBlock>? = null,
     val z_index: Double? = null,
     val gap: Double? = null,
     val wrap: Boolean? = null,
@@ -449,7 +476,8 @@ data class ContentBlock(
     val density: String? = null,
     val speed: String? = null,
     val secondary_color: String? = null,
-    val size_range: List<Double>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val size_range: kotlinx.collections.immutable.ImmutableList<Double>? = null,
     val fullscreen: Boolean? = null,
     // SPEC-089d Phase F: wheel_picker fields
     val min_value: Double? = null,
@@ -466,14 +494,16 @@ data class ContentBlock(
     val border_width: Double? = null,
     val border_color: String? = null,
     // SPEC-089d Nurrai: pricing_card fields
-    val pricing_plans: List<PricingPlan>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val pricing_plans: kotlinx.collections.immutable.ImmutableList<PricingPlan>? = null,
     val pricing_layout: String? = null,
     // SPEC-089d Phase 3: Form input common fields
     val field_label: String? = null,
     val field_placeholder: String? = null,
     val field_required: Boolean? = null,
     val field_style: FormFieldBlockStyle? = null,
-    val field_options: List<InputOption>? = null,
+    // SPEC-070-A J.22 — ImmutableList for Compose stability.
+    val field_options: kotlinx.collections.immutable.ImmutableList<InputOption>? = null,
     val field_config: Map<String, Any>? = null,
     // SPEC-089d §6.3: Visibility condition
     val visibility_condition: VisibilityCondition? = null,
@@ -491,6 +521,7 @@ data class ContentBlock(
 )
 
 /** Social login provider config (SPEC-089d §3.4). */
+@androidx.compose.runtime.Immutable
 data class SocialProvider(
     val type: String,
     val label: String? = null,
@@ -498,6 +529,7 @@ data class SocialProvider(
 )
 
 /** Countdown labels config (SPEC-089d §3.7). */
+@androidx.compose.runtime.Immutable
 data class CountdownLabels(
     val days: String? = null,
     val hours: String? = null,
@@ -506,6 +538,7 @@ data class CountdownLabels(
 )
 
 /** Timeline item config (SPEC-089d §3.5). */
+@androidx.compose.runtime.Immutable
 data class TimelineItem(
     val id: String,
     val title: String,
@@ -515,6 +548,7 @@ data class TimelineItem(
 )
 
 /** Animated loading item config (SPEC-089d §3.6). */
+@androidx.compose.runtime.Immutable
 data class LoadingItem(
     val label: String,
     val duration_ms: Int = 1000,
@@ -522,6 +556,7 @@ data class LoadingItem(
 )
 
 /** Pricing plan config for pricing_card block (SPEC-089d §3.17). */
+@androidx.compose.runtime.Immutable
 data class PricingPlan(
     val id: String,
     val label: String,
@@ -531,11 +566,15 @@ data class PricingPlan(
     val is_highlighted: Boolean = false,
 )
 
-/** Date wheel column config (SPEC-089d §3.12). */
+/** Date wheel column config (SPEC-089d §3.12).
+ *
+ * SPEC-070-A J.22: `values` is migrated to ImmutableList for Compose stability.
+ */
+@androidx.compose.runtime.Immutable
 data class DateWheelColumn(
     val type: String,    // day | month | year | custom
     val label: String? = null,
-    val values: List<String>? = null,
+    val values: kotlinx.collections.immutable.ImmutableList<String>? = null,
 )
 
 /** Star particle state for star_background animation. */
@@ -548,6 +587,7 @@ data class StarParticleState(
 )
 
 /** Form field styling config (SPEC-089d §5.2). */
+@androidx.compose.runtime.Immutable
 data class FormFieldBlockStyle(
     val background_color: String? = null,
     val border_color: String? = null,
@@ -569,6 +609,7 @@ data class FormFieldBlockStyle(
 )
 
 /** Option for select, chips, segmented inputs. */
+@androidx.compose.runtime.Immutable
 data class InputOption(
     val value: String,
     val label: String,
@@ -576,6 +617,7 @@ data class InputOption(
 )
 
 /** Visibility condition (SPEC-089d §6.3). */
+@androidx.compose.runtime.Stable
 data class VisibilityCondition(
     val type: String,        // always, when_equals, when_not_equals, when_not_empty, when_empty, when_gt, when_lt
     val variable: String? = null,
@@ -584,6 +626,7 @@ data class VisibilityCondition(
 )
 
 /** Entrance animation config (SPEC-089d §6.4). */
+@androidx.compose.runtime.Immutable
 data class EntranceAnimationConfig(
     val type: String = "none",    // none, fade_in, slide_up, slide_down, slide_left, slide_right, scale_up, scale_down, bounce, flip
     val duration_ms: Int = 300,
@@ -593,6 +636,7 @@ data class EntranceAnimationConfig(
 )
 
 /** Pressed/tap style config (SPEC-089d §6.5). */
+@androidx.compose.runtime.Immutable
 data class PressedStyleConfig(
     val bg_color: String? = null,
     val text_color: String? = null,

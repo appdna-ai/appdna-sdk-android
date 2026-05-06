@@ -178,6 +178,16 @@ dependencies {
     // can expose `CompletableFuture` overloads for Java consumers.
     implementation(libs.kotlinx.coroutines.jdk8)
 
+    // SPEC-070-A J.22 — kotlinx-collections-immutable. Backs the @Immutable
+    // annotations added by J.10 on hot-path Compose-consumed config DTOs
+    // (OnboardingFlowConfig, StepConfig, PaywallConfig, SurveyConfig,
+    // MessageConfig, ContentBlock, …). Without ImmutableList<T>/PersistentMap<K,V>,
+    // Compose's stability inference can't prove List<T> won't mutate underneath,
+    // so a parent re-emit always recomposes children. Migrating the iterables
+    // listed in SPEC-070-A J.22's INCLUDE list lets Compose skip recomposition
+    // when contents are structurally equal.
+    implementation(libs.kotlinx.collections.immutable)
+
     // JSON serialization (legacy — most DTOs still use this).
     implementation(libs.org.json)
     // SPEC-070-A J.5 — kotlinx-serialization-json. Future DTOs can opt in by

@@ -1,14 +1,29 @@
 package ai.appdna.sdk.messages
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+
 /**
  * SPEC-084: In-app message config models matching Firestore schema.
+ *
+ * SPEC-070-A J.10 — Compose stability: MessageConfig is read by
+ * InAppMessageRenderer Composables. Annotated `@Stable` (rather than
+ * `@Immutable`) because [MessageContent.cta_icon] / [MessageContent.secondary_cta_icon]
+ * are untyped `Any?` (caller-supplied icon refs / emoji / IconReference maps)
+ * and [TriggerCondition.value] is `Any?` — we don't widen those to a typed shape
+ * here. SPEC-070-A J.22 has no list fields to migrate on this surface
+ * (`MessageConfig.actions` does not exist on Android — the server schema only
+ * carries a single `cta_action` + a `secondary_cta_text`; iOS-listed
+ * `MessageConfig.content_blocks` likewise isn't in the Android schema).
  */
 
+@Stable
 data class MessageRoot(
     val version: Int = 1,
     val messages: Map<String, MessageConfig> = emptyMap(),
 )
 
+@Stable
 data class MessageConfig(
     val name: String,
     val message_type: MessageType,
@@ -31,6 +46,7 @@ enum class MessageType(val value: String) {
     }
 }
 
+@Stable
 data class MessageContent(
     val title: String? = null,
     val body: String? = null,
@@ -110,6 +126,7 @@ fun MessageContent.resolved(isDark: Boolean): MessageContent {
  * Sparse — only fields set here override the matching light-mode field on the
  * parent. Mirrors iOS `MessageContentDark` in `InAppMessaging/MessageConfig.swift`.
  */
+@Stable
 data class MessageContentDark(
     // Colors
     val background_color: String? = null,
@@ -132,11 +149,17 @@ data class MessageContentDark(
     val blur_backdrop: ai.appdna.sdk.core.BlurConfig? = null,
 )
 
+@Immutable
 data class CTAAction(
     val type: String, // "dismiss", "deep_link", "open_url"
     val url: String? = null,
 )
 
+// SPEC-070-A J.10 — @Stable, not @Immutable: TriggerCondition.value is `Any?`
+// (passthrough scalar/object). The `conditions` list is short-lived (evaluated
+// once per message check) and not a Compose hot path, so we keep stock `List`
+// rather than widen the API to ImmutableList.
+@Stable
 data class TriggerRules(
     val event: String,
     val conditions: List<TriggerCondition>? = null,
@@ -145,6 +168,7 @@ data class TriggerRules(
     val delay_seconds: Int? = null,
 )
 
+@Stable
 data class TriggerCondition(
     val field: String,
     val operator: String, // "eq", "gte", "lte", "gt", "lt", "contains"

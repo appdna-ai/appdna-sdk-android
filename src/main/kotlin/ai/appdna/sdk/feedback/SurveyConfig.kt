@@ -1,5 +1,7 @@
 package ai.appdna.sdk.feedback
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import org.json.JSONObject
 import org.json.JSONArray
 import ai.appdna.sdk.core.TextStyleConfig
@@ -10,15 +12,23 @@ import ai.appdna.sdk.core.ShadowStyleConfig
 import ai.appdna.sdk.core.SpacingConfig
 import ai.appdna.sdk.core.GradientConfig
 import ai.appdna.sdk.core.GradientStopConfig
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 /**
  * Firestore schema types for surveys (SPEC-023).
+ *
+ * SPEC-070-A J.10 + J.22 — Compose stability: SurveyActivity threads these
+ * DTOs directly into Composables. Hot iterables (`questions`, `options`,
+ * `conditions`) are migrated to `ImmutableList<T>` and the data classes are
+ * annotated `@Immutable` (or `@Stable` where untyped passthrough fields remain).
  */
 
+@Immutable
 data class SurveyConfig(
     val name: String,
     val surveyType: String,
-    val questions: List<SurveyQuestion>,
+    val questions: ImmutableList<SurveyQuestion>,
     val triggerRules: SurveyTriggerRules,
     val appearance: SurveyAppearance,
     val followUpActions: SurveyFollowUpActions?
@@ -26,10 +36,11 @@ data class SurveyConfig(
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyConfig? {
             return try {
+                // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
                 val questions = (data["questions"] as? List<*>)?.mapNotNull { q ->
                     @Suppress("UNCHECKED_CAST")
                     SurveyQuestion.fromMap(q as? Map<String, Any> ?: return@mapNotNull null)
-                } ?: emptyList()
+                }?.toImmutableList() ?: kotlinx.collections.immutable.persistentListOf()
 
                 @Suppress("UNCHECKED_CAST")
                 val triggerData = data["trigger_rules"] as? Map<String, Any> ?: return null
@@ -53,6 +64,7 @@ data class SurveyConfig(
     }
 }
 
+@Immutable
 data class SurveyQuestion(
     val id: String,
     val type: String,
@@ -62,7 +74,8 @@ data class SurveyQuestion(
     val npsConfig: NPSConfig?,
     val csatConfig: CSATConfig?,
     val ratingConfig: RatingConfig?,
-    val options: List<QuestionOption>?,
+    // SPEC-070-A J.22 — options iterated by survey question Composables.
+    val options: ImmutableList<QuestionOption>?,
     val emojiConfig: EmojiConfig?,
     val freeTextConfig: FreeTextConfig?,
     /**
@@ -136,6 +149,7 @@ data class SurveyQuestion(
                         icon = it["icon"] as? String,
                     )
                 },
+                // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
                 options = optionsData?.mapNotNull { o ->
                     @Suppress("UNCHECKED_CAST")
                     val om = o as? Map<String, Any> ?: return@mapNotNull null
@@ -143,7 +157,7 @@ data class SurveyQuestion(
                     // and `text` (legacy) — prefer label, fall back to text.
                     val labelOrText = (om["label"] as? String) ?: (om["text"] as? String) ?: ""
                     QuestionOption(om["id"] as? String ?: "", labelOrText, om["icon"] as? String)
-                },
+                }?.toImmutableList(),
                 emojiConfig = emojiData?.let {
                     @Suppress("UNCHECKED_CAST")
                     EmojiConfig((it["emojis"] as? List<String>) ?: listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D"))
@@ -170,6 +184,10 @@ data class SurveyQuestion(
     }
 }
 
+// SPEC-070-A J.10 — @Stable: `answerIn: List<Any>` carries untyped values
+// (mixed types from `data["answer_in"]`). Stays a plain list — Compose stability
+// is downstream of SurveyQuestion which is annotated @Immutable.
+@Stable
 data class ShowIfCondition(val questionId: String, val answerIn: List<Any>) {
     companion object {
         fun fromMap(data: Map<String, Any>): ShowIfCondition {
@@ -182,6 +200,7 @@ data class ShowIfCondition(val questionId: String, val answerIn: List<Any>) {
     }
 }
 
+@Immutable
 data class NPSConfig(val lowLabel: String?, val highLabel: String?)
 
 /**
@@ -191,6 +210,11 @@ data class NPSConfig(val lowLabel: String?, val highLabel: String?)
  * (3, 5, or 7), `labels` (per-step), and `style`; legacy SDKs wrote
  * `max_rating`. Use [resolvedMax] to read the effective scale.
  */
+// SPEC-070-A J.10 — @Stable: `labels` is a plain List<String>. Even though
+// stock List is mutable-by-interface, this leaf type is rarely re-emitted
+// independently and we don't want to widen ImmutableList contract beyond the
+// hot-path types listed in SPEC-070-A J.22.
+@Stable
 data class CSATConfig(
     /** Legacy SDK field. Prefer [scale] when both are set. */
     val maxRating: Int = 5,
@@ -212,6 +236,7 @@ data class CSATConfig(
  * `max_rating` + `style`. Use [resolvedMax] / [resolvedIcon] for the effective
  * values.
  */
+@Immutable
 data class RatingConfig(
     /** Legacy SDK field. Prefer [max] when both are set. */
     val maxRating: Int = 5,
@@ -227,8 +252,11 @@ data class RatingConfig(
     /** Effective icon — prefer Firestore [icon], fall back to legacy [style]. */
     val resolvedIcon: String get() = icon ?: style
 }
+@Immutable
 data class QuestionOption(val id: String, val text: String, val icon: String?)
+@Stable
 data class EmojiConfig(val emojis: List<String> = listOf("\uD83D\uDE21", "\uD83D\uDE15", "\uD83D\uDE10", "\uD83D\uDE0A", "\uD83D\uDE0D"))
+@Immutable
 data class FreeTextConfig(val placeholder: String?, val maxLength: Int = 500)
 
 /**
@@ -238,6 +266,7 @@ data class FreeTextConfig(val placeholder: String?, val maxLength: Int = 500)
  * `max` (canonical) or `scale` (single-int max alias). Anchor labels accept
  * either `low_label`/`high_label` or `left_label`/`right_label`.
  */
+@Immutable
 data class LikertConfig(
     val min: Int = 1,
     val max: Int = 5,
@@ -292,6 +321,11 @@ data class SurveyTriggerRules(
 
 data class TriggerCondition(val field: String, val operator: String, val value: Any?)
 
+// SPEC-070-A J.10 — @Stable: SurveyAppearance is threaded into SurveyActivity
+// Composables. All fields are nullable primitives or fully-immutable holders;
+// the legacy `theme` is mergeable so Compose can short-circuit re-emits when
+// the resolved theme is structurally equal.
+@Stable
 data class SurveyAppearance(
     val presentation: String,
     val theme: SurveyTheme?,
@@ -615,6 +649,7 @@ data class SurveyAppearance(
  * render time — `theme.dark` lives on [SurveyAppearance] and is resolved by
  * [SurveyAppearance.resolveTheme]. Mirrors iOS `SurveyTheme: SparseMergeable`.
  */
+@Immutable
 data class SurveyTheme(
     val backgroundColor: String? = null,
     val textColor: String? = null,

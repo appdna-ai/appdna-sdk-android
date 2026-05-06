@@ -4,6 +4,9 @@ import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.core.AudienceRuleEvaluator
 import ai.appdna.sdk.core.ConditionEvaluator
 import java.util.concurrent.locks.ReentrantLock
+// SPEC-070-A J.22 — ScreenConfig.sections is ImmutableList<ScreenSection> for
+// Compose stability; override-merging needs to re-wrap after .map { ... }.
+import kotlinx.collections.immutable.toImmutableList
 
 // SPEC-070-A B.6 — visibility relaxed from `internal` to public so hosts can
 // register an `AppDNAScreenDelegate` via `ScreenManager.shared.setDelegate(...)`.
@@ -192,7 +195,7 @@ class ScreenManager private constructor() {
                         }
                         if (overrideSections != null) {
                             resolvedConfig = config.copy(
-                                sections = overrideSections.map { ScreenSection.fromMap(it) },
+                                sections = overrideSections.map { ScreenSection.fromMap(it) }.toImmutableList(),
                                 presentation = overridePresentation ?: config.presentation,
                                 background = overrideBackground ?: config.background,
                             )

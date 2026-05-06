@@ -1,17 +1,31 @@
 package ai.appdna.sdk.paywalls
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
+
 /**
  * Codable structs matching SPEC-002 Firestore PaywallConfig schema (Android).
+ *
+ * SPEC-070-A J.10 + J.22 — Compose-consumed paywall DTOs are annotated
+ * `@Immutable` (or `@Stable` where iterables stay typed and a few raw JSON
+ * passthrough fields remain). Hot-path iterables (`sections`, `features`,
+ * `plans`) use `ImmutableList<T>` so a parent re-emit with structurally-equal
+ * data short-circuits PaywallActivity recompositions.
  */
+@Stable
 data class PaywallConfig(
     val id: String,
     val name: String,
     val layout: PaywallLayout,
-    val sections: List<PaywallSection>,
+    // SPEC-070-A J.22 — sections is the hot iteration path in PaywallActivity.
+    val sections: ImmutableList<PaywallSection>,
     val dismiss: PaywallDismiss? = null,
     val background: PaywallBackground? = null,
     // SPEC-084: Design tokens
     val animation: ai.appdna.sdk.core.AnimationConfig? = null,
+    // J.22 EXCLUDE: localizations is a passthrough JSON Map (per spec).
     val localizations: Map<String, Map<String, String>>? = null,
     val default_locale: String? = null,
     // SPEC-085: Rich media
@@ -27,6 +41,7 @@ data class PaywallConfig(
     val audience_rules: Any? = null,
 )
 
+@Immutable
 data class PaywallLayout(
     val type: String, // "stack", "grid", "carousel"
     val spacing: Float? = null,
@@ -36,6 +51,7 @@ data class PaywallLayout(
     val plan_display_style: String? = null,
 )
 
+@Immutable
 data class PaywallSection(
     val type: String, // "header", "features", "plans", "cta", "social_proof", "guarantee", "image", "spacer", "testimonial", "lottie", "video", "rive", "countdown", "legal", "divider", "sticky_footer", "card", "carousel", "timeline", "icon_grid", "comparison_table", "promo_input", "toggle", "reviews_carousel"
     val data: PaywallSectionData? = null,
@@ -46,6 +62,11 @@ data class PaywallSection(
     val collapse_on_scroll: Boolean? = null,
 )
 
+// SPEC-070-A J.10 — @Stable rather than @Immutable: the legacy `style: Any?`
+// on PaywallCTA, the `Map<String, String>?` on labels, and links/items raw JSON
+// all live here. Hot iterables (features/plans/items) ARE migrated to
+// ImmutableList for Compose stability per SPEC-070-A J.22.
+@Stable
 data class PaywallSectionData(
     // Header
     val title: String? = null,
@@ -53,10 +74,12 @@ data class PaywallSectionData(
     val image_url: String? = null,
 
     // Features
-    val features: List<String>? = null,
+    // SPEC-070-A J.22 — features list iterated by PaywallActivity FeaturesSection.
+    val features: ImmutableList<String>? = null,
 
     // Plans
-    val plans: List<PaywallPlan>? = null,
+    // SPEC-070-A J.22 — plans list iterated by PaywallActivity / LazyColumn.
+    val plans: ImmutableList<PaywallPlan>? = null,
 
     // CTA
     val cta: PaywallCTA? = null,
@@ -259,11 +282,13 @@ data class PaywallReview(
  * Structured trial config: `{ duration_days, label }`. Mirrors iOS
  * `PaywallPlanTrial`. SPEC-070-A F.8.
  */
+@Immutable
 data class PaywallPlanTrial(
     val duration_days: Int? = null,
     val label: String? = null,
 )
 
+@Immutable
 data class PaywallPlan(
     val id: String,
     val product_id: String,
@@ -279,7 +304,8 @@ data class PaywallPlan(
     // SPEC-070-A F.8: rich plan metadata (iOS parity)
     val trial: PaywallPlanTrial? = null,
     val description: String? = null,
-    val features: List<String>? = null,
+    // SPEC-070-A J.22 — features per plan iterated by Compose plan card.
+    val features: ImmutableList<String>? = null,
     val savings_text: String? = null,
     val cta_text: String? = null,
     val icon: String? = null,
@@ -478,7 +504,8 @@ internal object PaywallConfigParser {
         )
 
         val sectionsList = map["sections"] as? List<Map<String, Any>> ?: emptyList()
-        val sections = sectionsList.map { parseSectionFromMap(it) }
+        // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
+        val sections = sectionsList.map { parseSectionFromMap(it) }.toImmutableList()
 
         val dismissMap = map["dismiss"] as? Map<String, Any>
         val dismiss = dismissMap?.let {
@@ -645,12 +672,13 @@ internal object PaywallConfigParser {
                 title = d["title"] as? String,
                 subtitle = d["subtitle"] as? String,
                 image_url = d["image_url"] as? String,
-                features = (d["features"] as? List<*>)?.filterIsInstance<String>(),
+                // SPEC-070-A J.22 — wrap features/plans as ImmutableList.
+                features = (d["features"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
                 plans = (d["plans"] as? List<*>)?.mapNotNull { planData ->
                     if (planData is Map<*, *>) {
                         parsePlanFromMap(planData as Map<String, Any>)
                     } else null
-                },
+                }?.toImmutableList(),
                 cta = (d["cta"] as? Map<String, Any>)?.let { ctaMap ->
                     val rawStyle = ctaMap["style"]
                     val styleMap = rawStyle as? Map<*, *>
@@ -974,7 +1002,8 @@ internal object PaywallConfigParser {
             // SPEC-070-A F.8
             trial = trial,
             description = map["description"] as? String,
-            features = (map["features"] as? List<*>)?.filterIsInstance<String>(),
+            // SPEC-070-A J.22 — plan features list immutable for Compose stability.
+            features = (map["features"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
             savings_text = map["savings_text"] as? String,
             cta_text = map["cta_text"] as? String,
             icon = map["icon"] as? String,

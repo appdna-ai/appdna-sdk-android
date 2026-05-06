@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,7 +20,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +55,15 @@ import java.net.URL
  */
 class OnboardingActivity : ComponentActivity() {
 
+    /**
+     * SPEC-070-A J.21 — VM-backed state survives config changes / process
+     * death without leaking pre-launch lambdas across distinct flow launches.
+     * `by viewModels()` scopes the VM to THIS Activity instance (each launch
+     * is a new ViewModelStoreOwner), so Activity-A's flow never bleeds into
+     * Activity-B's flow.
+     */
+    private val viewModel: OnboardingViewModel by viewModels()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -63,7 +73,21 @@ class OnboardingActivity : ComponentActivity() {
         // so Compose receives IME inset changes.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        val flow = pendingFlow ?: run {
+        // SPEC-070-A J.21 — first-launch path: drain the next-launch payload
+        // into the VM. On a config-change recreate the VM is already bound,
+        // so we skip rebinding (preserving live currentIndex / responses).
+        if (!viewModel.isBound) {
+            val payload = consumePendingLaunchPayload()
+            if (payload == null) {
+                // No payload + no bound VM == process was killed before
+                // onCreate ran (cold restart with no flow to resume). Bail.
+                finish()
+                return
+            }
+            viewModel.bind(payload)
+        }
+
+        val flow = viewModel.flow ?: run {
             finish()
             return
         }
@@ -72,11 +96,18 @@ class OnboardingActivity : ComponentActivity() {
         // `savedInstanceState` so process-death / config-change rotations
         // re-enter the flow on the same step with prior answers intact.
         // Mirrors iOS `OnboardingRenderer` `@SceneStorage` round-trip.
-        if (savedInstanceState != null) {
+        //
+        // Process-death case: the VM was destroyed along with the Activity,
+        // so `viewModel.responses` is empty here — we hydrate it from the
+        // bundle. Config-change case: the VM survived, so we DON'T overwrite
+        // its in-memory state with a (potentially stale) bundle snapshot.
+        if (savedInstanceState != null && viewModel.responses.isEmpty() &&
+            viewModel.currentIndex.intValue == 0
+        ) {
             val savedIndex = savedInstanceState.getInt(KEY_CURRENT_STEP_INDEX, 0)
             val savedResponsesJson = savedInstanceState.getString(KEY_RESPONSES)
-            restoredStepIndex = savedIndex.coerceAtLeast(0)
-            restoredResponses = savedResponsesJson?.let { json ->
+            viewModel.restoredStepIndex = savedIndex.coerceAtLeast(0)
+            viewModel.restoredResponses = savedResponsesJson?.let { json ->
                 try {
                     val obj = org.json.JSONObject(json)
                     val map = mutableMapOf<String, Any>()
@@ -86,14 +117,6 @@ class OnboardingActivity : ComponentActivity() {
             }
         }
 
-        val delegate = pendingDelegate
-        val eventTracker = pendingEventTracker
-        val onStepViewed = pendingOnStepViewed
-        val onStepCompleted = pendingOnStepCompleted
-        val onStepSkipped = pendingOnStepSkipped
-        val onFlowCompleted = pendingOnFlowCompleted
-        val onFlowDismissed = pendingOnFlowDismissed
-
         setContent {
             // SPEC-070-A D.5 — system dark-mode pref so onboarding renderers
             // can pick `dark` overrides from console content blocks.
@@ -101,24 +124,25 @@ class OnboardingActivity : ComponentActivity() {
             MaterialTheme {
                 OnboardingFlowHost(
                     flow = flow,
-                    delegate = delegate,
-                    eventTracker = eventTracker,
+                    viewModel = viewModel,
+                    delegate = viewModel.delegate,
+                    eventTracker = viewModel.eventTracker,
                     isDark = isDark,
                     onStepViewed = { stepId, stepIndex ->
-                        onStepViewed?.invoke(stepId, stepIndex)
+                        viewModel.onStepViewed?.invoke(stepId, stepIndex)
                     },
                     onStepCompleted = { stepId, stepIndex, data ->
-                        onStepCompleted?.invoke(stepId, stepIndex, data)
+                        viewModel.onStepCompleted?.invoke(stepId, stepIndex, data)
                     },
                     onStepSkipped = { stepId, stepIndex ->
-                        onStepSkipped?.invoke(stepId, stepIndex)
+                        viewModel.onStepSkipped?.invoke(stepId, stepIndex)
                     },
                     onFlowCompleted = { responses ->
-                        onFlowCompleted?.invoke(responses)
+                        viewModel.onFlowCompleted?.invoke(responses)
                         cleanup()
                     },
                     onFlowDismissed = { lastStepId, lastStepIndex ->
-                        onFlowDismissed?.invoke(lastStepId, lastStepIndex)
+                        viewModel.onFlowDismissed?.invoke(lastStepId, lastStepIndex)
                         cleanup()
                     }
                 )
@@ -127,14 +151,11 @@ class OnboardingActivity : ComponentActivity() {
     }
 
     private fun cleanup() {
-        pendingFlow = null
-        pendingDelegate = null
-        pendingEventTracker = null
-        pendingOnStepViewed = null
-        pendingOnStepCompleted = null
-        pendingOnStepSkipped = null
-        pendingOnFlowCompleted = null
-        pendingOnFlowDismissed = null
+        // SPEC-070-A J.21 — null out delegate + lambda captures eagerly so a
+        // stray reference to the VM (e.g. held by a still-running coroutine)
+        // doesn't keep the host's strategy/view-model graph alive past the
+        // flow end. The full VM is also auto-cleared by Android on finish().
+        viewModel.reset()
         finish()
     }
 
@@ -143,7 +164,7 @@ class OnboardingActivity : ComponentActivity() {
         // when handling the system back button. When dismissal is disallowed
         // the flow intercepts back, mirroring iOS force-flow behavior.
         // (allow_back gates step-back navigation, not the global dismiss.)
-        val flow = pendingFlow
+        val flow = viewModel.flow
         val canDismiss = flow?.settings?.dismiss_allowed ?: true
         if (!canDismiss) {
             // Force-flow: ignore system back to prevent accidental abandonment.
@@ -152,7 +173,7 @@ class OnboardingActivity : ComponentActivity() {
         @Suppress("DEPRECATION")
         super.onBackPressed()
         flow?.let { f ->
-            pendingOnFlowDismissed?.invoke(f.steps.firstOrNull()?.id ?: "", 0)
+            viewModel.onFlowDismissed?.invoke(f.steps.firstOrNull()?.id ?: "", 0)
         }
         cleanup()
     }
@@ -163,10 +184,10 @@ class OnboardingActivity : ComponentActivity() {
      */
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putInt(KEY_CURRENT_STEP_INDEX, savedStepIndex)
+        outState.putInt(KEY_CURRENT_STEP_INDEX, viewModel.currentIndex.intValue)
         try {
             val obj = org.json.JSONObject()
-            for ((k, v) in savedResponses) {
+            for ((k, v) in viewModel.responses) {
                 obj.put(k, when (v) {
                     is Map<*, *> -> org.json.JSONObject(v as Map<String, Any?>)
                     is List<*> -> org.json.JSONArray(v)
@@ -177,21 +198,57 @@ class OnboardingActivity : ComponentActivity() {
         } catch (_: Throwable) { /* best-effort */ }
     }
 
+    /**
+     * SPEC-070-A J.21 — typed payload handed off from
+     * [OnboardingFlowManager.present] to the next [OnboardingActivity]
+     * `onCreate`. Replaces the previous bag-of-companion-statics. Each
+     * Activity instance consumes the slot exactly once on first
+     * `onCreate` then writes it into its [OnboardingViewModel] so the
+     * payload's lifetime is bounded to that Activity instance.
+     */
+    internal data class LaunchPayload(
+        val flow: OnboardingFlowConfig,
+        val delegate: AppDNAOnboardingDelegate?,
+        val eventTracker: EventTracker?,
+        val onStepViewed: ((String, Int) -> Unit)?,
+        val onStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)?,
+        val onStepSkipped: ((String, Int) -> Unit)?,
+        val onFlowCompleted: ((Map<String, Any>) -> Unit)?,
+        val onFlowDismissed: ((String, Int) -> Unit)?,
+    )
+
     companion object {
         private const val KEY_CURRENT_STEP_INDEX = "appdna_onboarding_current_step_index"
         private const val KEY_RESPONSES = "appdna_onboarding_responses"
-        @Volatile internal var restoredStepIndex: Int? = null
-        @Volatile internal var restoredResponses: Map<String, Any>? = null
-        @Volatile internal var savedStepIndex: Int = 0
-        @Volatile internal var savedResponses: Map<String, Any> = emptyMap()
-        private var pendingFlow: OnboardingFlowConfig? = null
-        private var pendingDelegate: AppDNAOnboardingDelegate? = null
-        private var pendingEventTracker: EventTracker? = null
-        private var pendingOnStepViewed: ((String, Int) -> Unit)? = null
-        private var pendingOnStepCompleted: ((String, Int, Map<String, Any>?) -> Unit)? = null
-        private var pendingOnStepSkipped: ((String, Int) -> Unit)? = null
-        private var pendingOnFlowCompleted: ((Map<String, Any>) -> Unit)? = null
-        private var pendingOnFlowDismissed: ((String, Int) -> Unit)? = null
+
+        /**
+         * SPEC-070-A J.21 — single-slot next-launch payload. Set by [launch]
+         * immediately before `startActivity()` and consumed by `onCreate`
+         * via [consumePendingLaunchPayload]. Volatile because [launch]
+         * may be called from any thread and `onCreate` runs on Main.
+         *
+         * Only one onboarding flow can be in-flight at a time. The flow
+         * manager doesn't enforce this — but the app itself does, since
+         * `presentOnboarding(...)` always blocks the calling Activity
+         * until the system stacks the new OnboardingActivity. If a host
+         * stacks a second `launch()` before the first `onCreate` ran the
+         * later one wins (matches the previous companion-static behavior;
+         * we tolerate this edge case rather than queue).
+         */
+        @Volatile
+        private var pendingLaunchPayload: LaunchPayload? = null
+
+        /**
+         * Atomically read + clear the next-launch payload. Returns null if
+         * no flow was queued (cold restart with no caller, or a same-process
+         * recreate where the VM should already be bound).
+         */
+        @Synchronized
+        private fun consumePendingLaunchPayload(): LaunchPayload? {
+            val p = pendingLaunchPayload
+            pendingLaunchPayload = null
+            return p
+        }
 
         internal fun launch(
             context: Context,
@@ -204,14 +261,16 @@ class OnboardingActivity : ComponentActivity() {
             onFlowCompleted: ((Map<String, Any>) -> Unit)? = null,
             onFlowDismissed: ((String, Int) -> Unit)? = null
         ) {
-            pendingFlow = flow
-            pendingDelegate = delegate
-            pendingEventTracker = eventTracker
-            pendingOnStepViewed = onStepViewed
-            pendingOnStepCompleted = onStepCompleted
-            pendingOnStepSkipped = onStepSkipped
-            pendingOnFlowCompleted = onFlowCompleted
-            pendingOnFlowDismissed = onFlowDismissed
+            pendingLaunchPayload = LaunchPayload(
+                flow = flow,
+                delegate = delegate,
+                eventTracker = eventTracker,
+                onStepViewed = onStepViewed,
+                onStepCompleted = onStepCompleted,
+                onStepSkipped = onStepSkipped,
+                onFlowCompleted = onFlowCompleted,
+                onFlowDismissed = onFlowDismissed,
+            )
 
             val intent = Intent(context, OnboardingActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -224,6 +283,13 @@ class OnboardingActivity : ComponentActivity() {
 @Composable
 internal fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
+    // SPEC-070-A J.21 — VM is the single source of truth for `currentIndex`
+    // + `responses`. The composable observes Compose state inside the VM
+    // directly so writes survive Activity recreation without a separate
+    // mirroring `LaunchedEffect`. Optional for tests / previews that build
+    // the host without an Activity — when null we fall back to local
+    // `remember`-backed state, mirroring the original behavior.
+    viewModel: OnboardingViewModel? = null,
     delegate: AppDNAOnboardingDelegate? = null,
     eventTracker: EventTracker? = null,
     onStepViewed: (String, Int) -> Unit,
@@ -235,20 +301,44 @@ internal fun OnboardingFlowHost(
     // overrides from the console are picked correctly.
     @Suppress("UNUSED_PARAMETER") isDark: Boolean = false,
 ) {
-    // SPEC-070-A I.7 — initial state seeds from Activity-restored values when
-    // available (config-change / process-death rotation), otherwise default.
-    val initialIndex = OnboardingActivity.restoredStepIndex ?: 0
-    val initialResponses = OnboardingActivity.restoredResponses ?: emptyMap()
-    var currentIndex by rememberSaveable { mutableIntStateOf(initialIndex) }
-    val responses = remember { mutableStateMapOf<String, Any>().apply { putAll(initialResponses) } }
+    // SPEC-070-A J.21 — when running under an Activity, use the VM's state
+    // directly so the composable's `currentIndex` / `responses` survive
+    // Activity recreation. When the VM is null (test / preview path) fall
+    // back to local `remember`-backed state seeded from the legacy
+    // process-death restore route below.
+    val currentIndexState = viewModel?.currentIndex
+        ?: remember { mutableIntStateOf(0) }
+    val responses: SnapshotStateMap<String, Any> = viewModel?.responses
+        ?: remember { mutableStateMapOf() }
+
+    // SPEC-070-A I.7 — one-shot consume the process-death restore snapshot.
+    // The VM holds the snapshot when the Activity rehydrated from
+    // `savedInstanceState` and the responses map was empty (cold restore).
+    LaunchedEffect(viewModel) {
+        val vm = viewModel ?: return@LaunchedEffect
+        val ri = vm.restoredStepIndex
+        val rr = vm.restoredResponses
+        if (ri != null) {
+            currentIndexState.intValue = ri
+            vm.restoredStepIndex = null
+        }
+        if (rr != null) {
+            responses.putAll(rr)
+            vm.restoredResponses = null
+        }
+    }
+
+    // SPEC-070-A J.21 — Compose's `MutableIntState` `getValue` / `setValue`
+    // operator extensions let us bind a local `var` to the VM-backed state
+    // so the rest of the composable body keeps its existing assignment
+    // syntax (`currentIndex++`, `currentIndex = targetIndex`) while writes
+    // route through `currentIndexState.intValue` and survive recreation.
+    var currentIndex by currentIndexState
+
     // SPEC-070-A J.2 — haptic feedback for step advance / back / dismiss /
     // button-tap interactions, gated by `flow.settings.haptic.enabled`.
     val hostView = LocalView.current
     val hapticConfig = flow.settings.haptic
-    // Mirror current state back to the Activity companion so onSaveInstanceState
-    // can write the latest values when the system asks to persist.
-    LaunchedEffect(currentIndex) { OnboardingActivity.savedStepIndex = currentIndex }
-    LaunchedEffect(responses.size) { OnboardingActivity.savedResponses = responses.toMap() }
     val coroutineScope = rememberCoroutineScope()
 
     // SPEC-083: Hook state
