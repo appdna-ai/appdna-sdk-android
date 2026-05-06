@@ -157,7 +157,17 @@ data class StepConfig(
     val element_style: ai.appdna.sdk.core.ElementStyleConfig? = null,
     val animation: ai.appdna.sdk.core.AnimationConfig? = null,
     val localizations: Map<String, Map<String, String>>? = null,
-    val default_locale: String? = null
+    val default_locale: String? = null,
+
+    // SPEC-070-A audit Round 2-restart attempt 2 F1+F2:
+    // (F1) layout-level `next_step_rules` so the editor's Logic panel can
+    //      author rules under `step.config.next_step_rules` (mirroring iOS
+    //      OnboardingRenderer.swift:761-766 where layout rules are preferred
+    //      when richer than step-level).
+    // (F2) per-step `progress_color` override consulted by OnboardingActivity
+    //      progress-bar theming (mirrors iOS OnboardingRenderer.swift:174-186).
+    val next_step_rules: List<NextStepRule>? = null,
+    val progress_color: String? = null
 )
 
 data class QuestionOption(
@@ -899,14 +909,44 @@ internal object OnboardingConfigParser {
 
         // Parse next_step_rules — SPEC-070-A A.21: also pull `conditions` array + `logic`
         // so the iOS multi-condition shape (`OnboardingConfig.swift:122-127`) round-trips.
-        @Suppress("UNCHECKED_CAST")
-        val nextStepRules = (map["next_step_rules"] as? List<*>)?.mapNotNull { r ->
+        val nextStepRules = parseNextStepRulesList(map["next_step_rules"])
+        // SPEC-070-A audit Round 2-restart attempt 2 F1: also parse layout
+        // rules under `step.config.next_step_rules` (the editor's Logic-panel
+        // path). These get folded into the StepConfig so iOS-style preference
+        // logic (layout rules > step rules when richer) can run client-side.
+        val configLayoutRules = parseNextStepRulesList(configMap["next_step_rules"])
+        // SPEC-070-A audit Round 2-restart attempt 2 F2: per-step
+        // progress-color override read from configMap.
+        val progressColor = configMap["progress_color"] as? String
+
+        val configWithLayoutRules = if (configLayoutRules != null || progressColor != null) {
+            config.copy(next_step_rules = configLayoutRules, progress_color = progressColor)
+        } else config
+
+        return OnboardingStep(
+            id = map["id"] as? String ?: "",
+            type = OnboardingStep.StepType.fromString(typeStr),
+            config = configWithLayoutRules,
+            hook = hook,
+            hide_progress = map["hide_progress"] as? Boolean,
+            next_step_rules = nextStepRules
+        )
+    }
+
+    /**
+     * Shared parser for `next_step_rules` arrays — used at both the step level
+     * and the step.config (layout) level so the editor's Logic panel can write
+     * to either path. Mirrors iOS `OnboardingRenderer.swift:761-766`.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun parseNextStepRulesList(raw: Any?): List<NextStepRule>? {
+        return (raw as? List<*>)?.mapNotNull { r ->
             if (r is Map<*, *>) {
                 val rm = r as Map<String, Any>
                 val conditionsRaw = rm["conditions"] as? List<*>
                 val conditionsList = conditionsRaw?.mapNotNull { entry ->
                     when (entry) {
-                        is Map<*, *> -> @Suppress("UNCHECKED_CAST") (entry as Map<String, Any?>)
+                        is Map<*, *> -> (entry as Map<String, Any?>)
                         is String -> mapOf<String, Any?>("type" to entry)
                         else -> null
                     }
@@ -919,15 +959,6 @@ internal object OnboardingConfigParser {
                 )
             } else null
         }
-
-        return OnboardingStep(
-            id = map["id"] as? String ?: "",
-            type = OnboardingStep.StepType.fromString(typeStr),
-            config = config,
-            hook = hook,
-            hide_progress = map["hide_progress"] as? Boolean,
-            next_step_rules = nextStepRules
-        )
     }
 
     /**

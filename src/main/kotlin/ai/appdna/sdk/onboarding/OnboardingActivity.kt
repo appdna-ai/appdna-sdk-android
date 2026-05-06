@@ -337,7 +337,19 @@ internal fun OnboardingFlowHost(
         // OnboardingRenderer.advanceStep()).
         HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
         val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
-        val rules = step?.next_step_rules
+        // SPEC-070-A audit Round 2-restart attempt 2 F1: prefer the
+        // layout-level `step.config.next_step_rules` (Logic-panel-authored)
+        // when it carries richer `conditions[]` than the step-level rules.
+        // Mirrors iOS OnboardingRenderer.swift:761-766.
+        val stepRules = step?.next_step_rules
+        val layoutRules = step?.config?.next_step_rules
+        val hasLayoutConditions = layoutRules?.any { !it.conditions.isNullOrEmpty() } == true
+        val hasStepConditions = stepRules?.any { !it.conditions.isNullOrEmpty() } == true
+        val rules = when {
+            hasLayoutConditions && !hasStepConditions -> layoutRules
+            !stepRules.isNullOrEmpty() -> stepRules
+            else -> layoutRules
+        }
         val isLastStep = currentIndex >= flow.steps.size - 1
         if (step != null && !rules.isNullOrEmpty()) {
             // SPEC-070-A A.21: evaluate `condition` / `conditions[]` per iOS
@@ -506,7 +518,13 @@ internal fun OnboardingFlowHost(
             // Progress bar (Gap 9: custom progress_color/progress_track_color)
             // hide_progress per-step: hidden on this step but still counts in total
             if (flow.settings.show_progress && currentStep?.hide_progress != true) {
-                val progressColor = flow.settings.progress_color?.let {
+                // SPEC-070-A audit Round 2-restart attempt 2 F2: progress
+                // color resolution mirrors iOS OnboardingRenderer.swift:174-186
+                // — step.config.progress_color > step.config.element_style?
+                // .background?.color > flow.settings.progress_color > default.
+                val stepProgressColor = currentStep?.config?.progress_color
+                    ?: currentStep?.config?.element_style?.background?.color
+                val progressColor = (stepProgressColor ?: flow.settings.progress_color)?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: MaterialTheme.colorScheme.primary
                 val progressTrackColor = flow.settings.progress_track_color?.let {

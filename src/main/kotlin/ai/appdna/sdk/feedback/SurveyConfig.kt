@@ -85,7 +85,14 @@ data class SurveyQuestion(
             val emojiData = data["emoji_config"] as? Map<String, Any>
             @Suppress("UNCHECKED_CAST")
             val freeTextData = data["free_text_config"] as? Map<String, Any>
-            val optionsData = data["options"] as? List<*>
+            // SPEC-070-A audit Round 2-restart attempt 2 F3: prefer the
+            // Firestore-canonical `choice_config.options` container, fall back
+            // to the legacy flat `options` field. Mirrors iOS
+            // SurveyQuestion.options resolver (SurveyConfig.swift:23-46).
+            @Suppress("UNCHECKED_CAST")
+            val choiceConfig = data["choice_config"] as? Map<String, Any>
+            val optionsData = (choiceConfig?.get("options") as? List<*>)
+                ?: (data["options"] as? List<*>)
 
             return SurveyQuestion(
                 id = data["id"] as? String ?: "",
