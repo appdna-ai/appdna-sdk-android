@@ -1,13 +1,7 @@
 package ai.appdna.sdk.core
 
-// TODO(SPEC-070-A A.8 wiring): instantiated in AppDNA.kt configure block.
-// Required call site: inside `AppDNA.configure(...)` once `eventTracker`
-// and `appContext` are non-null (after step 4 "Initialize event system"),
-// add:
-//
-//     val sessionMgr = SessionManager(appContext, tracker, SessionDataStore.instance!!)
-//     this.sessionManager = sessionMgr
-//     sessionMgr.start()
+// SPEC-070-A A.8 — instantiated + started in AppDNA.kt configure() (see the
+// `// SPEC-070-A A.8: SessionManager` block in that file).
 //
 // And expose the live session id to the event envelope by calling
 // `eventTracker.setSessionIdProvider { sessionMgr.currentSessionId() }`

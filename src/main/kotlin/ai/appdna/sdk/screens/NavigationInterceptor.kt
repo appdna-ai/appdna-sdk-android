@@ -1,22 +1,9 @@
 package ai.appdna.sdk.screens
 
-// TODO(SPEC-070-A A.10 wiring):
-//   1. AppDNA.configure() must call, when the host passes an Application
-//      context (most callers pass `applicationContext`):
-//          (context.applicationContext as? android.app.Application)
-//              ?.registerActivityLifecycleCallbacks(
-//                  NavigationInterceptorActivityCallbacks(NavigationInterceptor.shared)
-//              )
-//      Sibling subagent will plumb this into the configure() block once
-//      the Application reference is hoisted.
-//   2. AppDNA.kt must expose:
-//          fun notifyScreenAppeared(screenName: String) {
-//              ai.appdna.sdk.screens.NavigationInterceptor.shared.notifyScreenAppeared(screenName)
-//          }
-//      so Compose-only screens (no Activity-per-screen) can manually
-//      announce route changes. iOS gets this for free via swizzle;
-//      Android requires the call site since reflection-based hooks are
-//      forbidden by Play policy.
+// SPEC-070-A A.10 — Application.ActivityLifecycleCallbacks wired in
+// AppDNA.configure() via NavigationInterceptorActivityCallbacks. The public
+// `AppDNA.notifyScreenAppeared(screenName)` API exists for Compose-only
+// screens (no Activity per screen).
 
 import android.app.Activity
 import android.app.Application

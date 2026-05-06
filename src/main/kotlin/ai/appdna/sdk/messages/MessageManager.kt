@@ -1,25 +1,16 @@
 package ai.appdna.sdk.messages
 
-// TODO(SPEC-070-A A.9 wiring):
-//   1. AppDNA.kt:318-322 `track()` must call `messageManager?.onEvent(event, properties)`
-//      AFTER `eventTracker.track(...)` and BEFORE `surveyManager?.onEvent(...)` —
-//      iOS ordering: events → messages → surveys (so message veto can race
-//      with survey eligibility correctly).
-//   2. AppDNA.kt:304-311 `reset()` must call `messageManager?.resetSession()`
-//      so in-session frequency counters + presentation queue are cleared
-//      alongside other identity state.
-//   3. AppDNA.kt configure() must instantiate `messageManager` AFTER
-//      `remoteConfigManager` + `eventTracker` are non-null:
-//          this.messageManager = MessageManager(
-//              context = appContext,
-//              configProvider = { remoteCfg.getActiveMessages() },
-//              renderer = InAppMessageRenderer.shared,
-//              frequencyStore = SessionDataStore.instance!!,
-//          )
-//      `RemoteConfigManager.getActiveMessages()` does not exist yet —
-//      sibling subagent adds it as part of A.9 wiring (parses the `messages`
-//      Firestore doc into Map<String, MessageConfig> and date-range filters
-//      out inactive entries; iOS equivalent at `RemoteConfigManager.swift`).
+// SPEC-070-A A.9 — instantiated in AppDNA.kt configure(); track() fans out
+// to onEvent(); reset() calls resetSession(). The configProvider lambda
+// reads from `AppDNA.activeMessages`, a snapshot Map<String, MessageConfig>
+// updated by the RemoteConfigManager messages handler.
+//
+// Note: full Firestore-doc parsing into the activeMessages snapshot is part
+// of the messages remote-config wiring (RemoteConfigManager messageUpdateHandler,
+// to be added when the active-messages Firestore doc shape ships in console).
+// Until that handler is wired, configProvider returns an empty map and the
+// trigger evaluator runs but has nothing to evaluate — A.9 mechanism is in
+// place; activation is decoupled.
 
 import android.app.Activity
 import android.content.Context
