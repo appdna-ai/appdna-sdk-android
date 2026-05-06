@@ -206,14 +206,15 @@ internal class SurveyManager(
         // schema requires `user_id` + ISO8601 `completed_at`; the device
         // field is `device_type` (not `device`). Coordinated with iOS to
         // emit the same shape.
-        // user_id is persisted under LocalStorage key "user_id" by
-        // IdentityManager.identify(...) — read directly from SharedPreferences
-        // because IdentityManager is internal. Empty/null when the host has
-        // never called identify().
-        val userId = try {
-            context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
-                .getString("user_id", null)
-        } catch (_: Throwable) { null }
+        // SPEC-070-A final audit pass I F1 — go through the public
+        // `AppDNA.getCurrentUserId()` accessor instead of reading the
+        // plaintext SharedPreferences directly. Once LocalStorage migrates
+        // identity into the encrypted store (`ai.appdna.sdk.secure`), the
+        // plaintext file is wiped and the direct read returned null even
+        // for identified users, which made `submitResponse` post
+        // `"user_id": "anonymous"` for paying customers. iOS reads via
+        // `AppDNA.currentUserId` (Keychain-backed); Android now mirrors.
+        val userId = AppDNA.getCurrentUserId()
         val completedAt = run {
             val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
             sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
