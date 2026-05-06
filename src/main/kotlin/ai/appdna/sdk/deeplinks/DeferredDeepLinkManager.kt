@@ -2,11 +2,23 @@ package ai.appdna.sdk.deeplinks
 
 import android.content.Context
 import android.net.Uri
+import android.provider.Settings
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.events.EventTracker
 import com.android.installreferrer.api.InstallReferrerClient
 import com.android.installreferrer.api.InstallReferrerStateListener
-import ai.appdna.sdk.AppDNA
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
+import java.security.MessageDigest
+import kotlin.coroutines.resume
 
 /**
  * A resolved deferred deep link.
@@ -26,6 +38,16 @@ data class DeferredDeepLink(
 /**
  * Checks for and resolves deferred deep links on first app launch.
  * Path: /orgs/{orgId}/apps/{appId}/config/deferred_deep_links/{visitorId}
+ *
+ * SPEC-070-A H.11:
+ *   (a) Install Referrer call moved off the main thread into a coroutine — was
+ *       previously blocking with `CountDownLatch.await(2s)`.
+ *   (b) When the resolved doc carries `screen_id`, [AppDNA.showScreen] is
+ *       auto-invoked after 0.5s so the host doesn't have to wire a handler
+ *       manually.
+ *   (c) Adds a `Settings.Secure.ANDROID_ID` fingerprint fallback strategy
+ *       (iOS-IDFV equivalent) — used when neither clipboard nor Install
+ *       Referrer surfaced a visitor ID.
  */
 internal class DeferredDeepLinkManager(
     private val context: Context,
@@ -36,7 +58,14 @@ internal class DeferredDeepLinkManager(
     companion object {
         private const val FIRST_LAUNCH_KEY = "ai.appdna.sdk.first_launch_completed"
         private const val EXPIRY_HOURS = 72L
+        private const val INSTALL_REFERRER_TIMEOUT_MS = 2_000L
+        // SPEC-070-A H.11(b): delay before auto-routing to a screen so the
+        // host's first Activity is fully resumed and ScreenManager has a
+        // surface to attach to.
+        private const val AUTO_SHOW_DELAY_MS = 500L
     }
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     fun checkDeferredDeepLink(callback: (DeferredDeepLink?) -> Unit) {
         if (!isFirstLaunch()) {
@@ -44,133 +73,198 @@ internal class DeferredDeepLinkManager(
             return
         }
 
-        val visitorId = resolveVisitorId()
-        if (visitorId == null) {
-            Log.debug("DeferredDeepLink: no visitor ID resolved")
-            markLaunched()
-            callback(null)
-            return
-        }
-
-        val path = "orgs/$orgId/apps/$appId/config/deferred_deep_links/visitors/$visitorId"
-        Log.debug("DeferredDeepLink: checking $path")
-
-        val db = AppDNA.firestoreDB
-        if (db == null) {
-            Log.warning("DeferredDeepLink: Firestore not available")
-            markLaunched()
-            callback(null)
-            return
-        }
-        db.document(path).get()
-            .addOnSuccessListener { snapshot ->
+        // SPEC-070-A H.11(a): visitor-id resolution may block on the Install
+        // Referrer service for up to 2 seconds — run on Dispatchers.IO and
+        // hand the result back on the main thread.
+        scope.launch {
+            val visitorId = withContext(Dispatchers.IO) { resolveVisitorId() }
+            if (visitorId == null) {
+                Log.debug("DeferredDeepLink: no visitor ID resolved")
                 markLaunched()
+                callback(null)
+                return@launch
+            }
 
-                val data = snapshot.data
-                if (data == null) {
-                    callback(null)
-                    return@addOnSuccessListener
-                }
+            val path = "orgs/$orgId/apps/$appId/config/deferred_deep_links/visitors/$visitorId"
+            Log.debug("DeferredDeepLink: checking $path")
 
-                // Check expiry
-                val createdAt = (data["created_at"] as? Number)?.toDouble()
-                if (createdAt != null) {
-                    val age = (System.currentTimeMillis() / 1000.0) - createdAt
-                    if (age > EXPIRY_HOURS * 3600) {
-                        Log.debug("DeferredDeepLink: expired (age: ${age / 3600}h)")
-                        snapshot.reference.delete()
+            val db = AppDNA.firestoreDB
+            if (db == null) {
+                Log.warning("DeferredDeepLink: Firestore not available")
+                markLaunched()
+                callback(null)
+                return@launch
+            }
+
+            db.document(path).get()
+                .addOnSuccessListener { snapshot ->
+                    markLaunched()
+
+                    val data = snapshot.data
+                    if (data == null) {
                         callback(null)
                         return@addOnSuccessListener
                     }
+
+                    // Check expiry
+                    val createdAt = (data["created_at"] as? Number)?.toDouble()
+                    if (createdAt != null) {
+                        val age = (System.currentTimeMillis() / 1000.0) - createdAt
+                        if (age > EXPIRY_HOURS * 3600) {
+                            Log.debug("DeferredDeepLink: expired (age: ${age / 3600}h)")
+                            snapshot.reference.delete()
+                            callback(null)
+                            return@addOnSuccessListener
+                        }
+                    }
+
+                    @Suppress("UNCHECKED_CAST")
+                    val deepLink = DeferredDeepLink(
+                        screen = data["screen"] as? String ?: "",
+                        params = (data["params"] as? Map<String, String>) ?: emptyMap(),
+                        visitorId = visitorId
+                    )
+
+                    // Delete after resolving (one-time use)
+                    snapshot.reference.delete()
+
+                    // Track event
+                    eventTracker?.track("deferred_deep_link_resolved", mapOf(
+                        "path" to deepLink.screen,
+                        "params" to deepLink.params,
+                        "visitor_id" to visitorId
+                    ))
+
+                    callback(deepLink)
+
+                    // SPEC-070-A H.11(b): if the doc carries a screen_id (the
+                    // canonical iOS-aligned shape), or the legacy `screen`
+                    // field is non-empty, auto-route to it after a short
+                    // delay so ScreenManager has a surface to attach to.
+                    val screenId = (data["screen_id"] as? String)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: deepLink.screen.takeIf { it.isNotBlank() }
+                    if (!screenId.isNullOrBlank()) {
+                        scope.launch {
+                            delay(AUTO_SHOW_DELAY_MS)
+                            try {
+                                Log.debug("DeferredDeepLink: auto-routing to screen=$screenId")
+                                AppDNA.showScreen(screenId)
+                            } catch (e: Throwable) {
+                                Log.warning("DeferredDeepLink: auto-show failed: ${e.message}")
+                            }
+                        }
+                    }
                 }
-
-                @Suppress("UNCHECKED_CAST")
-                val deepLink = DeferredDeepLink(
-                    screen = data["screen"] as? String ?: "",
-                    params = (data["params"] as? Map<String, String>) ?: emptyMap(),
-                    visitorId = visitorId
-                )
-
-                // Delete after resolving (one-time use)
-                snapshot.reference.delete()
-
-                // Track event
-                eventTracker?.track("deferred_deep_link_resolved", mapOf(
-                    "path" to deepLink.screen,
-                    "params" to deepLink.params,
-                    "visitor_id" to visitorId
-                ))
-
-                callback(deepLink)
-            }
-            .addOnFailureListener { e ->
-                markLaunched()
-                Log.error("DeferredDeepLink fetch failed: ${e.message}")
-                callback(null)
-            }
+                .addOnFailureListener { e ->
+                    markLaunched()
+                    Log.error("DeferredDeepLink fetch failed: ${e.message}")
+                    callback(null)
+                }
+        }
     }
 
-    private fun resolveVisitorId(): String? {
+    private suspend fun resolveVisitorId(): String? {
         // Strategy 1: Check clipboard for visitor ID (web page sets it before store redirect)
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-        val clipData = clipboard?.primaryClip
-        if (clipData != null && clipData.itemCount > 0) {
-            val text = clipData.getItemAt(0).text?.toString()
-            if (text != null && text.startsWith("appdna:visitor:")) {
-                val visitorId = text.removePrefix("appdna:visitor:")
-                // Clear clipboard
-                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
-                Log.debug("DeferredDeepLink: resolved visitor ID from clipboard")
-                return visitorId
+        try {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            val clipData = clipboard?.primaryClip
+            if (clipData != null && clipData.itemCount > 0) {
+                val text = clipData.getItemAt(0).text?.toString()
+                if (text != null && text.startsWith("appdna:visitor:")) {
+                    val visitorId = text.removePrefix("appdna:visitor:")
+                    // Clear clipboard
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("", ""))
+                    Log.debug("DeferredDeepLink: resolved visitor ID from clipboard")
+                    return visitorId
+                }
             }
+        } catch (e: Throwable) {
+            Log.warning("DeferredDeepLink: clipboard probe failed: ${e.message}")
         }
 
-        // Strategy 2: Android Install Referrer
+        // Strategy 2: Android Install Referrer (non-blocking)
         val referrerVisitorId = getInstallReferrerVisitorId()
         if (referrerVisitorId != null) {
             Log.debug("DeferredDeepLink: resolved visitor ID from Install Referrer")
             return referrerVisitorId
         }
 
-        return null
+        // SPEC-070-A H.11(c): ANDROID_ID fingerprint fallback. Salted SHA-256
+        // hash so the value is opaque and stable across launches without
+        // exposing the raw device id. iOS uses IDFV here; Android's closest
+        // equivalent is `Settings.Secure.ANDROID_ID`.
+        return getAndroidIdFingerprint()
     }
 
     /**
-     * Synchronously attempt to retrieve visitor ID from the Install Referrer.
-     * The referrer URL may contain "appdna_visitor=<id>" as a query param.
+     * SPEC-070-A H.11(a): non-blocking Install Referrer probe. Wraps the
+     * callback-based [InstallReferrerClient] in a suspend coroutine that
+     * times out after 2 seconds without holding a thread.
      */
-    private fun getInstallReferrerVisitorId(): String? {
-        return try {
-            val client = InstallReferrerClient.newBuilder(context).build()
-            var visitorId: String? = null
-            val latch = java.util.concurrent.CountDownLatch(1)
-
-            client.startConnection(object : InstallReferrerStateListener {
-                override fun onInstallReferrerSetupFinished(responseCode: Int) {
-                    if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
-                        try {
-                            val referrer = client.installReferrer.installReferrer
-                            // Parse referrer URL for appdna_visitor param
-                            val uri = Uri.parse("https://referrer?$referrer")
-                            visitorId = uri.getQueryParameter("appdna_visitor")
-                        } catch (e: Exception) {
-                            Log.error("DeferredDeepLink: Install Referrer parse error: ${e.message}")
+    private suspend fun getInstallReferrerVisitorId(): String? {
+        return withTimeoutOrNull(INSTALL_REFERRER_TIMEOUT_MS) {
+            suspendCancellableCoroutine<String?> { cont ->
+                val client = try {
+                    InstallReferrerClient.newBuilder(context).build()
+                } catch (e: Throwable) {
+                    Log.warning("DeferredDeepLink: InstallReferrerClient.newBuilder failed: ${e.message}")
+                    cont.resume(null)
+                    return@suspendCancellableCoroutine
+                }
+                cont.invokeOnCancellation {
+                    runCatching { client.endConnection() }
+                }
+                try {
+                    client.startConnection(object : InstallReferrerStateListener {
+                        override fun onInstallReferrerSetupFinished(responseCode: Int) {
+                            var visitorId: String? = null
+                            if (responseCode == InstallReferrerClient.InstallReferrerResponse.OK) {
+                                try {
+                                    val referrer = client.installReferrer.installReferrer
+                                    val uri = Uri.parse("https://referrer?$referrer")
+                                    visitorId = uri.getQueryParameter("appdna_visitor")
+                                } catch (e: Exception) {
+                                    Log.error("DeferredDeepLink: Install Referrer parse error: ${e.message}")
+                                }
+                            }
+                            runCatching { client.endConnection() }
+                            if (cont.isActive) cont.resume(visitorId)
                         }
-                    }
-                    client.endConnection()
-                    latch.countDown()
-                }
 
-                override fun onInstallReferrerServiceDisconnected() {
-                    latch.countDown()
+                        override fun onInstallReferrerServiceDisconnected() {
+                            runCatching { client.endConnection() }
+                            if (cont.isActive) cont.resume(null)
+                        }
+                    })
+                } catch (e: Throwable) {
+                    Log.warning("DeferredDeepLink: Install Referrer error: ${e.message}")
+                    runCatching { client.endConnection() }
+                    if (cont.isActive) cont.resume(null)
                 }
-            })
+            }
+        }
+    }
 
-            // Wait up to 2 seconds for the referrer response
-            latch.await(2, java.util.concurrent.TimeUnit.SECONDS)
-            visitorId
-        } catch (e: Exception) {
-            Log.error("DeferredDeepLink: Install Referrer error: ${e.message}")
+    /**
+     * SPEC-070-A H.11(c): salted SHA-256 of `Settings.Secure.ANDROID_ID`. We
+     * don't return the raw `ANDROID_ID` because (a) the backend deferred-link
+     * lookup expects a visitor-id-shaped opaque string and (b) raw ANDROID_ID
+     * may be considered a "device identifier" by Google Play policy in some
+     * contexts. Hashing keeps the fingerprint stable per-(install × signing
+     * key) without exposing the raw value.
+     */
+    private fun getAndroidIdFingerprint(): String? {
+        return try {
+            val raw = Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID)
+            if (raw.isNullOrBlank() || raw == "9774d56d682e549c") return null
+            val md = MessageDigest.getInstance("SHA-256")
+            val salt = "appdna-deferred-link-v1".toByteArray(Charsets.UTF_8)
+            md.update(salt)
+            val digest = md.digest(raw.toByteArray(Charsets.UTF_8))
+            "androidid_" + digest.joinToString("") { "%02x".format(it) }.take(40)
+        } catch (e: Throwable) {
+            Log.warning("DeferredDeepLink: ANDROID_ID fallback failed: ${e.message}")
             null
         }
     }

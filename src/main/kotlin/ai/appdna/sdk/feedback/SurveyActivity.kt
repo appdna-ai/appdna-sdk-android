@@ -8,9 +8,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -72,11 +75,31 @@ class SurveyActivity : ComponentActivity() {
         }
 
         setContent {
-            MaterialTheme {
+            // SPEC-205 / SPEC-070-A D.5: read system color scheme at the
+            // Compose root and propagate to renderers so dark-mode overrides
+            // on the survey theme apply when the user has dark mode enabled.
+            val isDark = isSystemInDarkTheme()
+            // SPEC-070-A D.6: build a MaterialTheme color scheme seeded with
+            // the resolved (light/dark-merged) survey theme colors when the
+            // console author supplied them, so child Material widgets
+            // (TextField, ProgressIndicator, etc.) pick up the brand colors
+            // without each composable having to re-thread them. The renderer
+            // still resolves per-token colors via [SurveyAppearance.resolveTheme]
+            // for full fidelity.
+            val resolved = config.appearance.resolveTheme(isDark)
+            val baseScheme = if (isDark) darkColorScheme() else lightColorScheme()
+            val seeded = baseScheme.copy(
+                primary = resolved?.accentColor?.let { parseColor(it) } ?: baseScheme.primary,
+                surface = resolved?.backgroundColor?.let { parseColor(it) } ?: baseScheme.surface,
+                background = resolved?.backgroundColor?.let { parseColor(it) } ?: baseScheme.background,
+                onSurface = resolved?.textColor?.let { parseColor(it) } ?: baseScheme.onSurface,
+                onBackground = resolved?.textColor?.let { parseColor(it) } ?: baseScheme.onBackground,
+            )
+            MaterialTheme(colorScheme = seeded) {
                 when (presentation) {
-                    "bottom_sheet" -> BottomSheetSurveyWrapper(config, onComplete, onDismiss, qaCallback)
-                    "modal" -> ModalSurveyWrapper(config, onComplete, onDismiss, qaCallback)
-                    else -> SurveyScreen(config, onComplete, onDismiss, qaCallback)
+                    "bottom_sheet" -> BottomSheetSurveyWrapper(config, onComplete, onDismiss, qaCallback, isDark)
+                    "modal" -> ModalSurveyWrapper(config, onComplete, onDismiss, qaCallback, isDark)
+                    else -> SurveyScreen(config, onComplete, onDismiss, qaCallback, isDark)
                 }
             }
         }
@@ -111,7 +134,11 @@ fun SurveyScreen(
     config: SurveyConfig,
     onComplete: (List<SurveyAnswer>) -> Unit,
     onDismiss: (Int) -> Unit,
-    onQuestionAnswered: ((String, String, Any) -> Unit)? = null
+    onQuestionAnswered: ((String, String, Any) -> Unit)? = null,
+    // SPEC-205 / SPEC-070-A D.4: optional override; defaults to the system
+    // setting when not supplied. Activity callers pass an explicit value so
+    // the resolved theme matches the MaterialTheme color scheme they seeded.
+    isDark: Boolean = isSystemInDarkTheme(),
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, SurveyAnswer>() }
@@ -127,11 +154,20 @@ fun SurveyScreen(
         }
     }
 
-    val bgColor = config.appearance.theme?.backgroundColor?.let { parseColor(it) } ?: Color.White
-    val textColor = config.appearance.theme?.textColor?.let { parseColor(it) } ?: Color(0xFF1A1A1A)
-    val accentColor = config.appearance.theme?.accentColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
-    val buttonColor = config.appearance.theme?.buttonColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
-    val fontFamily = config.appearance.theme?.fontFamily?.let { FontResolver.resolve(it) }
+    // SPEC-205 / SPEC-070-A D.4: resolve the theme for the current scheme.
+    // In dark mode, fields set on `theme.dark` override the matching field
+    // on `theme.light`; unset dark fields fall back to light (sparse merge).
+    // Mirrors iOS `SurveyRenderer.theme` accessor.
+    val theme = config.appearance.resolveTheme(isDark)
+    // SPEC-205: scheme-aware fallback colors so an unstyled survey still
+    // looks correct in dark mode (matches iOS defaults #1a1a1a / #FFFFFF).
+    val bgColor = theme?.backgroundColor?.let { parseColor(it) }
+        ?: if (isDark) Color(0xFF1A1A1A) else Color.White
+    val textColor = theme?.textColor?.let { parseColor(it) }
+        ?: if (isDark) Color.White else Color(0xFF1A1A1A)
+    val accentColor = theme?.accentColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
+    val buttonColor = theme?.buttonColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
+    val fontFamily = theme?.fontFamily?.let { FontResolver.resolve(it) }
     val containerRadius = (config.appearance.cornerRadius ?: 0).dp
 
     val canAdvance = if (currentIndex < visibleQuestions.size) {
@@ -345,8 +381,12 @@ fun BottomSheetSurveyWrapper(
     config: SurveyConfig,
     onComplete: (List<SurveyAnswer>) -> Unit,
     onDismiss: (Int) -> Unit,
-    onQuestionAnswered: ((String, String, Any) -> Unit)? = null
+    onQuestionAnswered: ((String, String, Any) -> Unit)? = null,
+    isDark: Boolean = isSystemInDarkTheme(),
 ) {
+    // SPEC-205 / SPEC-070-A D.4: resolve dark-merged theme for the wrapper
+    // chrome (sheet container background) so it matches the inner survey.
+    val theme = config.appearance.resolveTheme(isDark)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -365,7 +405,8 @@ fun BottomSheetSurveyWrapper(
                 .fillMaxHeight(0.6f)
                 .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
                 .background(
-                    config.appearance.theme?.backgroundColor?.let { parseColor(it) } ?: Color.White
+                    theme?.backgroundColor?.let { parseColor(it) }
+                        ?: if (isDark) Color(0xFF1A1A1A) else Color.White
                 )
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
         ) {
@@ -379,7 +420,13 @@ fun BottomSheetSurveyWrapper(
                     .clip(RoundedCornerShape(2.dp))
                     .background(Color.Gray.copy(alpha = 0.4f))
             )
-            SurveyScreen(config = config, onComplete = onComplete, onDismiss = onDismiss, onQuestionAnswered = onQuestionAnswered)
+            SurveyScreen(
+                config = config,
+                onComplete = onComplete,
+                onDismiss = onDismiss,
+                onQuestionAnswered = onQuestionAnswered,
+                isDark = isDark,
+            )
         }
     }
 }
@@ -389,8 +436,11 @@ fun ModalSurveyWrapper(
     config: SurveyConfig,
     onComplete: (List<SurveyAnswer>) -> Unit,
     onDismiss: (Int) -> Unit,
-    onQuestionAnswered: ((String, String, Any) -> Unit)? = null
+    onQuestionAnswered: ((String, String, Any) -> Unit)? = null,
+    isDark: Boolean = isSystemInDarkTheme(),
 ) {
+    // SPEC-205 / SPEC-070-A D.4: resolve dark-merged theme for the modal chrome.
+    val theme = config.appearance.resolveTheme(isDark)
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -409,11 +459,18 @@ fun ModalSurveyWrapper(
                 .fillMaxHeight(0.7f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(
-                    config.appearance.theme?.backgroundColor?.let { parseColor(it) } ?: Color.White
+                    theme?.backgroundColor?.let { parseColor(it) }
+                        ?: if (isDark) Color(0xFF1A1A1A) else Color.White
                 )
                 .clickable(interactionSource = remember { MutableInteractionSource() }, indication = null) {}
         ) {
-            SurveyScreen(config = config, onComplete = onComplete, onDismiss = onDismiss, onQuestionAnswered = onQuestionAnswered)
+            SurveyScreen(
+                config = config,
+                onComplete = onComplete,
+                onDismiss = onDismiss,
+                onQuestionAnswered = onQuestionAnswered,
+                isDark = isDark,
+            )
         }
     }
 }

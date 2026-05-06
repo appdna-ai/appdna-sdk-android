@@ -1,5 +1,6 @@
 package ai.appdna.sdk.network
 
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Environment
 import ai.appdna.sdk.Log
 import kotlinx.coroutines.Dispatchers
@@ -24,17 +25,26 @@ import java.util.zip.DeflaterOutputStream
  * SPEC-067: Supports deflate compression for request bodies and Accept-Encoding for responses.
  * SPEC-070-A A.1: Uses x-api-key header to match iOS APIClient.
  * SPEC-070-A A.15: Switched compression from gzip to deflate to match iOS Network/APIClient.swift:143.
+ * SPEC-070-A H.1/H.2/H.13/H.15: 401 differentiation + UA/x-sdk-version headers + typed-body decode +
+ * callTimeout / 30s connectTimeout to match iOS resource caps.
  */
 internal class ApiClient(
     private val apiKey: String,
     private val environment: Environment
 ) {
+    // SPEC-070-A H.15: bump connectTimeout to 30s (iOS default) and add a wall-clock
+    // callTimeout so a stalled write/read can never hold the queue indefinitely.
     private val client = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
+        .callTimeout(60, TimeUnit.SECONDS)
         // SPEC-067: Add Accept-Encoding: gzip for response decompression (OkHttp handles this automatically)
         .addInterceptor(AcceptEncodingInterceptor())
+        // SPEC-070-A H.2: stamp every outgoing request with a stable
+        // User-Agent + x-sdk-version header so the backend can attribute
+        // traffic and roll out version gates without parsing User-Agent.
+        .addInterceptor(SdkIdentityInterceptor())
         .build()
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
@@ -66,7 +76,31 @@ internal class ApiClient(
                         if (response.isSuccessful) {
                             return@withContext response.body?.string()
                         }
-                        Log.warning("API request failed (${response.code}): $path")
+                        // SPEC-070-A H.1: 401 means the API key is invalid or
+                        // the SDK is suspended (SPEC-322). Retrying won't fix
+                        // it; surface a loud error and break out of the retry
+                        // loop. SPEC-070-A H.13: decode the typed error body
+                        // ({error_code, message}) for richer logging.
+                        if (response.code == 401) {
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.error(
+                                "API auth failed (HTTP 401): Invalid API key or SDK suspended. " +
+                                    "path=$path code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
+                            return@withContext null
+                        }
+                        // SPEC-070-A H.13: log structured 4xx errors so callers
+                        // see the backend's reason string instead of a generic
+                        // status code.
+                        if (response.code in 400..499) {
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.warning(
+                                "API request failed (${response.code}): $path " +
+                                    "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
+                        } else {
+                            Log.warning("API request failed (${response.code}): $path")
+                        }
                     }
                 } catch (e: IOException) {
                     lastError = e
@@ -106,6 +140,14 @@ internal class ApiClient(
                     client.newCall(request).execute().use { response ->
                         if (response.isSuccessful) {
                             return@withContext response.body?.string()
+                        }
+                        if (response.code == 401) {
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.error(
+                                "API auth failed (HTTP 401, compressed): Invalid API key or SDK suspended. " +
+                                    "path=$path code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
+                            return@withContext null
                         }
                         Log.warning("API compressed request failed (${response.code}): $path")
                     }
@@ -159,6 +201,14 @@ internal class ApiClient(
                     if (response.isSuccessful) {
                         return@withContext response.body?.string()?.let { JSONObject(it) }
                     }
+                    if (response.code == 401) {
+                        val (errCode, errMsg) = decodeErrorBody(response)
+                        Log.error(
+                            "API auth failed (HTTP 401, GET): Invalid API key or SDK suspended. " +
+                                "path=$path code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                        )
+                        return@withContext null
+                    }
                     Log.warning("GET failed (${response.code}): $path")
                     null
                 }
@@ -200,12 +250,26 @@ internal class ApiClient(
                     val code = response.code
                     when {
                         response.isSuccessful -> EventUploadResult.Success
+                        code == 401 -> {
+                            // SPEC-070-A H.1: surface invalid API key explicitly
+                            // so EventQueue can drop the batch (retrying won't help).
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.error(
+                                "Event upload auth failed (HTTP 401): Invalid API key or SDK suspended. " +
+                                    "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
+                            EventUploadResult.ClientError(code)
+                        }
                         code == 429 -> {
                             Log.warning("Event upload rate-limited (429): retrying.")
                             EventUploadResult.TransientFailure(code)
                         }
                         code in 400..499 -> {
-                            Log.error("Event upload rejected (HTTP $code): dropping batch — retrying won't help.")
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.error(
+                                "Event upload rejected (HTTP $code): dropping batch — retrying won't help. " +
+                                    "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
                             EventUploadResult.ClientError(code)
                         }
                         code in 500..599 -> {
@@ -222,6 +286,24 @@ internal class ApiClient(
                 Log.warning("Event upload network error: ${e.message}")
                 EventUploadResult.TransientFailure(null)
             }
+        }
+    }
+
+    /**
+     * SPEC-070-A H.13: best-effort decode of `{error_code, message}` from a 4xx
+     * response. Returns (errorCode, message) when the body parses as JSON;
+     * (null, null) otherwise. Always safe to call — never throws.
+     */
+    private fun decodeErrorBody(response: Response): Pair<String?, String?> {
+        return try {
+            val raw = response.peekBody(8 * 1024).string()
+            if (raw.isBlank()) return null to null
+            val obj = JSONObject(raw)
+            val code = obj.optString("error_code", "").ifEmpty { null }
+            val msg = obj.optString("message", "").ifEmpty { null }
+            code to msg
+        } catch (_: Throwable) {
+            null to null
         }
     }
 
@@ -254,6 +336,25 @@ internal class ApiClient(
         override fun intercept(chain: Interceptor.Chain): Response {
             val request = chain.request().newBuilder()
                 .header("Accept-Encoding", "gzip, deflate")
+                .build()
+            return chain.proceed(request)
+        }
+    }
+
+    /**
+     * SPEC-070-A H.2: stamp every outgoing request with a User-Agent + x-sdk-version
+     * header so the backend can attribute traffic by SDK version + platform without
+     * parsing User-Agent. Mirrors iOS APIClient header injection.
+     */
+    private class SdkIdentityInterceptor : Interceptor {
+        override fun intercept(chain: Interceptor.Chain): Response {
+            val sdkVersion = AppDNA.sdkVersion
+            val androidRelease = android.os.Build.VERSION.RELEASE ?: "unknown"
+            val ua = "AppDNA-Android-SDK/$sdkVersion (Android $androidRelease)"
+            val request = chain.request().newBuilder()
+                .header("User-Agent", ua)
+                .header("x-sdk-version", sdkVersion)
+                .header("x-sdk-platform", "android")
                 .build()
             return chain.proceed(request)
         }

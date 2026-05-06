@@ -39,6 +39,14 @@ internal class EventTracker(
      */
     private var screenProvider: (() -> String?)? = null
 
+    /**
+     * SPEC-070-A H.7: Lazy supplier of the most-recently-received push id.
+     * Folded into `context.push_id` so subsequent events can be attributed
+     * to the push that triggered the session. Provider returns null when no
+     * recent push exists (or its 30-minute window has expired).
+     */
+    private var pushIdProvider: (() -> String?)? = null
+
     fun setEventQueue(queue: EventQueue) {
         this.eventQueue = queue
     }
@@ -56,6 +64,14 @@ internal class EventTracker(
      */
     fun setScreenProvider(provider: (() -> String?)?) {
         this.screenProvider = provider
+    }
+
+    /**
+     * SPEC-070-A H.7: Wire the push-id source (typically reads
+     * `PushSessionContext.currentPushId(...)`). Setting null disables the field.
+     */
+    fun setPushIdProvider(provider: (() -> String?)?) {
+        this.pushIdProvider = provider
     }
 
     fun setConsent(analytics: Boolean) {
@@ -89,6 +105,14 @@ internal class EventTracker(
             null
         }
 
+        val pushId = try {
+            pushIdProvider?.invoke()
+        } catch (e: Exception) {
+            // Never let push-id lookup break event tracking.
+            Log.warning { "PushId provider threw: ${e.message}" }
+            null
+        }
+
         val envelope = EventSchema.buildEnvelope(
             eventName = event,
             properties = properties,
@@ -98,7 +122,8 @@ internal class EventTracker(
             analyticsConsent = analyticsConsent,
             experimentExposures = exposures,
             environment = environmentTag,
-            screen = screen
+            screen = screen,
+            pushId = pushId
         )
 
         eventQueue?.enqueue(envelope)

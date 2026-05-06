@@ -34,7 +34,15 @@ data class AppDNAOptions(
     /** Remote config cache TTL in seconds. Default: 3600 (1 hour). SPEC-067. */
     val configTTL: Long = 3600L,
     /** Log verbosity. Default: WARNING. */
-    val logLevel: LogLevel = LogLevel.WARNING
+    val logLevel: LogLevel = LogLevel.WARNING,
+    /**
+     * SPEC-070-A H.21 — host-supplied small-icon drawable resource id used
+     * for AppDNA push notifications. When `0`, [AppDNAMessagingService]
+     * falls through to manifest `<meta-data
+     * android:name="com.google.firebase.messaging.default_notification_icon">`
+     * and finally `applicationInfo.icon`.
+     */
+    val notificationIcon: Int = 0
 )
 
 /**

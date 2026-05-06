@@ -25,18 +25,29 @@ internal class EventUploadWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         Log.info("Background event upload started")
 
+        // SPEC-070-A H.24: own the EventDatabase handle for exactly the duration
+        // of this run via try/finally so the SQLite file is always closed —
+        // including on exception paths. Previously each WorkManager run leaked
+        // a SQLiteOpenHelper.
         val eventDatabase = EventDatabase(applicationContext)
+        try {
+            return@withContext doUploadInner(eventDatabase)
+        } finally {
+            try { eventDatabase.close() } catch (_: Throwable) { /* close best-effort */ }
+        }
+    }
 
+    private suspend fun doUploadInner(eventDatabase: EventDatabase): Result {
         val pendingCount = eventDatabase.count()
         if (pendingCount == 0) {
             Log.debug("No pending events for background upload")
-            return@withContext Result.success()
+            return Result.success()
         }
 
         // Load a batch from SQLite
         val batch = eventDatabase.loadBatch(100)
         if (batch.isEmpty()) {
-            return@withContext Result.success()
+            return Result.success()
         }
 
         // Build batch JSON
@@ -56,18 +67,13 @@ internal class EventUploadWorker(
         Log.debug("Background upload: ${batch.size} events, ${body.length} → ${compressed.size} bytes")
 
         // SPEC-070-A A.1 + A.12b: API key required; baseUrl required (no host fallback).
-        // The SDK refuses to upload to an unknown host — silently sending events to
-        // the production endpoint when the integrator targeted SANDBOX is a much
-        // worse failure mode than a Result.failure here (which WorkManager will
-        // surface in logs and the next foreground flush will reschedule with a
-        // correct baseUrl).
         val apiKey = inputData.getString(KEY_API_KEY) ?: run {
             Log.error("Background upload: missing API key — refusing to upload")
-            return@withContext Result.failure()
+            return Result.failure()
         }
         val baseUrl = inputData.getString(KEY_BASE_URL) ?: run {
             Log.error("Background upload: missing baseUrl input data — refusing to upload (set KEY_BASE_URL via scheduleIfNeeded)")
-            return@withContext Result.failure()
+            return Result.failure()
         }
 
         try {
@@ -91,32 +97,27 @@ internal class EventUploadWorker(
                     eventDatabase.removeByIds(batch.map { it.first })
                     Log.info("Background upload successful: ${batch.size} events")
 
-                    // Check if more events remain
                     val remaining = eventDatabase.count()
                     if (remaining > 0) {
                         Log.debug("$remaining events still pending after background upload")
                     }
 
-                    return@withContext Result.success()
+                    return Result.success()
                 } else if (code == 429 || code in 500..599) {
-                    // SPEC-070-A A.16: 5xx + 429 are transient — retry with WorkManager backoff.
                     Log.warning("Background upload transient failure (HTTP $code) — will retry")
-                    return@withContext Result.retry()
+                    return Result.retry()
                 } else if (code in 400..499) {
-                    // SPEC-070-A A.16: 4xx (excluding 429) means the payload or auth is wrong.
-                    // Retrying won't help; drop this batch from disk so the worker doesn't
-                    // re-pick it forever.
                     Log.error("Background upload rejected (HTTP $code) — dropping batch (retry won't help)")
                     eventDatabase.removeByIds(batch.map { it.first })
-                    return@withContext Result.failure()
+                    return Result.failure()
                 } else {
                     Log.warning("Background upload unexpected status (HTTP $code) — will retry")
-                    return@withContext Result.retry()
+                    return Result.retry()
                 }
             }
         } catch (e: Exception) {
             Log.error("Background upload error: ${e.message}")
-            return@withContext Result.retry()
+            return Result.retry()
         }
     }
 

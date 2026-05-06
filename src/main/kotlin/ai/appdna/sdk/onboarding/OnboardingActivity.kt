@@ -8,11 +8,15 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,11 +68,15 @@ class OnboardingActivity : ComponentActivity() {
         val onFlowDismissed = pendingOnFlowDismissed
 
         setContent {
+            // SPEC-070-A D.5 — system dark-mode pref so onboarding renderers
+            // can pick `dark` overrides from console content blocks.
+            val isDark = isSystemInDarkTheme()
             MaterialTheme {
                 OnboardingFlowHost(
                     flow = flow,
                     delegate = delegate,
                     eventTracker = eventTracker,
+                    isDark = isDark,
                     onStepViewed = { stepId, stepIndex ->
                         onStepViewed?.invoke(stepId, stepIndex)
                     },
@@ -159,7 +167,10 @@ internal fun OnboardingFlowHost(
     onStepCompleted: (String, Int, Map<String, Any>?) -> Unit,
     onStepSkipped: (String, Int) -> Unit,
     onFlowCompleted: (Map<String, Any>) -> Unit,
-    onFlowDismissed: (String, Int) -> Unit
+    onFlowDismissed: (String, Int) -> Unit,
+    // SPEC-070-A D.5 — propagated to step renderers so block-level `dark`
+    // overrides from the console are picked correctly.
+    @Suppress("UNUSED_PARAMETER") isDark: Boolean = false,
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val responses = remember { mutableStateMapOf<String, Any>() }
@@ -170,6 +181,10 @@ internal fun OnboardingFlowHost(
     var loadingText by remember { mutableStateOf("Processing...") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showError by remember { mutableStateOf(false) }
+    // SPEC-070-A C.8 — success banner state (port of iOS v1.0.60 SPEC-083
+    // amendment `.stay(message:)`). Mirrors the existing error banner pair.
+    var successMessage by remember { mutableStateOf<String?>(null) }
+    var showSuccess by remember { mutableStateOf(false) }
     val configOverrides = remember { mutableStateMapOf<String, StepConfigOverride>() }
 
     val progress = if (flow.steps.isNotEmpty()) {
@@ -212,6 +227,16 @@ internal fun OnboardingFlowHost(
             kotlinx.coroutines.delay(5000)
             showError = false
             errorMessage = null
+        }
+    }
+
+    // SPEC-070-A C.8 — auto-dismiss success after 4 seconds (mirrors iOS
+    // `OnboardingRenderer.swift:351-388` 4000ms LaunchedEffect timer).
+    LaunchedEffect(showSuccess) {
+        if (showSuccess) {
+            kotlinx.coroutines.delay(4000)
+            showSuccess = false
+            successMessage = null
         }
     }
 
@@ -367,6 +392,15 @@ internal fun OnboardingFlowHost(
                 }
                 skipToStep(result.stepId)
             }
+            // SPEC-070-A C.8 — Stay branch. Renders SuccessBanner if message
+            // present, otherwise stays silent so host can drive its own UI.
+            is StepAdvanceResult.Stay -> {
+                if (!result.message.isNullOrEmpty()) {
+                    successMessage = result.message
+                    showSuccess = true
+                }
+                // else: host handled UI — stay silently.
+            }
         }
     }
 
@@ -375,6 +409,7 @@ internal fun OnboardingFlowHost(
         is StepAdvanceResult.ProceedWithData -> "proceed_with_data"
         is StepAdvanceResult.Block -> "block"
         is StepAdvanceResult.SkipTo -> "skip_to"
+        is StepAdvanceResult.Stay -> "stay"
     }
 
     val currentStep = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
@@ -586,6 +621,51 @@ internal fun OnboardingFlowHost(
             }
         }
 
+        // SPEC-070-A C.8 \u2014 success banner (port of iOS v1.0.60 SPEC-083
+        // amendment `OnboardingRenderer.swift:351-388`). Same scaffold slot
+        // as the error banner above. Animated entry/exit.
+        AnimatedVisibility(
+            visible = showSuccess && successMessage != null,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(top = if (flow.settings.show_progress && currentStep?.hide_progress != true) 56.dp else 52.dp)
+                    .background(Color(0xFF2E9E51), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                androidx.compose.material3.Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = successMessage ?: "",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(
+                    onClick = { showSuccess = false; successMessage = null },
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Dismiss",
+                        tint = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
+
         // SPEC-083: Loading overlay
         if (isProcessing) {
             Box(
@@ -726,6 +806,9 @@ private fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfi
                 if (targetStepId != null) StepAdvanceResult.SkipTo(targetStepId, responseData)
                 else StepAdvanceResult.Proceed
             }
+            // SPEC-070-A C.8 — `"stay"` webhook action surfaces the success
+            // banner. Mirrors iOS v1.0.60 `parseWebhookResponse` extension.
+            "stay" -> StepAdvanceResult.Stay(message)
             else -> StepAdvanceResult.Proceed
         }
     } catch (e: Exception) {
@@ -798,6 +881,45 @@ fun OnboardingStepView(
     }
 }
 
+/**
+ * SPEC-070-A C.1 — Strict-typed auth/account action emitter for
+ * Android. Mirrors iOS `OnboardingRenderer.swift:1559-1583`
+ * `emitAuthAction(...)`. Builds a `{action, [recipient?], ...inputValues}`
+ * payload and dispatches via `onNext` so the host can route through
+ * `onBeforeStepAdvance`. Stays on the step (no auto-advance) — host is
+ * expected to return `.Block("Signing in…")` while the side effect runs.
+ *
+ * Merge order matches iOS: inputValues first so SDK-controlled keys
+ * (`action`, `recipient`) always win on a field-id collision. We do not
+ * resolve OTP channel here (Android does not yet ship OtpChannelResolver
+ * parity — SPEC-086 follow-up). The `actionValue` half of the colon-
+ * encoded action surfaces as `recipient` for OTP flows and
+ * `action_value` for everything else, leaving channel resolution to the
+ * host.
+ */
+private fun emitAuthAction(
+    action: String,
+    actionValue: String?,
+    toggleValues: Map<String, Boolean>,
+    inputValues: Map<String, Any>,
+    onNext: (Map<String, Any>?) -> Unit,
+) {
+    val data = mutableMapOf<String, Any>()
+    // input values first so SDK-controlled keys overwrite collisions
+    data.putAll(inputValues)
+    for ((k, v) in toggleValues) {
+        data["toggle_$k"] = v
+    }
+    data["action"] = action
+    if (actionValue != null) {
+        when (action) {
+            "request_otp", "verify_otp" -> data["recipient"] = actionValue
+            else -> data["action_value"] = actionValue
+        }
+    }
+    onNext(data)
+}
+
 // SPEC-084: Block-based step view with 5 layout variants
 @Composable
 private fun BlockBasedStepView(
@@ -821,7 +943,22 @@ private fun BlockBasedStepView(
     }
 
     fun handleAction(action: String) {
-        when (action) {
+        // SPEC-070-A C.1 — strict-typed auth/account action cases mirror iOS
+        // `OnboardingRenderer.swift:1531-1545`. Action strings travel as either
+        // a bare token ("login", "logout", ...) OR as a colon-encoded pair
+        // ("social_login:google", "request_otp:sms", "email_login:email") so
+        // the existing `(String) -> Unit` callback shape stays intact across
+        // ContentBlockRenderer call sites. The recipient/value half — when
+        // present — is forwarded to the host via `data["action_value"]` so
+        // `onBeforeStepAdvance` can branch on it.
+        val (rawAction, actionValue) = when {
+            action.contains(":") -> {
+                val idx = action.indexOf(':')
+                action.substring(0, idx) to action.substring(idx + 1)
+            }
+            else -> action to null
+        }
+        when (rawAction) {
             "next" -> {
                 // Merge toggleValues and inputValues (rating, etc.) into responses
                 val merged = mutableMapOf<String, Any>()
@@ -830,6 +967,47 @@ private fun BlockBasedStepView(
                 onNext(merged)
             }
             "skip" -> onSkip?.invoke()
+            // SPEC-070-A C.1 — social_login retains its existing data shape
+            // (`{provider, action: "social_login"}`) for backwards compatibility
+            // with hosts that switch on `action == "social_login"`. iOS
+            // `OnboardingRenderer.swift:1507-1524`.
+            "social_login" -> {
+                val data = mutableMapOf<String, Any>(
+                    "provider" to (actionValue ?: "unknown"),
+                    "action" to "social_login",
+                )
+                data.putAll(inputValues)
+                onNext(data)
+            }
+            // SPEC-070-A C.1 — strict-typed auth/account actions. Every case
+            // emits `onNext({action, [recipient?], ...inputValues})` so the
+            // host can route via `onBeforeStepAdvance`. Mirrors iOS
+            // `OnboardingRenderer.swift:1531-1546` `emitAuthAction(...)`.
+            //
+            // Auth entry actions:
+            "login", "register", "reset_password", "magic_link",
+            "verify_email", "resend_verification", "enable_biometric",
+            "email_login",
+            // OTP actions (channel resolution is host's responsibility on
+            // Android until SPEC-086 lands `OtpChannelResolver` parity):
+            "request_otp", "verify_otp",
+            // Account lifecycle:
+            "logout", "change_password", "set_new_password",
+            "delete_account", "update_profile" -> {
+                emitAuthAction(rawAction, actionValue, toggleValues, inputValues, onNext)
+            }
+            // SPEC-070-A C.1 — `permission` is a SPEC-086 hook site. For now
+            // advance as safe fallback so existing hosts don't get stuck on
+            // a permission-tagged button without a runtime permission infra
+            // wired up. Mirrors iOS `OnboardingRenderer.swift:1525-1529`.
+            "permission" -> {
+                val data = mutableMapOf<String, Any>(
+                    "action" to "permission",
+                )
+                if (actionValue != null) data["permission_type"] = actionValue
+                data.putAll(inputValues)
+                onNext(data)
+            }
             else -> onNext(null)
         }
     }

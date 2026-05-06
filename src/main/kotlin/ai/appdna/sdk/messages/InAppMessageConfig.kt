@@ -70,6 +70,42 @@ data class MessageContent(
 )
 
 /**
+ * SPEC-205 / SPEC-070-A D.4: render-time resolver. In dark mode, any field
+ * set on [MessageContent.dark] overrides the matching field above; everything
+ * else falls back to the light (default) value. In light mode or when no
+ * `dark` overrides exist, returns this unchanged.
+ *
+ * Mirrors iOS `MessageContent.resolved(for: ColorScheme)` in
+ * `InAppMessaging/MessageConfig.swift`.
+ */
+fun MessageContent.resolved(isDark: Boolean): MessageContent {
+    if (!isDark) return this
+    val d = this.dark ?: return this
+    return this.copy(
+        image_url = d.image_url ?: image_url,
+        background_color = d.background_color ?: background_color,
+        text_color = d.text_color ?: text_color,
+        button_color = d.button_color ?: button_color,
+        button_text_color = d.button_text_color ?: button_text_color,
+        button_corner_radius = d.button_corner_radius ?: button_corner_radius,
+        corner_radius = d.corner_radius ?: corner_radius,
+        // Typography stays light-only by design — messages don't vary
+        // fonts or sizes between modes (iOS parity).
+        lottie_url = d.lottie_url ?: lottie_url,
+        rive_url = d.rive_url ?: rive_url,
+        video_url = d.video_url ?: video_url,
+        video_thumbnail_url = d.video_thumbnail_url ?: video_thumbnail_url,
+        cta_icon = d.cta_icon ?: cta_icon,
+        secondary_cta_icon = d.secondary_cta_icon ?: secondary_cta_icon,
+        particle_effect = d.particle_effect ?: particle_effect,
+        blur_backdrop = d.blur_backdrop ?: blur_backdrop,
+        // Drop the dark block on the resolved copy so downstream consumers
+        // can't accidentally re-resolve.
+        dark = null,
+    )
+}
+
+/**
  * SPEC-205 / SPEC-070-A F.2: Dark-mode overrides for [MessageContent].
  * Sparse — only fields set here override the matching light-mode field on the
  * parent. Mirrors iOS `MessageContentDark` in `InAppMessaging/MessageConfig.swift`.

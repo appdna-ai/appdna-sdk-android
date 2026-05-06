@@ -148,11 +148,25 @@ internal class EntitlementCache(
                     return@addSnapshotListener
                 }
 
+                // SPEC-070-A H.25: empty-snapshot debounce. A null/missing
+                // snapshot can happen during a reconnect or when the doc has
+                // not yet been provisioned for this user — both are
+                // **transient** states that must NOT clobber a non-empty
+                // cache. We only treat the snapshot as authoritative when:
+                //   - the doc EXISTS and
+                //   - it explicitly carries a `subscriptions` field (even
+                //     an empty array means "the server says no entitlements").
+                //
+                // Previously, an empty snapshot during reconnect would clear
+                // the cache and stamp out an active subscription locally,
+                // briefly toggling paywalls back on for the user.
                 val data = snapshot?.data
                 if (snapshot == null || !snapshot.exists() || data == null) {
-                    if (entitlements.isNotEmpty()) {
-                        setEntitlements(emptyList())
-                    }
+                    Log.debug("EntitlementCache: empty/missing snapshot — preserving cached entitlements")
+                    return@addSnapshotListener
+                }
+                if (!data.containsKey("subscriptions")) {
+                    Log.debug("EntitlementCache: snapshot has no `subscriptions` field — preserving cached entitlements")
                     return@addSnapshotListener
                 }
 

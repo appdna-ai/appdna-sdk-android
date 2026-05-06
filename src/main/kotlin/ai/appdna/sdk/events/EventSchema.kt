@@ -44,7 +44,8 @@ internal object EventSchema {
         analyticsConsent: Boolean,
         experimentExposures: List<ExperimentExposure>? = null,
         environment: String? = null,
-        screen: String? = null
+        screen: String? = null,
+        pushId: String? = null
     ): JSONObject {
         return JSONObject().apply {
             put("schema_version", SCHEMA_VERSION)
@@ -86,6 +87,13 @@ internal object EventSchema {
                 // SPEC-070-A G.17: optional screen name for zero-code attribution.
                 if (screen != null) {
                     put("screen", screen)
+                }
+                // SPEC-070-A H.7: most-recently-received push id, propagated
+                // for the rolling 30-minute attribution window so subsequent
+                // events can be tied back to the push that triggered them.
+                // Mirrors iOS `EventContext.push_id`.
+                if (pushId != null) {
+                    put("push_id", pushId)
                 }
                 // SPEC-070-A A.14: include experiment exposure context so the
                 // BigQuery ETL can attribute events to the assigned variant.

@@ -263,7 +263,29 @@ data class SurveyAppearance(
     val haptic: ai.appdna.sdk.core.HapticConfig? = null,
     // SPEC-088: Configurable thank-you text for interpolation
     val thankYouText: String? = null,
+    /**
+     * SPEC-205 / SPEC-070-A D.3: optional sparse dark-mode overrides for [theme].
+     * Mirrors iOS `theme: ThemeSet<SurveyTheme>?` — server may serialize either
+     * a flat theme object (legacy → goes into [theme] only) OR
+     * `{ light: {...}, dark: {...} }` (Wave 2 → flat fields go into [theme] (the
+     * light baseline) and `dark` overrides land here).
+     */
+    val themeDark: SurveyTheme? = null,
 ) {
+    /**
+     * SPEC-205 / SPEC-070-A D.3: render-time theme resolver. In dark mode,
+     * any field set on [themeDark] overrides the matching field on [theme];
+     * unset dark fields fall back to the light value (sparse merge). In
+     * light mode, returns [theme] unchanged. Mirrors iOS
+     * `appearance.theme?.resolved(for: colorScheme)`.
+     */
+    fun resolveTheme(isDark: Boolean): SurveyTheme? {
+        val light = theme ?: return null
+        if (!isDark) return light
+        val dark = themeDark ?: return light
+        return dark.mergedOnto(light)
+    }
+
     companion object {
         fun fromMap(data: Map<String, Any>): SurveyAppearance {
             @Suppress("UNCHECKED_CAST")
@@ -378,38 +400,63 @@ data class SurveyAppearance(
                 )
             }
 
+            // SPEC-205 / SPEC-070-A D.3: server may serialize theme as either:
+            //   1. flat: `theme: { background_color: ..., ... }` (legacy)
+            //   2. themed: `theme: { light: {...}, dark: {...} }` (Wave 2)
+            // In case (2), unwrap `theme.light` as the baseline and keep
+            // `theme.dark` for the sparse override. In case (1), use `theme.*`
+            // directly as the light baseline. Mirrors iOS `ThemeSet`'s
+            // back-compat decoder in `Core/ThemeSet.swift`.
+            @Suppress("UNCHECKED_CAST")
+            val themeLightMap: Map<String, Any>? = themeData?.let {
+                (it["light"] as? Map<String, Any>) ?: it
+            }
+            @Suppress("UNCHECKED_CAST")
+            val themeDarkMap: Map<String, Any>? = themeData?.let { it["dark"] as? Map<String, Any> }
+
+            // Build a SurveyTheme from a raw theme-shape map. Reused for both
+            // the light baseline and the dark sparse override. The dark variant
+            // does NOT pull from `appearance.*` (only its own keys) so that
+            // unset fields cleanly fall back to light at render time.
+            fun buildTheme(raw: Map<String, Any>, allowAppearanceFallback: Boolean): SurveyTheme {
+                val tIntroLottie = raw["intro_lottie_url"] as? String
+                    ?: if (allowAppearanceFallback) data["intro_lottie_url"] as? String else null
+                val tThankyouLottie = raw["thankyou_lottie_url"] as? String
+                    ?: if (allowAppearanceFallback) data["thankyou_lottie_url"] as? String else null
+                val tParticle = parseParticle(raw["thankyou_particle_effect"], "on_flow_complete")
+                    ?: if (allowAppearanceFallback) parseParticle(data["thankyou_particle_effect"], "on_flow_complete") else null
+                val tBlur = parseBlur(raw["blur_backdrop"])
+                    ?: if (allowAppearanceFallback) parseBlur(data["blur_backdrop"]) else null
+                val tHaptic = parseHaptic(raw["haptic"])
+                    ?: if (allowAppearanceFallback) parseHaptic(data["haptic"]) else null
+                val tThankYouText = raw["thank_you_text"] as? String
+                    ?: if (allowAppearanceFallback) data["thank_you_text"] as? String else null
+
+                return SurveyTheme(
+                    backgroundColor = raw["background_color"] as? String,
+                    textColor = raw["text_color"] as? String,
+                    accentColor = raw["accent_color"] as? String,
+                    buttonColor = raw["button_color"] as? String,
+                    fontFamily = raw["font_family"] as? String,
+                    buttonTextColor = raw["button_text_color"] as? String,
+                    gradient = parseGradient(raw["gradient"]),
+                    buttonGradient = parseGradient(raw["button_gradient"]),
+                    textAlign = raw["text_align"] as? String,
+                    questionFontSize = (raw["question_font_size"] as? Number)?.toDouble(),
+                    fontWeight = raw["font_weight"] as? String,
+                    introLottieUrl = tIntroLottie,
+                    thankyouLottieUrl = tThankyouLottie,
+                    thankyouParticleEffect = tParticle,
+                    blurBackdrop = tBlur,
+                    haptic = tHaptic,
+                    thankYouText = tThankYouText,
+                )
+            }
+
             return SurveyAppearance(
                 presentation = data["presentation"] as? String ?: "bottom_sheet",
-                theme = themeData?.let {
-                    // SPEC-070-A F.3: read theme-level + (back-compat) appearance-level
-                    val tIntroLottie = it["intro_lottie_url"] as? String ?: data["intro_lottie_url"] as? String
-                    val tThankyouLottie = it["thankyou_lottie_url"] as? String ?: data["thankyou_lottie_url"] as? String
-                    val tParticle = parseParticle(it["thankyou_particle_effect"], "on_flow_complete")
-                        ?: parseParticle(data["thankyou_particle_effect"], "on_flow_complete")
-                    val tBlur = parseBlur(it["blur_backdrop"]) ?: parseBlur(data["blur_backdrop"])
-                    val tHaptic = parseHaptic(it["haptic"]) ?: parseHaptic(data["haptic"])
-                    val tThankYouText = it["thank_you_text"] as? String ?: data["thank_you_text"] as? String
-
-                    SurveyTheme(
-                        backgroundColor = it["background_color"] as? String,
-                        textColor = it["text_color"] as? String,
-                        accentColor = it["accent_color"] as? String,
-                        buttonColor = it["button_color"] as? String,
-                        fontFamily = it["font_family"] as? String,
-                        buttonTextColor = it["button_text_color"] as? String,
-                        gradient = parseGradient(it["gradient"]),
-                        buttonGradient = parseGradient(it["button_gradient"]),
-                        textAlign = it["text_align"] as? String,
-                        questionFontSize = (it["question_font_size"] as? Number)?.toDouble(),
-                        fontWeight = it["font_weight"] as? String,
-                        introLottieUrl = tIntroLottie,
-                        thankyouLottieUrl = tThankyouLottie,
-                        thankyouParticleEffect = tParticle,
-                        blurBackdrop = tBlur,
-                        haptic = tHaptic,
-                        thankYouText = tThankYouText,
-                    )
-                },
+                theme = themeLightMap?.let { buildTheme(it, allowAppearanceFallback = true) },
+                themeDark = themeDarkMap?.let { buildTheme(it, allowAppearanceFallback = false) },
                 dismissAllowed = data["dismiss_allowed"] as? Boolean ?: true,
                 showProgress = data["show_progress"] as? Boolean ?: false,
                 cornerRadius = (data["corner_radius"] as? Number)?.toInt(),
@@ -514,12 +561,17 @@ data class SurveyAppearance(
  * and configurable thank-you text. Server writes these under
  * `appearance.theme.*` (mirroring iOS) — see
  * [SurveyAppearance.fromMap] for parser entries.
+ *
+ * SPEC-205 / SPEC-070-A D.3: implements [ai.appdna.sdk.core.SparseMergeable]
+ * so a `dark` variant on the same shape can sparse-override any field at
+ * render time — `theme.dark` lives on [SurveyAppearance] and is resolved by
+ * [SurveyAppearance.resolveTheme]. Mirrors iOS `SurveyTheme: SparseMergeable`.
  */
 data class SurveyTheme(
-    val backgroundColor: String?,
-    val textColor: String?,
-    val accentColor: String?,
-    val buttonColor: String?,
+    val backgroundColor: String? = null,
+    val textColor: String? = null,
+    val accentColor: String? = null,
+    val buttonColor: String? = null,
     val fontFamily: String? = null,
     // SPEC-070-A F.3: button text color (iOS parity)
     val buttonTextColor: String? = null,
@@ -538,7 +590,32 @@ data class SurveyTheme(
     val haptic: ai.appdna.sdk.core.HapticConfig? = null,
     // SPEC-088 / SPEC-070-A F.3: configurable thank-you text
     val thankYouText: String? = null,
-)
+) : ai.appdna.sdk.core.SparseMergeable<SurveyTheme> {
+    /**
+     * SPEC-205 / SPEC-070-A D.3: sparse-merge self (overrides) onto baseline.
+     * Any field set on self wins; otherwise fall back to the baseline value.
+     * Mirrors iOS `SurveyTheme.merged(onto:)`.
+     */
+    override fun mergedOnto(baseline: SurveyTheme): SurveyTheme = SurveyTheme(
+        backgroundColor = backgroundColor ?: baseline.backgroundColor,
+        textColor = textColor ?: baseline.textColor,
+        accentColor = accentColor ?: baseline.accentColor,
+        buttonColor = buttonColor ?: baseline.buttonColor,
+        fontFamily = fontFamily ?: baseline.fontFamily,
+        buttonTextColor = buttonTextColor ?: baseline.buttonTextColor,
+        gradient = gradient ?: baseline.gradient,
+        buttonGradient = buttonGradient ?: baseline.buttonGradient,
+        textAlign = textAlign ?: baseline.textAlign,
+        questionFontSize = questionFontSize ?: baseline.questionFontSize,
+        fontWeight = fontWeight ?: baseline.fontWeight,
+        introLottieUrl = introLottieUrl ?: baseline.introLottieUrl,
+        thankyouLottieUrl = thankyouLottieUrl ?: baseline.thankyouLottieUrl,
+        thankyouParticleEffect = thankyouParticleEffect ?: baseline.thankyouParticleEffect,
+        blurBackdrop = blurBackdrop ?: baseline.blurBackdrop,
+        haptic = haptic ?: baseline.haptic,
+        thankYouText = thankYouText ?: baseline.thankYouText,
+    )
+}
 
 data class SurveyFollowUpActions(
     val onPositive: FollowUpAction?,

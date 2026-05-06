@@ -11,6 +11,7 @@ import android.provider.Settings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -211,5 +212,15 @@ internal class PushTokenManager(
         val digest = MessageDigest.getInstance("SHA-256")
         val hash = digest.digest(input.toByteArray(Charsets.UTF_8))
         return hash.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * SPEC-070-A H.24 — cancel the background scope so any pending
+     * delivered/tapped POSTs do not outlive [AppDNA.shutdown]. Safe to call
+     * multiple times.
+     */
+    internal fun shutdown() {
+        scope.cancel()
+        pushListener = null
     }
 }

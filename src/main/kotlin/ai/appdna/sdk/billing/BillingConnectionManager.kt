@@ -1,10 +1,12 @@
 package ai.appdna.sdk.billing
 
 import android.content.Context
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import com.android.billingclient.api.*
 import kotlinx.coroutines.*
 import kotlin.math.min
+import kotlin.random.Random
 
 /**
  * Manages the Google Play Billing connection lifecycle with exponential backoff retry.
@@ -24,18 +26,25 @@ internal class BillingConnectionManager(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     private var retryAttempt = 0
-    private val maxRetryDelay = 60_000L // 60 seconds max
-    private val baseRetryDelay = 1_000L // 1 second initial
-    // Cap the bit-shift exponent. 2^16 * 1s = 65536s > maxRetryDelay anyway, so
-    // beyond this we are always pinned to maxRetryDelay; preventing the shift
-    // from going into Long-overflow territory.
+    // SPEC-070-A H.14: hard cap on backoff slots — 1s, 2s, 4s, 8s, 16s, then
+    // we surface `onBillingUnavailable` to the host delegate and stop. The
+    // existing `maxAutoRetries` budget remains as a defense-in-depth limit
+    // for the scheduleRetry loop itself (see scheduleRetry below).
+    private val backoffSlots = longArrayOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L)
+    private val maxRetryDelay = 60_000L // upper safety bound, keeps any future slot in range
+    @Suppress("unused")
+    private val baseRetryDelay = 1_000L // retained for reference / tests
+    // Cap the bit-shift exponent. (Retained — used by the legacy fallback
+    // path when callers reset retryAttempt on user-initiated requests.)
     private val maxShiftExponent = 16
     // After this many consecutive failures we stop reconnecting on our own.
     // The next caller will re-trigger `startConnection()` via withConnectedClient.
     // Prevents the runaway loop seen on devices/emulators with no Play Services.
-    private val maxAutoRetries = 10
+    private val maxAutoRetries = backoffSlots.size
     @Volatile
     private var retryScheduled = false
+    @Volatile
+    private var unavailableSurfaced = false
 
     @Volatile
     var isConnected = false
@@ -106,26 +115,35 @@ internal class BillingConnectionManager(
     }
 
     /**
-     * Schedule a reconnection attempt with exponential backoff.
-     *
-     * Uses a capped shift exponent so the delay never overflows Long, and
-     * a hard cap on total automatic retries so a permanently broken device
-     * (no Play Services) doesn't loop indefinitely.
+     * SPEC-070-A H.14: jittered exponential reconnect with a hard 5-attempt
+     * cap. Slots are 1s/2s/4s/8s/16s + ±20% jitter. After all 5 slots fail
+     * we stop scheduling and fire `AppDNABillingDelegate.onBillingUnavailable()`
+     * so the host UI can degrade (hide paywalls, show cash-out path, etc.).
      */
     private fun scheduleRetry() {
         if (retryAttempt >= maxAutoRetries) {
             Log.warning(
                 "Billing reconnection gave up after $retryAttempt attempts. " +
-                    "Will retry on next billing operation."
+                    "Surfacing onBillingUnavailable; will retry on next billing operation."
             )
+            surfaceBillingUnavailable()
             return
         }
         if (retryScheduled) return
         retryScheduled = true
-        val safeExp = min(retryAttempt, maxShiftExponent)
-        val delay = min(baseRetryDelay shl safeExp, maxRetryDelay)
+
+        val slot = backoffSlots.getOrElse(retryAttempt) {
+            // Defensive — slot index out of range (shouldn't trip given the
+            // maxAutoRetries gate above). Use the max slot.
+            backoffSlots.last()
+        }
+        // SPEC-070-A H.14: ±20% jitter prevents thundering-herd reconnects on
+        // mass-disconnect events (e.g. Play Services restarts).
+        val jitterRange = (slot * 0.20).toLong()
+        val jitter = if (jitterRange > 0) Random.nextLong(-jitterRange, jitterRange + 1) else 0L
+        val delay = (slot + jitter).coerceIn(0L, maxRetryDelay)
         retryAttempt++
-        Log.debug("Scheduling billing reconnection in ${delay}ms (attempt $retryAttempt)")
+        Log.debug("Scheduling billing reconnection in ${delay}ms (attempt $retryAttempt of $maxAutoRetries)")
 
         scope.launch {
             delay(delay)
@@ -133,6 +151,28 @@ internal class BillingConnectionManager(
             if (!isConnected) {
                 startConnection()
             }
+        }
+    }
+
+    /**
+     * SPEC-070-A H.14: notify host once that billing is unavailable. We post
+     * to main-thread so host code never runs on the BillingClient callback
+     * thread, and we de-dup so reconnects after the gave-up state don't
+     * fire the delegate repeatedly.
+     */
+    private fun surfaceBillingUnavailable() {
+        if (unavailableSurfaced) return
+        unavailableSurfaced = true
+        val delegate = try {
+            AppDNA.billing.billingListener
+        } catch (_: Throwable) { null } ?: return
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                runCatching { delegate.onBillingUnavailable() }
+                    .onFailure { Log.warning("AppDNABillingDelegate.onBillingUnavailable threw: ${it.message}") }
+            }
+        } catch (e: Throwable) {
+            Log.warning("BillingConnectionManager: onBillingUnavailable fan-out failed: ${e.message}")
         }
     }
 
@@ -152,9 +192,12 @@ internal class BillingConnectionManager(
             }
             // A user-initiated billing call is a fresh signal that we should
             // try again — reset the auto-retry counter so a previous "gave up"
-            // state doesn't strand the new request.
+            // state doesn't strand the new request. Also reset
+            // `unavailableSurfaced` so a future re-failure can re-fire the
+            // delegate.
             if (billingClient != null && !isConnected) {
                 retryAttempt = 0
+                unavailableSurfaced = false
                 if (!retryScheduled) startConnection()
             }
         }
@@ -180,6 +223,7 @@ internal class BillingConnectionManager(
             // see withConnectedClient for rationale).
             if (!isConnected) {
                 retryAttempt = 0
+                unavailableSurfaced = false
                 if (!retryScheduled) startConnection()
             }
         }

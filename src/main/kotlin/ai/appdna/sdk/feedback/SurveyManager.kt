@@ -83,6 +83,17 @@ internal class SurveyManager(
     }
 
     /**
+     * SPEC-070-A H.24 — cancel all pending presentation/network coroutines so
+     * survey work doesn't outlive [AppDNA.shutdown]. Safe to call multiple
+     * times; the scope is supervisor-jobbed.
+     */
+    internal fun shutdown() {
+        scope.cancel()
+        currentSurveyId = null
+        isPresenting.set(false)
+    }
+
+    /**
      * Called by SurveyActivity when a question is answered.
      */
     internal fun onQuestionAnswered(questionId: String, questionType: String, answer: Any) {

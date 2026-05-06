@@ -39,6 +39,75 @@ object AppDNA {
     /** SDK version string. */
     const val sdkVersion = "1.0.60"
 
+    /**
+     * SPEC-070-A H.20: most recent throwable raised during configure/bootstrap
+     * (e.g. missing `google-services-appdna.json`, malformed bundle config).
+     *
+     * Hosts can read this to detect a degraded init state — for example, to
+     * decide whether remote config is reliable in a feature-flag check.
+     * Pairs with `delegate?.onInitDegraded(reason)` which fires once whenever
+     * the value transitions from null → non-null.
+     */
+    @Volatile
+    var lastInitError: Throwable? = null
+        @JvmStatic get
+        internal set
+
+    /**
+     * SPEC-070-A H.21: small-icon resource id used for AppDNA push notifications.
+     * Hosts SHOULD set this via [Configuration.AppDNAOptions.notificationIcon] —
+     * surfaced here as a top-level read for [AppDNAMessagingService] /
+     * [RichPushHandler]. `0` means "use manifest meta-data, then app icon".
+     */
+    @Volatile
+    var notificationIcon: Int = 0
+        @JvmStatic get
+        private set
+
+    /**
+     * SPEC-070-A H.20: degraded-init callback for the active [AppDNAInitDelegate].
+     * Fires from [reportInitDegraded] when bootstrap detects a recoverable but
+     * worth-noting failure (Firebase config missing, etc.).
+     */
+    @Volatile
+    private var initDelegate: AppDNAInitDelegate? = null
+
+    /**
+     * Register a delegate that receives [AppDNAInitDelegate.onInitDegraded]
+     * callbacks when the SDK detects a recoverable init failure.
+     */
+    @JvmStatic
+    fun setInitDelegate(delegate: AppDNAInitDelegate?) {
+        initDelegate = delegate
+        // If we already entered a degraded state before the delegate registered,
+        // surface it once so late-binding hosts don't miss the signal.
+        val pending = lastInitError
+        if (pending != null && delegate != null) {
+            try {
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    runCatching { delegate.onInitDegraded(pending) }
+                }
+            } catch (_: Throwable) { /* best-effort */ }
+        }
+    }
+
+    /**
+     * SPEC-070-A H.20: record a non-fatal init error and notify the delegate.
+     * Stored in [lastInitError] so hosts can read it any time after configure().
+     */
+    internal fun reportInitDegraded(error: Throwable) {
+        lastInitError = error
+        val delegate = initDelegate ?: return
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                runCatching { delegate.onInitDegraded(error) }
+                    .onFailure { Log.warning("AppDNAInitDelegate.onInitDegraded threw: ${it.message}") }
+            }
+        } catch (e: Throwable) {
+            Log.warning("Init delegate fan-out failed: ${e.message}")
+        }
+    }
+
     // Module namespaces (v1.0)
     /** Push notification module. */
     @JvmStatic val push = PushModule()
@@ -167,6 +236,9 @@ object AppDNA {
             this.environment = environment
             this.options = options
             Log.level = options.logLevel
+            // SPEC-070-A H.21: pin host-supplied icon for AppDNAMessagingService
+            // / RichPushHandler. `0` keeps fallback resolution active.
+            this.notificationIcon = options.notificationIcon
 
             Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
 
@@ -267,9 +339,25 @@ object AppDNA {
             // (wired in a follow-up item; field stays null safely until then).
             tracker.setScreenProvider { lastScreenName }
 
+            // SPEC-070-A H.7: wire push-id provider so subsequent events fold
+            // the most-recent push_id into `context.push_id` for attribution
+            // (rolling 30-minute window managed by PushSessionContext).
+            tracker.setPushIdProvider {
+                ai.appdna.sdk.integrations.PushSessionContext.currentPushId(appContext)
+            }
+
             // 5. Initialize push token manager (v0.4 SPEC-030: backend registration)
             this.pushTokenManager = PushTokenManager(context, storage, tracker, client)
             push.manager = this.pushTokenManager
+
+            // SPEC-070-A H.18: proactively fetch the FCM token on configure()
+            // instead of waiting for a token-rotation event (which can take
+            // hours/days). Mirrors iOS PushTokenManager.configure() behavior.
+            try {
+                this.pushTokenManager?.registerToken()
+            } catch (e: Throwable) {
+                Log.warning("PushTokenManager.registerToken() failed during configure: ${e.message}")
+            }
 
             // 6. Initialize config managers (Firestore)
             val remoteCfg = RemoteConfigManager(
@@ -350,6 +438,14 @@ object AppDNA {
                     ai.appdna.sdk.screens.NavigationInterceptor.shared
                 )
             )
+
+            // SPEC-070-A H.3: schedule periodic 15-minute remote-config refresh
+            // via WorkManager. Idempotent — safe across configure() races.
+            try {
+                ai.appdna.sdk.background.ConfigRefreshWorker.schedule(appContext)
+            } catch (e: Throwable) {
+                Log.warning("ConfigRefreshWorker.schedule failed: ${e.message}")
+            }
 
             // 7. Bootstrap (fetch orgId/appId, then Firestore configs)
             scope.launch {
@@ -659,6 +755,94 @@ object AppDNA {
      */
     fun trackPushTapped(pushId: String, action: String? = null) {
         pushTokenManager?.trackTapped(pushId, action)
+    }
+
+    /**
+     * SPEC-070-A H.5 + H.9 — single entry point hosts call from
+     * `Activity.onCreate(savedInstanceState)` / `onNewIntent(intent)` to:
+     *   1. Track `push_tapped` (carries push_id + action_id),
+     *   2. Fire [AppDNAPushDelegate.onPushTapped] with a typed [PushPayload],
+     *   3. Auto-route built-in actions (`screen_id`, `deep_link`,
+     *      `action_type=show_screen`, etc.) without requiring host code.
+     *
+     * Safe to call with any intent — does nothing if `push_id` extra is absent
+     * (so hosts can call unconditionally).
+     *
+     * @return `true` if the intent was an AppDNA push tap and was handled.
+     */
+    @JvmStatic
+    fun handlePushTap(intent: android.content.Intent?): Boolean {
+        if (intent == null) return false
+        val pushId = intent.getStringExtra("push_id") ?: return false
+        if (pushId.isBlank()) return false
+
+        val actionId = intent.getStringExtra("action_id")
+        val actionType = intent.getStringExtra("action_type")
+        val actionValue = intent.getStringExtra("action_value")
+        val screenId = intent.getStringExtra("screen_id")
+        val deepLink = intent.getStringExtra("deep_link")
+
+        // 1. Analytics
+        try {
+            trackPushTapped(pushId, actionId ?: actionType)
+        } catch (e: Throwable) {
+            Log.warning("handlePushTap: trackPushTapped threw: ${e.message}")
+        }
+
+        // SPEC-070-A H.7: fold push_id forward for the next 30 minutes.
+        try {
+            appContext?.let {
+                ai.appdna.sdk.integrations.PushSessionContext.recordPushReceived(it, pushId)
+            }
+        } catch (_: Throwable) { /* best-effort */ }
+
+        // 2. Delegate fan-out
+        try {
+            val delegate = pushTokenManager?.pushListener
+            if (delegate != null) {
+                val payload = ai.appdna.sdk.PushPayload(
+                    pushId = pushId,
+                    title = "",
+                    body = "",
+                    action = actionType?.let { ai.appdna.sdk.PushAction(it, actionValue ?: "") },
+                )
+                android.os.Handler(android.os.Looper.getMainLooper()).post {
+                    runCatching { delegate.onPushTapped(payload, actionId) }
+                        .onFailure { Log.warning("AppDNAPushDelegate.onPushTapped threw: ${it.message}") }
+                }
+            }
+        } catch (e: Throwable) {
+            Log.warning("handlePushTap: delegate fan-out failed: ${e.message}")
+        }
+
+        // 3. Auto-routing — screen_id wins, then deep_link, then action_type/value.
+        try {
+            when {
+                !screenId.isNullOrBlank() -> {
+                    Log.debug("handlePushTap: auto-routing to screen $screenId")
+                    showScreen(screenId)
+                }
+                !deepLink.isNullOrBlank() -> {
+                    Log.debug("handlePushTap: auto-routing deep link $deepLink")
+                    deepLinks.handleURL(deepLink)
+                }
+                actionType == "show_screen" && !actionValue.isNullOrBlank() -> {
+                    showScreen(actionValue)
+                }
+                actionType == "deep_link" && !actionValue.isNullOrBlank() -> {
+                    deepLinks.handleURL(actionValue)
+                }
+                actionType == "show_paywall" && !actionValue.isNullOrBlank() -> {
+                    showPaywall(actionValue)
+                }
+                actionType == "show_survey" && !actionValue.isNullOrBlank() -> {
+                    showSurvey(actionValue)
+                }
+            }
+        } catch (e: Throwable) {
+            Log.warning("handlePushTap: auto-route failed: ${e.message}")
+        }
+        return true
     }
 
     /**
@@ -1016,12 +1200,19 @@ object AppDNA {
                     firestoreDB = FirebaseFirestore.getInstance(secondaryApp)
                     Log.info("Firebase: Using secondary app 'appdna' (google-services-appdna.json)")
                 } else {
-                    Log.error("Firebase: google-services-appdna.json found but failed to create secondary app. Check the JSON content.")
+                    val msg = "Firebase: google-services-appdna.json found but failed to create secondary app. Check the JSON content."
+                    Log.error(msg)
+                    // SPEC-070-A H.20: surface degraded init state to host.
+                    reportInitDegraded(IllegalStateException(msg))
                 }
             } else if (FirebaseApp.getApps(context).isEmpty()) {
-                Log.error("Firebase: No configuration found. Download google-services-appdna.json from Console -> Settings -> SDK and add it to your app/src/main/assets/ directory. See: https://docs.appdna.ai/sdks/android/installation#firebase-configuration")
+                val msg = "Firebase: No configuration found. Download google-services-appdna.json from Console -> Settings -> SDK and add it to your app/src/main/assets/ directory. See: https://docs.appdna.ai/sdks/android/installation#firebase-configuration"
+                Log.error(msg)
+                reportInitDegraded(IllegalStateException(msg))
             } else {
-                Log.error("Firebase: Your app already has Firebase configured (its own project), but google-services-appdna.json was NOT found. AppDNA needs its own Firebase config. Download it from Console -> Settings -> SDK and add to app/src/main/assets/. Remote config will NOT work without this file.")
+                val msg = "Firebase: Your app already has Firebase configured (its own project), but google-services-appdna.json was NOT found. AppDNA needs its own Firebase config. Download it from Console -> Settings -> SDK and add to app/src/main/assets/. Remote config will NOT work without this file."
+                Log.error(msg)
+                reportInitDegraded(IllegalStateException(msg))
             }
         }
     }
@@ -1068,6 +1259,12 @@ object AppDNA {
 
     /**
      * Shut down the SDK and release resources. Call from Application.onTerminate().
+     *
+     * SPEC-070-A H.24 — release ALL native handles + cancel ALL coroutine
+     * scopes. Previous implementation cancelled `scope` but leaked
+     * `nativeBillingManager`'s BillingClient connection, the event SQLite
+     * handle, the survey/messages/push manager scopes, and the periodic
+     * config-refresh worker.
      */
     fun shutdown() {
         synchronized(this) {
@@ -1084,6 +1281,37 @@ object AppDNA {
             connectivityMonitor?.shutdown()
             webEntitlementManager?.stopObserving()
             pendingMessageListener?.stopObserving()
+
+            // SPEC-070-A H.24: cancel periodic config-refresh worker.
+            try {
+                if (ctx != null) ai.appdna.sdk.background.ConfigRefreshWorker.cancel(ctx)
+            } catch (_: Throwable) { /* WorkManager may not be initialized */ }
+
+            // SPEC-070-A H.24: release the native billing handles. The wrapper
+            // [BillingModule] does NOT itself own a BillingClient — its scope
+            // is independent of the underlying [NativeBillingManager], so we
+            // cancel both.
+            try {
+                billing.manager?.destroy()
+            } catch (e: Throwable) {
+                Log.warning("NativeBillingManager.destroy threw: ${e.message}")
+            }
+            try {
+                billing.shutdown()
+            } catch (e: Throwable) {
+                Log.warning("BillingModule.shutdown threw: ${e.message}")
+            }
+
+            // SPEC-070-A H.24: cancel survey/push token scopes so background
+            // coroutines stop emitting events after shutdown.
+            try { surveyManager?.shutdown() } catch (_: Throwable) {}
+            try { pushTokenManager?.shutdown() } catch (_: Throwable) {}
+
+            // SPEC-070-A H.24: close the SQLite handle. EventDatabase extends
+            // SQLiteOpenHelper, so close() releases the underlying db file
+            // without losing pending rows (they live on disk until uploaded).
+            try { eventDatabase?.close() } catch (_: Throwable) {}
+
             scope.cancel()
             isConfigured = false
             Log.info("SDK shut down")

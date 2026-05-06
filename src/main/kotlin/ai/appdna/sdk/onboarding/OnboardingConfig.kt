@@ -286,6 +286,17 @@ sealed class StepAdvanceResult {
 
     /** Skip to a specific step by ID, optionally merging data. */
     data class SkipTo(val stepId: String, val data: Map<String, Any>? = null) : StepAdvanceResult()
+
+    /**
+     * SPEC-070-A C.8 — port of iOS v1.0.60 SPEC-083 amendment
+     * `OnboardingConfig.swift:485 case stay(message: String? = nil)`.
+     *
+     * Stay on the current step optionally surfacing a success/info message.
+     * Differs from [Block]: [Stay] is for "host handled the side effect,
+     * waiting for user choice / verification email / etc." — not an error.
+     * If `message` is null/empty the SDK stays silent (host handles UI).
+     */
+    data class Stay(val message: String? = null) : StepAdvanceResult()
 }
 
 /**

@@ -402,6 +402,13 @@ enum class PaywallAction(val value: String) {
 
 /**
  * Delegate for paywall lifecycle events.
+ *
+ * SPEC-070-A C.2 / C.4 — 12-method parity with iOS
+ * `AppDNAPaywallDelegate` (AppDNA+Delegates.swift): adds
+ * `onPaywallRestoreStarted` / `onPaywallRestoreCompleted` /
+ * `onPaywallRestoreFailed` (restore lifecycle) plus
+ * `onPostPurchaseDeepLink` / `onPostPurchaseNextStep` (post-purchase
+ * dispatch hooks consumed by [PaywallManager.handlePostPurchaseSuccess]).
  */
 interface AppDNAPaywallDelegate {
     fun onPaywallPresented(paywallId: String) {}
@@ -412,6 +419,19 @@ interface AppDNAPaywallDelegate {
     fun onPaywallDismissed(paywallId: String) {}
     // AC-037: Validate a promo code entered by the user. Call the completion handler with `true` if valid, `false` otherwise.
     fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) { completion(false) }
+
+    // SPEC-070-A C.2 — restore lifecycle (mirrors iOS
+    // AppDNAPaywallDelegate.onPaywallRestore{Started,Completed,Failed}).
+    fun onPaywallRestoreStarted(paywallId: String) {}
+    fun onPaywallRestoreCompleted(paywallId: String, productIds: List<String>) {}
+    fun onPaywallRestoreFailed(paywallId: String, error: Throwable) {}
+
+    // SPEC-070-A C.4 / C.5 — post-purchase dispatch hooks (mirrors iOS
+    // AppDNAPaywallDelegate.onPostPurchase{DeepLink,NextStep}).
+    /** Fired after a successful purchase when post_purchase.on_success.action == "deep_link". */
+    fun onPostPurchaseDeepLink(paywallId: String, url: String) {}
+    /** Fired after a successful purchase when post_purchase.on_success.action == "next_step". */
+    fun onPostPurchaseNextStep(paywallId: String) {}
 }
 
 // MARK: - Parsing helpers

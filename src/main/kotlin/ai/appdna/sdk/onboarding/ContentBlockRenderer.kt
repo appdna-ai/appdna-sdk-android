@@ -1452,10 +1452,29 @@ private fun SocialLoginBlock(
                 else -> ""
             }
 
+            // SPEC-070-A C.1 — dual-emit for the `email` provider (parity with
+            // iOS v1.0.60 `ContentBlockRendererView.swift:743-754`). The email
+            // provider in a social_login block is not actually OAuth — emit
+            // `email_login:email` so hosts can branch their auth handler
+            // cleanly. Also dual-emit the legacy `social_login:email` action
+            // this release so existing handlers that switch on
+            // `social_login` + value=="email" keep working. Legacy emit
+            // removed in v1.1.0 alongside iOS.
+            // Representation: colon-encoded `action:value` (chosen over
+            // widening callback to (String, String?) to keep ContentBlockRenderer
+            // call sites stable). Documented here so 070-B/C wrappers mirror.
+            val socialClick: () -> Unit = {
+                if (provider.type == "email") {
+                    onAction("email_login:email")
+                    onAction("social_login:email") // deprecated; remove in v1.1.0
+                } else {
+                    onAction("social_login:${provider.type}")
+                }
+            }
             when (buttonStyle) {
                 "outlined" -> {
                     OutlinedButton(
-                        onClick = { onAction("social_login:${provider.type}") },
+                        onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
                         shape = RoundedCornerShape(cornerRadius),
                         border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
@@ -1466,7 +1485,7 @@ private fun SocialLoginBlock(
                 }
                 "minimal" -> {
                     TextButton(
-                        onClick = { onAction("social_login:${provider.type}") },
+                        onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
                         shape = RoundedCornerShape(cornerRadius),
                     ) {
@@ -1476,7 +1495,7 @@ private fun SocialLoginBlock(
                 }
                 else -> { // filled
                     Button(
-                        onClick = { onAction("social_login:${provider.type}") },
+                        onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
                         shape = RoundedCornerShape(cornerRadius),
                         colors = ButtonDefaults.buttonColors(

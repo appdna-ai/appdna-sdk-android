@@ -6,6 +6,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Divider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -77,11 +78,17 @@ class PaywallActivity : ComponentActivity() {
         val onDismiss = pendingOnDismiss
         val onPlanSelected = pendingOnPlanSelected
         val onPromoCodeSubmit = pendingOnPromoCodeSubmit
+        // SPEC-070-A C.3 — restore lifecycle hook (delegate-fired by PaywallManager)
+        val onRestoreCb = pendingOnRestore
 
         // Notify appearance
         onAppear?.invoke()
 
         setContent {
+            // SPEC-070-A D.5 — read system dark-mode pref so the renderer can
+            // pick `dark` overrides from paywall content blocks. Mirrors the
+            // SurveyActivity pattern landed by Phase D for surveys.
+            val isDark = isSystemInDarkTheme()
             MaterialTheme {
                 PaywallScreen(
                     config = config,
@@ -89,13 +96,16 @@ class PaywallActivity : ComponentActivity() {
                         onPlanSelected?.invoke(plan, metadata)
                     },
                     onRestore = {
-                        // Restore action - tracked by the caller
+                        // SPEC-070-A C.3 — forward restore taps to the
+                        // PaywallManager-supplied lifecycle callback.
+                        onRestoreCb?.invoke()
                     },
                     onDismiss = { reason ->
                         onDismiss?.invoke(reason)
                         cleanup()
                     },
-                    onPromoCodeSubmit = onPromoCodeSubmit
+                    onPromoCodeSubmit = onPromoCodeSubmit,
+                    isDark = isDark,
                 )
             }
         }
@@ -107,6 +117,7 @@ class PaywallActivity : ComponentActivity() {
         pendingOnDismiss = null
         pendingOnPlanSelected = null
         pendingOnPromoCodeSubmit = null
+        pendingOnRestore = null
         finish()
     }
 
@@ -125,6 +136,9 @@ class PaywallActivity : ComponentActivity() {
         private var pendingOnPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
         // AC-037: Promo code delegate callback
         private var pendingOnPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
+        // SPEC-070-A C.3 — restore lifecycle callback (PaywallManager fires
+        // the AppDNAPaywallDelegate restore methods from this hook).
+        private var pendingOnRestore: (() -> Unit)? = null
 
         fun launch(
             context: Context,
@@ -134,21 +148,40 @@ class PaywallActivity : ComponentActivity() {
             onAppear: (() -> Unit)? = null,
             onDismiss: ((DismissReason) -> Unit)? = null,
             onPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null,
-            onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
+            onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
+            onRestore: (() -> Unit)? = null,
         ) {
             pendingConfig = config
             pendingOnAppear = onAppear
             pendingOnDismiss = onDismiss
             pendingOnPlanSelected = onPlanSelected
             pendingOnPromoCodeSubmit = onPromoCodeSubmit
+            pendingOnRestore = onRestore
             val intent = Intent(context, PaywallActivity::class.java).apply {
                 putExtra(EXTRA_PAYWALL_ID, paywallId)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
         }
+
+        /**
+         * SPEC-070-A C.5 — broadcast post-purchase success overlay (confetti +
+         * lottie) into a live PaywallActivity composition. Mirrors iOS's
+         * `NotificationCenter.default.post(.paywallPurchaseSuccess, ...)`.
+         */
+        @Volatile internal var postPurchaseOverlay: PostPurchaseOverlayState? = null
     }
 }
+
+/**
+ * SPEC-070-A C.5 — payload for the post-purchase success overlay (confetti +
+ * lottie animation rendered atop the paywall after a successful purchase).
+ */
+internal data class PostPurchaseOverlayState(
+    val message: String? = null,
+    val confetti: Boolean = false,
+    val lottieUrl: String? = null,
+)
 
 @Composable
 fun PaywallScreen(
@@ -157,7 +190,10 @@ fun PaywallScreen(
     onRestore: () -> Unit,
     onDismiss: (DismissReason) -> Unit,
     // AC-037: Callback for promo code validation. Returns true if code is valid, false otherwise.
-    onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
+    onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
+    // SPEC-070-A D.5 — system dark-mode pref. Renderers/blocks may apply
+    // `dark` overrides from console-designed paywall content based on this.
+    @Suppress("UNUSED_PARAMETER") isDark: Boolean = false,
 ) {
     var selectedPlanId by remember { mutableStateOf<String?>(null) }
     var showDismiss by remember { mutableStateOf(false) }
@@ -167,6 +203,29 @@ fun PaywallScreen(
     var showConfetti by remember { mutableStateOf(false) }
     // AC-038: Hoisted toggle states for inclusion in purchase metadata
     val toggleStates = remember { mutableStateMapOf<String, Boolean>() }
+    // SPEC-070-A C.7 — promo state hoisted out of PaywallPromoInputSection
+    // so CTA tap handlers can fold the validated code into the purchase
+    // metadata. Mirrors iOS `PaywallRenderer.swift:2160-2167`.
+    var promoCode by remember { mutableStateOf("") }
+    var promoState by remember { mutableStateOf("idle") } // idle | loading | success | error
+    // SPEC-070-A C.5 — post-purchase success overlay state. Drained from the
+    // companion-object slot every recomposition so PaywallManager.handle
+    // PostPurchaseSuccess can fire confetti + lottie atop the paywall while
+    // the dismiss timer counts down.
+    var postPurchaseOverlay by remember { mutableStateOf<PostPurchaseOverlayState?>(null) }
+    LaunchedEffect(Unit) {
+        // Poll the companion-object slot for new overlay payloads. Cheap
+        // (one variable read per frame) — and we only enter this loop while
+        // the paywall composition is alive.
+        while (true) {
+            val pending = PaywallActivity.postPurchaseOverlay
+            if (pending != null && pending != postPurchaseOverlay) {
+                postPurchaseOverlay = pending
+                PaywallActivity.postPurchaseOverlay = null
+            }
+            kotlinx.coroutines.delay(100)
+        }
+    }
     val coroutineScope = rememberCoroutineScope()
     val currentView = LocalView.current
 
@@ -296,13 +355,24 @@ fun PaywallScreen(
                                     if (config.particle_effect != null) {
                                         showConfetti = true
                                     }
-                                    onPlanSelected(plan, toggleStates.toMap())
+                                    // SPEC-070-A C.7 — fold validated promo
+                                    // code into purchase metadata. Mirrors
+                                    // iOS PaywallRenderer.swift:2160-2167.
+                                    val md = toggleStates.toMutableMap<String, Any>()
+                                    if (promoState == "success" && promoCode.isNotBlank()) {
+                                        md["promo_code"] = promoCode
+                                    }
+                                    onPlanSelected(plan, md.toMap())
                                 }
                             },
                             onRestore = onRestore,
                             loc = ::loc,
                             toggleStates = toggleStates,
                             onPromoCodeSubmit = onPromoCodeSubmit,
+                            promoCode = promoCode,
+                            promoState = promoState,
+                            onPromoCodeChange = { promoCode = it },
+                            onPromoStateChange = { promoState = it },
                         )
                     }
                     Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
@@ -329,7 +399,13 @@ fun PaywallScreen(
                             if (config.particle_effect != null) {
                                 showConfetti = true
                             }
-                            onPlanSelected(plan, toggleStates.toMap())
+                            // SPEC-070-A C.7 — fold validated promo code
+                            // into purchase metadata (sticky footer path).
+                            val md = toggleStates.toMutableMap<String, Any>()
+                            if (promoState == "success" && promoCode.isNotBlank()) {
+                                md["promo_code"] = promoCode
+                            }
+                            onPlanSelected(plan, md.toMap())
                         }
                     },
                     onRestore = onRestore,
@@ -344,6 +420,80 @@ fun PaywallScreen(
                 effect = config.particle_effect,
                 trigger = showConfetti,
             )
+        }
+
+        // SPEC-070-A C.5 — post-purchase success overlay (confetti + lottie).
+        // Mirrors iOS `PaywallRenderer.swift:346` `.paywallPurchaseSuccess`
+        // notification observer. Confetti uses an ad-hoc ParticleEffect when
+        // the paywall has no `particle_effect` config of its own. Lottie URL
+        // renders via the shared LottieBlockView.
+        postPurchaseOverlay?.let { overlay ->
+            if (overlay.confetti) {
+                ConfettiOverlay(
+                    effect = config.particle_effect ?: ai.appdna.sdk.core.ParticleEffect(
+                        type = "confetti",
+                        trigger = "on_purchase",
+                        duration_ms = 2500,
+                        intensity = "medium",
+                    ),
+                    trigger = true,
+                )
+            }
+            if (!overlay.lottieUrl.isNullOrEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.4f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    LottieBlockView(
+                        block = LottieBlock(
+                            lottie_url = overlay.lottieUrl,
+                            loop = false,
+                            autoplay = true,
+                        ),
+                    )
+                    if (!overlay.message.isNullOrEmpty()) {
+                        Column(
+                            verticalArrangement = Arrangement.Bottom,
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.fillMaxSize().padding(bottom = 80.dp),
+                        ) {
+                            Text(
+                                text = overlay.message,
+                                color = Color.White,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 32.dp),
+                            )
+                        }
+                    }
+                }
+            } else if (!overlay.message.isNullOrEmpty()) {
+                // Message-only success overlay (no lottie configured) — surface
+                // a centered toast-style message atop the paywall.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f)),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Card(
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2E9E51)),
+                    ) {
+                        Text(
+                            text = overlay.message,
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
+                        )
+                    }
+                }
+            }
         }
 
         // Dismiss control
@@ -443,6 +593,11 @@ private fun PaywallSectionView(
     loc: (String, String) -> String,
     toggleStates: MutableMap<String, Boolean> = mutableMapOf(),
     onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
+    // SPEC-070-A C.7 — hoisted promo state for purchase metadata.
+    promoCode: String = "",
+    promoState: String = "idle",
+    onPromoCodeChange: (String) -> Unit = {},
+    onPromoStateChange: (String) -> Unit = {},
 ) {
     when (section.type) {
         "header" -> {
@@ -1082,7 +1237,16 @@ private fun PaywallSectionView(
             PaywallComparisonTableSection(section = section, loc = loc)
         }
         "promo_input" -> {
-            PaywallPromoInputSection(section = section, loc = loc, onPromoCodeSubmit = onPromoCodeSubmit)
+            PaywallPromoInputSection(
+                section = section,
+                loc = loc,
+                onPromoCodeSubmit = onPromoCodeSubmit,
+                // SPEC-070-A C.7 — hoisted state plumbing
+                promoCode = promoCode,
+                promoState = promoState,
+                onPromoCodeChange = onPromoCodeChange,
+                onPromoStateChange = onPromoStateChange,
+            )
         }
         "toggle" -> {
             PaywallToggleSection(section = section, loc = loc, toggleStates = toggleStates)
@@ -1632,9 +1796,25 @@ private fun PaywallPromoInputSection(
     section: PaywallSection,
     loc: (String, String) -> String,
     onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
+    // SPEC-070-A C.7 — state hoisted to parent so CTA tap handlers can read
+    // the validated code. When omitted (e.g. legacy callers), falls back to
+    // local state.
+    promoCode: String? = null,
+    promoState: String? = null,
+    onPromoCodeChange: ((String) -> Unit)? = null,
+    onPromoStateChange: ((String) -> Unit)? = null,
 ) {
-    var promoCode by remember { mutableStateOf("") }
-    var promoState by remember { mutableStateOf("idle") } // idle | loading | success | error
+    // Local fallback when parent did not hoist
+    var localPromoCode by remember { mutableStateOf("") }
+    var localPromoState by remember { mutableStateOf("idle") }
+    val effectivePromoCode = promoCode ?: localPromoCode
+    val effectivePromoState = promoState ?: localPromoState
+    val updateCode: (String) -> Unit = { newCode ->
+        if (onPromoCodeChange != null) onPromoCodeChange(newCode) else localPromoCode = newCode
+    }
+    val updateState: (String) -> Unit = { newState ->
+        if (onPromoStateChange != null) onPromoStateChange(newState) else localPromoState = newState
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
@@ -1645,8 +1825,8 @@ private fun PaywallPromoInputSection(
             modifier = Modifier.fillMaxWidth(),
         ) {
             OutlinedTextField(
-                value = promoCode,
-                onValueChange = { promoCode = it },
+                value = effectivePromoCode,
+                onValueChange = updateCode,
                 placeholder = { Text(section.data?.placeholder ?: "Promo code", color = Color.White.copy(alpha = 0.4f)) },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
@@ -1659,18 +1839,18 @@ private fun PaywallPromoInputSection(
             )
             Button(
                 onClick = {
-                    promoState = "loading"
+                    updateState("loading")
                     // AC-037: Submit promo code via delegate callback
                     if (onPromoCodeSubmit != null) {
-                        onPromoCodeSubmit(promoCode) { isValid ->
-                            promoState = if (isValid) "success" else "error"
+                        onPromoCodeSubmit(effectivePromoCode) { isValid ->
+                            updateState(if (isValid) "success" else "error")
                         }
                     } else {
                         // No delegate configured — basic non-empty check fallback
-                        promoState = if (promoCode.isNotBlank()) "success" else "error"
+                        updateState(if (effectivePromoCode.isNotBlank()) "success" else "error")
                     }
                 },
-                enabled = promoState != "loading",
+                enabled = effectivePromoState != "loading",
                 colors = ButtonDefaults.buttonColors(
                     containerColor = section.data?.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
                 ),
@@ -1682,7 +1862,7 @@ private fun PaywallPromoInputSection(
                 )
             }
         }
-        when (promoState) {
+        when (effectivePromoState) {
             "success" -> {
                 Spacer(Modifier.height(4.dp))
                 Text(

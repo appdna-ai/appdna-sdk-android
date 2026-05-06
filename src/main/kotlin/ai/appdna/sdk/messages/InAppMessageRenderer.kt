@@ -3,10 +3,13 @@ package ai.appdna.sdk.messages
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +49,11 @@ fun InAppMessageView(
     config: MessageConfig,
     onCTATap: () -> Unit,
     onDismiss: () -> Unit,
+    // SPEC-205 / SPEC-070-A D.4: optional override; defaults to system setting.
+    // Callers (MessageManager / PendingMessageListener) wrap the renderer in a
+    // ComposeView that does not host MaterialTheme, so we self-host both the
+    // dark-mode read and the MaterialTheme seeding here.
+    isDark: Boolean = isSystemInDarkTheme(),
 ) {
     // SPEC-088: Interpolate text fields via TemplateEngine before rendering
     val ctx = ai.appdna.sdk.core.TemplateEngine.buildContext()
@@ -58,11 +66,34 @@ fun InAppMessageView(
         dismiss_text = config.content.dismiss_text?.let { e.interpolate(it, ctx) },
     )
 
-    when (config.message_type) {
-        MessageType.BANNER -> BannerMessageView(interpolated, onCTATap, onDismiss)
-        MessageType.MODAL -> ModalMessageView(interpolated, onCTATap, onDismiss)
-        MessageType.FULLSCREEN -> FullscreenMessageView(interpolated, onCTATap, onDismiss)
-        MessageType.TOOLTIP -> TooltipMessageView(interpolated, onCTATap, onDismiss)
+    // SPEC-205 / SPEC-070-A D.4: apply dark overrides BEFORE handing to the
+    // type-specific sub-views, so they see the final resolved colors/images
+    // for the current scheme. Mirrors iOS `MessageRenderer.body` which calls
+    // `interpolatedContent.resolved(for: colorScheme)`.
+    val content = interpolated.resolved(isDark)
+
+    // SPEC-070-A D.6: seed a MaterialTheme color scheme from the resolved
+    // content colors so child Material widgets pick up the brand colors. The
+    // sub-views still resolve per-token colors directly off `content` so
+    // un-styled spots use the platform fallback rather than a brand color
+    // when authors leave a field blank.
+    val baseScheme = if (isDark) darkColorScheme() else lightColorScheme()
+    val seeded = baseScheme.copy(
+        primary = content.button_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.primary,
+        surface = content.background_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.surface,
+        background = content.background_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.background,
+        onSurface = content.text_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.onSurface,
+        onBackground = content.text_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.onBackground,
+        onPrimary = content.button_text_color?.let { StyleEngine.parseColor(it) } ?: baseScheme.onPrimary,
+    )
+
+    MaterialTheme(colorScheme = seeded) {
+        when (config.message_type) {
+            MessageType.BANNER -> BannerMessageView(content, onCTATap, onDismiss)
+            MessageType.MODAL -> ModalMessageView(content, onCTATap, onDismiss)
+            MessageType.FULLSCREEN -> FullscreenMessageView(content, onCTATap, onDismiss)
+            MessageType.TOOLTIP -> TooltipMessageView(content, onCTATap, onDismiss)
+        }
     }
 }
 
@@ -91,7 +122,9 @@ private fun BannerMessageView(
 
     val textColor = content.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
-    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+    // SPEC-205 / SPEC-070-A D.6: fall back to MaterialTheme.surface so dark
+    // mode picks up the seeded scheme color rather than hard-coded white.
+    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
     val cornerRadius = content.corner_radius ?: 12
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -197,7 +230,9 @@ private fun ModalMessageView(
 ) {
     val textColor = content.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
-    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+    // SPEC-205 / SPEC-070-A D.6: fall back to MaterialTheme.surface so dark
+    // mode picks up the seeded scheme color rather than hard-coded white.
+    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
     val cornerRadius = content.corner_radius ?: 20
     val currentView = LocalView.current
     var showConfetti by remember { mutableStateOf(false) }
@@ -390,7 +425,9 @@ private fun FullscreenMessageView(
 ) {
     val textColor = content.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
-    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+    // SPEC-205 / SPEC-070-A D.6: fall back to MaterialTheme.surface so dark
+    // mode picks up the seeded scheme color rather than hard-coded white.
+    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
     val cornerRadius = content.corner_radius ?: 14
     val currentView = LocalView.current
     var showConfetti by remember { mutableStateOf(false) }
@@ -569,7 +606,9 @@ private fun TooltipMessageView(
 ) {
     val textColor = content.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
     val buttonColor = content.button_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF6366F1)
-    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+    // SPEC-205 / SPEC-070-A D.6: fall back to MaterialTheme.surface so dark
+    // mode picks up the seeded scheme color rather than hard-coded white.
+    val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
     val cornerRadius = content.corner_radius ?: 12
 
     // Overlay with semi-transparent backdrop

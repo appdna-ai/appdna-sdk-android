@@ -84,7 +84,9 @@ interface AppDNAPushDelegate {
  */
 class PushModule internal constructor() {
     internal var manager: PushTokenManager? = null
-    private var listener: AppDNAPushDelegate? = null
+    // SPEC-070-A H.17: dropped duplicate `listener` field. The single source
+    // of truth is `PushTokenManager.pushListener`, which Phase B.1 wires from
+    // [setDelegate]. Reading the delegate now goes through [delegate].
 
     /** Current push token. */
     @get:JvmName("getTokenValue")
@@ -103,7 +105,7 @@ class PushModule internal constructor() {
     fun trackTapped(pushId: String, action: String? = null) = AppDNA.trackPushTapped(pushId, action)
 
     /**
-     * SPEC-070-A A.30 — typed suspend permission request.
+     * SPEC-070-A A.30 + H.4 — typed suspend permission request.
      *
      * On Android 13+ (`Build.VERSION_CODES.TIRAMISU` / API 33), requesting
      * `POST_NOTIFICATIONS` is a runtime permission and MUST be triggered from
@@ -156,9 +158,15 @@ class PushModule internal constructor() {
 
     /** Set a delegate for push notification lifecycle events. */
     fun setDelegate(delegate: AppDNAPushDelegate?) {
-        this.listener = delegate
         manager?.pushListener = delegate
     }
+
+    /**
+     * SPEC-070-A H.8: read accessor used by [AppDNAMessagingService] to fire
+     * `onPushReceived` / `onPushTapped`. Returns the live delegate registered
+     * via [setDelegate], or null when no host has registered one.
+     */
+    internal fun delegate(): AppDNAPushDelegate? = manager?.pushListener
 
     companion object {
         // Shared scope for Java-future overloads. Kept in a companion to avoid
@@ -310,6 +318,17 @@ class BillingModule internal constructor() {
     }
 
     internal var billingListener: AppDNABillingDelegate? = null
+
+    /**
+     * SPEC-070-A H.24 — cancel the wrapper's coroutine scope so any pending
+     * `purchaseFuture()` / `getProductsFuture()` / restore continuation is
+     * surfaced as cancellation rather than leaking. The owning
+     * [NativeBillingManager] is destroyed separately by [AppDNA.shutdown].
+     */
+    internal fun shutdown() {
+        scope.cancel()
+        billingListener = null
+    }
 }
 
 /** Thrown by [BillingModule.purchase] when the user cancels. */
@@ -522,6 +541,13 @@ interface AppDNABillingDelegate {
     fun onPurchaseFailed(productId: String, error: Exception) {}
     fun onEntitlementsChanged(entitlements: List<Entitlement>) {}
     fun onRestoreCompleted(restoredProducts: List<String>) {}
+    /**
+     * SPEC-070-A H.14 — fires once when [BillingConnectionManager] gives up
+     * after exhausting all reconnect slots (Play Services missing or
+     * permanently broken). Hosts should hide paywalls / disable purchase UI
+     * when this fires so users don't tap a dead button.
+     */
+    fun onBillingUnavailable() {}
 }
 
 /**
@@ -548,4 +574,26 @@ interface AppDNASurveyDelegate {
  */
 interface AppDNADeepLinkDelegate {
     fun onDeepLinkReceived(url: String, params: Map<String, String>) {}
+}
+
+/**
+ * SPEC-070-A H.20 — delegate for SDK init lifecycle events.
+ *
+ * Currently surfaces only [onInitDegraded], fired once when the SDK detects
+ * a recoverable startup failure (missing `google-services-appdna.json`,
+ * Firebase project misconfiguration, etc.). Hosts can use this to:
+ *   - log to their crash reporter so misconfigured production apps don't go
+ *     unnoticed,
+ *   - hide features that depend on remote config when the SDK is degraded,
+ *   - render an in-app banner for QA builds.
+ *
+ * The error throwable is also available synchronously via
+ * [ai.appdna.sdk.AppDNA.lastInitError] for consumers that read it lazily.
+ */
+interface AppDNAInitDelegate {
+    /**
+     * Called when the SDK detects a recoverable init failure. May fire on
+     * the main thread; do not block.
+     */
+    fun onInitDegraded(reason: Throwable) {}
 }
