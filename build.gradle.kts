@@ -3,6 +3,10 @@ plugins {
     id("org.jetbrains.kotlin.android") version "1.9.22"
     id("maven-publish")
     id("signing")
+    // SPEC-070-0 §3.4 — visual snapshot harness (Android leg).
+    // Roborazzi runs Compose snapshot tests on the JVM via Robolectric — no device required.
+    // PNG goldens live in src/test/snapshots/ and are committed; reviewed during PR.
+    id("io.github.takahirom.roborazzi") version "1.21.0"
 }
 
 android {
@@ -140,4 +144,11 @@ dependencies {
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+
+    // SPEC-070-0 §3.4 — visual snapshot harness (JVM-only; no device required)
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.21.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.21.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.21.0")
 }
