@@ -21,9 +21,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.views.*
+// SPEC-070-A J.11 — accessibility string resources for survey chrome.
+import ai.appdna.sdk.R
 import ai.appdna.sdk.core.FontResolver
 import ai.appdna.sdk.core.StyleEngine
 import ai.appdna.sdk.core.LottieBlock
@@ -351,7 +357,13 @@ fun SurveyScreen(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             if (currentIndex > 0) {
-                TextButton(onClick = { currentIndex-- }) {
+                val backCd = stringResource(R.string.appdna_a11y_survey_back)
+                TextButton(
+                    onClick = { currentIndex-- },
+                    // SPEC-070-A J.11 — explicit a11y label so TalkBack
+                    // announces "Previous question" instead of just "Back".
+                    modifier = Modifier.semantics { contentDescription = backCd },
+                ) {
                     Text("Back", color = accentColor)
                 }
             } else {
@@ -359,12 +371,15 @@ fun SurveyScreen(
             }
 
             if (currentIndex < visibleQuestions.size - 1) {
+                val nextCd = stringResource(R.string.appdna_a11y_survey_next)
                 Button(
                     onClick = { currentIndex++ },
                     enabled = canAdvance,
-                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
+                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                    modifier = Modifier.semantics { contentDescription = nextCd },
                 ) { Text("Next") }
             } else {
+                val submitCd = stringResource(R.string.appdna_a11y_survey_submit)
                 Button(
                     onClick = {
                         // SPEC-085: Haptic on submit
@@ -378,16 +393,22 @@ fun SurveyScreen(
                         onComplete(allAnswers)
                     },
                     enabled = canAdvance,
-                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor)
+                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                    modifier = Modifier.semantics { contentDescription = submitCd },
                 ) { Text("Submit") }
             }
         }
 
         // Dismiss
         if (config.appearance.dismissAllowed) {
+            val dismissCd = stringResource(R.string.appdna_a11y_survey_dismiss)
             TextButton(
                 onClick = { onDismiss(answers.size) },
-                modifier = Modifier.padding(top = 8.dp)
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    // SPEC-070-A J.11 — "Not now" is the visible label;
+                    // the a11y label disambiguates as "Dismiss survey".
+                    .semantics { contentDescription = dismissCd },
             ) {
                 Text("Not now", color = Color.Gray)
             }

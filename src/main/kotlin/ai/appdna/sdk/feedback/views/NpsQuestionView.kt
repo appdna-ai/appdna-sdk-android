@@ -11,10 +11,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.R
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
 import androidx.compose.ui.text.TextStyle
@@ -40,12 +44,16 @@ fun NpsQuestionView(
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             for (score in 0..10) {
                 val isSelected = selectedScore == score
+                // SPEC-070-A J.11 — NPS score 0..10 announced as
+                // "NPS score N" by TalkBack.
+                val scoreCd = stringResource(R.string.appdna_a11y_nps_score, score)
                 Box(
                     modifier = Modifier
                         .size(width = 30.dp, height = 40.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.1f))
-                        .clickable { onAnswer(SurveyAnswer(question.id, score)) },
+                        .clickable { onAnswer(SurveyAnswer(question.id, score)) }
+                        .semantics { contentDescription = scoreCd },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(

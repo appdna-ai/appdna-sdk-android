@@ -25,11 +25,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+// SPEC-070-A J.11 — accessibility string resources for onboarding chrome
+// (back / close / dismiss). Hosts can override via their own strings.xml.
+import ai.appdna.sdk.R
 import ai.appdna.sdk.core.HapticEngine
 import ai.appdna.sdk.core.LocalizationEngine
 import ai.appdna.sdk.core.entryAnimation
@@ -639,6 +646,7 @@ internal fun OnboardingFlowHost(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (flow.settings.allow_back && currentIndex > 0) {
+                    val backCd = stringResource(R.string.appdna_a11y_onboarding_back)
                     IconButton(
                         onClick = {
                             // SPEC-070-A J.2 — back navigation reuses
@@ -646,7 +654,11 @@ internal fun OnboardingFlowHost(
                             HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
                             currentIndex--
                         },
-                        enabled = !isProcessing
+                        enabled = !isProcessing,
+                        // SPEC-070-A J.11 — back arrow rendered as Text glyph
+                        // (no semantic icon); attach contentDescription so
+                        // TalkBack announces purpose.
+                        modifier = Modifier.semantics { contentDescription = backCd },
                     ) {
                         Text(
                             text = "\u2190",
@@ -659,6 +671,7 @@ internal fun OnboardingFlowHost(
                     Spacer(Modifier.size(48.dp))
                 }
 
+                val dismissCd = stringResource(R.string.appdna_a11y_onboarding_close)
                 IconButton(
                     onClick = {
                         // SPEC-070-A J.2 — dismiss reuses on_button_tap haptic.
@@ -668,7 +681,10 @@ internal fun OnboardingFlowHost(
                             onFlowDismissed(step.id, currentIndex)
                         }
                     },
-                    enabled = !isProcessing
+                    enabled = !isProcessing,
+                    // SPEC-070-A J.11 — close X is a Text glyph with no
+                    // semantic label by default.
+                    modifier = Modifier.semantics { contentDescription = dismissCd },
                 ) {
                     Text(
                         text = "\u2715",
@@ -810,9 +826,13 @@ internal fun OnboardingFlowHost(
                     fontSize = 14.sp,
                     modifier = Modifier.weight(1f)
                 )
+                val errorDismissCd = stringResource(R.string.appdna_a11y_onboarding_dismiss_error)
                 IconButton(
                     onClick = { showError = false; errorMessage = null },
-                    modifier = Modifier.size(24.dp)
+                    // SPEC-070-A J.11 — error-banner close (Text glyph).
+                    modifier = Modifier
+                        .size(24.dp)
+                        .semantics { contentDescription = errorDismissCd },
                 ) {
                     Text("\u2715", color = Color.White.copy(alpha = 0.8f), fontSize = 12.sp)
                 }
@@ -850,13 +870,16 @@ internal fun OnboardingFlowHost(
                     fontSize = 14.sp,
                     modifier = Modifier.weight(1f),
                 )
+                val successDismissCd = stringResource(R.string.appdna_a11y_onboarding_dismiss_success)
                 IconButton(
                     onClick = { showSuccess = false; successMessage = null },
                     modifier = Modifier.size(24.dp),
                 ) {
                     androidx.compose.material3.Icon(
                         imageVector = Icons.Filled.Close,
-                        contentDescription = "Dismiss",
+                        // SPEC-070-A J.11 — pull from string resource so RTL
+                        // locales / hosts can override the a11y label.
+                        contentDescription = successDismissCd,
                         tint = Color.White.copy(alpha = 0.8f),
                         modifier = Modifier.size(16.dp),
                     )
@@ -1376,7 +1399,14 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
     ) {
         Spacer(Modifier.height(48.dp))
         config.title?.let {
-            Text(text = it.interpolated(), fontSize = 28.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            // SPEC-070-A J.11 — step title is the screen heading for a11y.
+            Text(
+                text = it.interpolated(),
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { heading() },
+            )
         }
         config.subtitle?.let {
             Spacer(Modifier.height(12.dp))
@@ -1401,7 +1431,14 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            // SPEC-070-A J.11 — question step title is the screen heading.
+            Text(
+                text = it.interpolated(),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { heading() },
+            )
         }
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
@@ -1451,7 +1488,14 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            // SPEC-070-A J.11 — value-prop step title is the screen heading.
+            Text(
+                text = it.interpolated(),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { heading() },
+            )
         }
         Spacer(Modifier.height(24.dp))
         config.items?.forEach { item ->
@@ -1479,7 +1523,14 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
-            Text(text = it.interpolated(), fontSize = 24.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+            // SPEC-070-A J.11 — custom step title is the screen heading.
+            Text(
+                text = it.interpolated(),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.semantics { heading() },
+            )
         }
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))

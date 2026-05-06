@@ -16,8 +16,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import ai.appdna.sdk.R
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
 import androidx.compose.ui.text.TextStyle
@@ -60,9 +62,11 @@ fun RatingQuestionView(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (rating in 1..maxRating) {
+                // SPEC-070-A J.11 — localized "Rating N of M".
+                val ratingCd = stringResource(R.string.appdna_a11y_rating_n_of_m, rating, maxRating)
                 Icon(
                     imageVector = if (selectedRating >= rating) filledIcon else outlinedIcon,
-                    contentDescription = "Rating $rating",
+                    contentDescription = ratingCd,
                     tint = if (selectedRating >= rating) activeColor else Color.Gray.copy(alpha = 0.3f),
                     modifier = Modifier
                         .size(36.dp)

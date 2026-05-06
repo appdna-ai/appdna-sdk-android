@@ -36,7 +36,13 @@ import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.resolveIcon
 import ai.appdna.sdk.core.applyBlurBackdrop
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.delay
+// SPEC-070-A J.11 — accessibility string resources for in-app message chrome.
+import ai.appdna.sdk.R
 
 /**
  * SPEC-084: Complete in-app message renderer for Android.
@@ -156,6 +162,9 @@ private fun BannerMessageView(
                                     fontSize = 14.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = textColor,
+                                    // SPEC-070-A J.11 — banner title acts as
+                                    // the heading for the message surface.
+                                    modifier = Modifier.semantics { heading() },
                                 )
                             }
                             content.body?.let {
@@ -188,12 +197,17 @@ private fun BannerMessageView(
                         }
 
                         // Dismiss button
+                        val dismissCd = stringResource(R.string.appdna_a11y_message_close)
                         IconButton(
                             onClick = {
                                 isVisible = false
                                 onDismiss()
                             },
-                            modifier = Modifier.size(24.dp),
+                            // SPEC-070-A J.11 \u2014 close X uses Text glyph; attach
+                            // a11y label for TalkBack.
+                            modifier = Modifier
+                                .size(24.dp)
+                                .semantics { contentDescription = dismissCd },
                         ) {
                             Text("\u2715", fontSize = 12.sp, color = Color.Gray)
                         }
@@ -276,7 +290,14 @@ private fun ModalMessageView(
             ) {
                 // Dismiss button
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                    val modalDismissCd = stringResource(R.string.appdna_a11y_message_close)
+                    IconButton(
+                        onClick = onDismiss,
+                        // SPEC-070-A J.11 \u2014 modal close X (Text glyph).
+                        modifier = Modifier
+                            .size(32.dp)
+                            .semantics { contentDescription = modalDismissCd },
+                    ) {
                         Text("\u2715", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
                     }
                 }
@@ -336,6 +357,9 @@ private fun ModalMessageView(
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         color = textColor,
+                        // SPEC-070-A J.11 — modal message title is the screen
+                        // heading for accessibility.
+                        modifier = Modifier.semantics { heading() },
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                 }
@@ -505,6 +529,9 @@ private fun FullscreenMessageView(
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     color = textColor,
+                    // SPEC-070-A J.11 — fullscreen message title is the
+                    // screen heading for accessibility.
+                    modifier = Modifier.semantics { heading() },
                 )
                 Spacer(modifier = Modifier.height(12.dp))
             }
@@ -575,13 +602,16 @@ private fun FullscreenMessageView(
         }
 
         // Close button
+        val fullscreenCloseCd = stringResource(R.string.appdna_a11y_message_close)
         IconButton(
             onClick = onDismiss,
+            // SPEC-070-A J.11 \u2014 fullscreen close X (Text glyph).
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
                 .size(36.dp)
-                .background(Color.LightGray.copy(alpha = 0.5f), CircleShape),
+                .background(Color.LightGray.copy(alpha = 0.5f), CircleShape)
+                .semantics { contentDescription = fullscreenCloseCd },
         ) {
             Text("\u2715", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
         }
@@ -642,6 +672,9 @@ private fun TooltipMessageView(
                             fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             color = textColor,
+                            // SPEC-070-A J.11 — tooltip title acts as the
+                            // heading for the tooltip content.
+                            modifier = Modifier.semantics { heading() },
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                     }

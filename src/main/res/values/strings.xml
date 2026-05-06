@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AppDNA Android SDK — default a11y strings.
+
+    SPEC-070-A J.11: accessibility labels for renderer chrome (close /
+    back / CTA / rating buttons). iOS uses NSLocalizedString equivalents
+    in `Paywalls/PaywallRenderer.swift`, `Onboarding/OnboardingFlowHost.swift`,
+    `Feedback/Renderers/CSATQuestionView.swift`, and the in-app message
+    renderer. Android matches by exposing a `strings.xml` resource with
+    matching keys.
+
+    Hosts can override any string by providing the same name in their app's
+    `res/values/strings.xml` (or per-locale folder e.g. `values-es`,
+    `values-ar`). Resource merger gives the host the final say.
+-->
+<resources>
+    <!-- Generic chrome -->
+    <string name="appdna_a11y_close">Close</string>
+    <string name="appdna_a11y_dismiss">Dismiss</string>
+    <string name="appdna_a11y_back">Back</string>
+    <string name="appdna_a11y_next">Next</string>
+    <string name="appdna_a11y_continue">Continue</string>
+    <string name="appdna_a11y_skip">Skip</string>
+    <string name="appdna_a11y_submit">Submit</string>
+
+    <!-- Paywall -->
+    <string name="appdna_a11y_paywall_close">Close paywall</string>
+    <string name="appdna_a11y_paywall_dismiss">Dismiss paywall</string>
+    <string name="appdna_a11y_paywall_restore">Restore purchases</string>
+    <string name="appdna_a11y_paywall_purchase">Purchase</string>
+    <string name="appdna_a11y_paywall_select_plan">Select plan</string>
+
+    <!-- Onboarding -->
+    <string name="appdna_a11y_onboarding_back">Previous step</string>
+    <string name="appdna_a11y_onboarding_close">Close onboarding</string>
+    <string name="appdna_a11y_onboarding_skip">Skip step</string>
+    <string name="appdna_a11y_onboarding_dismiss_error">Dismiss error</string>
+    <string name="appdna_a11y_onboarding_dismiss_success">Dismiss notice</string>
+
+    <!-- Survey -->
+    <string name="appdna_a11y_survey_close">Close survey</string>
+    <string name="appdna_a11y_survey_dismiss">Dismiss survey</string>
+    <string name="appdna_a11y_survey_back">Previous question</string>
+    <string name="appdna_a11y_survey_next">Next question</string>
+    <string name="appdna_a11y_survey_submit">Submit survey</string>
+    <!-- %1$d = current rating, %2$d = max rating. e.g. "Rating 3 of 5" -->
+    <string name="appdna_a11y_rating_n_of_m">Rating %1$d of %2$d</string>
+    <!-- %1$d = NPS score 0..10 -->
+    <string name="appdna_a11y_nps_score">NPS score %1$d</string>
+    <!-- %1$s = emoji, %2$d = position (1-based) -->
+    <string name="appdna_a11y_emoji_option">Option %2$d</string>
+
+    <!-- In-app message -->
+    <string name="appdna_a11y_message_close">Close message</string>
+    <string name="appdna_a11y_message_dismiss">Dismiss message</string>
+</resources>

@@ -54,8 +54,15 @@ import ai.appdna.sdk.core.HapticType
 import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.IconReference
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.launch
+// SPEC-070-A J.11 — accessibility string resources (Close / Restore /
+// Purchase). Hosts can override these via their own `strings.xml`.
+import ai.appdna.sdk.R
 
 /**
  * Activity to render paywall UI using Jetpack Compose.
@@ -528,11 +535,15 @@ fun PaywallScreen(
             val dismissType = config.dismiss?.type ?: "x_button"
             when (dismissType) {
                 "text_link" -> {
+                    val dismissCd = stringResource(R.string.appdna_a11y_paywall_dismiss)
                     TextButton(
                         onClick = { triggerDismiss() },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
-                            .padding(bottom = 24.dp),
+                            .padding(bottom = 24.dp)
+                            // SPEC-070-A J.11 — text-link dismiss has no icon
+                            // semantic so we attach an explicit a11y label.
+                            .semantics { contentDescription = dismissCd },
                     ) {
                         Text(
                             text = loc("dismiss.text", config.dismiss?.text ?: "No thanks"),
@@ -553,6 +564,7 @@ fun PaywallScreen(
                     )
                 }
                 else -> { // x_button (default)
+                    val closeCd = stringResource(R.string.appdna_a11y_paywall_close)
                     IconButton(
                         onClick = { triggerDismiss() },
                         modifier = Modifier
@@ -561,6 +573,10 @@ fun PaywallScreen(
                             .size(32.dp)
                             .clip(CircleShape)
                             .background(Color.Black.copy(alpha = 0.3f))
+                            // SPEC-070-A J.11 \u2014 close X has no semantic icon
+                            // (it's a Text composable with the unicode glyph),
+                            // so attach an a11y label that TalkBack reads.
+                            .semantics { contentDescription = closeCd },
                     ) {
                         Text(
                             text = "\u2715",
@@ -640,6 +656,10 @@ private fun PaywallSectionView(
                     Text(
                         text = loc("section-header.title", it),
                         style = titleStyle,
+                        // SPEC-070-A J.11 — paywall hero/header title is the
+                        // accessibility heading for the screen, mirroring iOS
+                        // `accessibilityAddTraits(.isHeader)`.
+                        modifier = Modifier.semantics { heading() },
                     )
                 }
                 section.data?.subtitle?.let {
@@ -1004,9 +1024,15 @@ private fun PaywallSectionView(
                     }
                 }
                 Spacer(Modifier.height(8.dp))
+                val restoreCd = stringResource(R.string.appdna_a11y_paywall_restore)
                 TextButton(
                     onClick = onRestore,
-                    modifier = Modifier.align(Alignment.CenterHorizontally)
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        // SPEC-070-A J.11 — restore button a11y label so
+                        // screen readers announce purpose, not just visible
+                        // text (which may be localized in future).
+                        .semantics { contentDescription = restoreCd },
                 ) {
                     Text(loc("restore.text", "Restore Purchases"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
                 }

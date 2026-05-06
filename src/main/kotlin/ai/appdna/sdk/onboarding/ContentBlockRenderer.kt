@@ -53,6 +53,8 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.roundToInt
@@ -1029,7 +1031,11 @@ private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)?
     Text(
         text = loc?.invoke("block.${block.id}.text", text) ?: text,
         style = effectiveStyle,
-        modifier = Modifier.fillMaxWidth(),
+        // SPEC-070-A J.11 — heading content blocks announce as a heading
+        // to screen readers, matching iOS `accessibilityAddTraits(.isHeader)`.
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { heading() },
     )
 }
 

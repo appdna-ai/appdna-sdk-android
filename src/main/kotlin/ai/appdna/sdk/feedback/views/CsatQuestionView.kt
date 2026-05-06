@@ -12,9 +12,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.R
 import ai.appdna.sdk.feedback.SurveyAnswer
 import ai.appdna.sdk.feedback.SurveyQuestion
 import androidx.compose.ui.text.TextStyle
@@ -41,18 +45,26 @@ fun CsatQuestionView(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (rating in 1..maxRating) {
+                // SPEC-070-A J.11 — "Rating N of M" matches iOS
+                // CSATQuestionView.swift accessibilityLabel formatter.
+                val ratingCd = stringResource(R.string.appdna_a11y_rating_n_of_m, rating, maxRating)
                 if (style == "emoji") {
                     Text(
                         text = emojiForRating(rating, maxRating),
                         fontSize = 32.sp,
-                        modifier = Modifier.clickable {
-                            onAnswer(SurveyAnswer(question.id, rating))
-                        }
+                        modifier = Modifier
+                            .clickable {
+                                onAnswer(SurveyAnswer(question.id, rating))
+                            }
+                            .semantics { contentDescription = ratingCd },
                     )
                 } else {
                     Icon(
                         imageVector = if (selectedRating >= rating) Icons.Filled.Star else Icons.Outlined.Star,
-                        contentDescription = "Rating $rating",
+                        // SPEC-070-A J.11 — replace bare "Rating $rating" with
+                        // localized "Rating N of M" so screen readers convey
+                        // scale context.
+                        contentDescription = ratingCd,
                         // SPEC-070-A audit Round 2 finding 4: match iOS
                         // CSATQuestionView.swift:35-37 — amber-400 (#FBBF24)
                         // filled / gray-300 (#D1D5DB) empty / 28dp size.

@@ -62,7 +62,18 @@
         </intent>
     </queries>
 
-    <application>
+    <!--
+        SPEC-070-A J.12 — RTL: declare supportsRtl on the SDK's <application>
+        with `tools:node="merge"` so any host that did NOT explicitly opt in
+        still inherits RTL-aware layout from the SDK. Hosts that already
+        declare their own value win via manifest-merger precedence (they
+        keep their setting). Compose modifiers throughout the SDK renderers
+        use `start` / `end` instead of `left` / `right` so layout flips
+        correctly for Arabic / Hebrew locales when the system locale is RTL.
+    -->
+    <application
+        android:supportsRtl="true"
+        tools:node="merge">
 
         <!--
             A.4.3 SDK-owned Activities. All translucent, no title bar,
