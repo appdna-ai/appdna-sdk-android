@@ -2399,7 +2399,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedMonth = index + 1
-                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
                             },
                         textAlign = TextAlign.Center,
                     )
@@ -2419,7 +2419,10 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                     val day = index + 1
                     val isCenter = dayListState.firstVisibleItemIndex == index
                     Text(
-                        text = "%02d".format(day),
+                        // SPEC-070-A final audit pass D F1 — Locale.US so the
+                        // wheel doesn't show mixed-script digits (Persian /
+                        // Arabic-Indic) on fa-IR / ar locales.
+                        text = String.format(java.util.Locale.US, "%02d", day),
                         fontSize = if (isCenter) 18.sp else 14.sp,
                         fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
                         color = if (isCenter) highlightColor else Color.Gray,
@@ -2428,7 +2431,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedDay = day
-                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
                             },
                         textAlign = TextAlign.Center,
                     )
@@ -2458,7 +2461,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedYear = year
-                                inputValues[fieldId] = "%04d-%02d-%02d".format(selectedYear, selectedMonth, selectedDay)
+                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
                             },
                         textAlign = TextAlign.Center,
                     )
