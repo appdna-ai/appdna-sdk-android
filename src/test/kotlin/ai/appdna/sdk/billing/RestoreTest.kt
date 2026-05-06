@@ -34,7 +34,7 @@ class RestoreTest {
     }
 
     @Test
-    fun `restore lifecycle fires started -> completed exactly once`() {
+    fun `restore lifecycle fires started thencompleted exactly once`() {
         val log = mutableListOf<String>()
         val delegate = object : ai.appdna.sdk.paywalls.AppDNAPaywallDelegate {
             override fun onPaywallRestoreStarted(paywallId: String) {
@@ -58,7 +58,7 @@ class RestoreTest {
     }
 
     @Test
-    fun `restore lifecycle fires started -> failed on error`() {
+    fun `restore lifecycle fires started thenfailed on error`() {
         val log = mutableListOf<String>()
         val delegate = object : ai.appdna.sdk.paywalls.AppDNAPaywallDelegate {
             override fun onPaywallRestoreStarted(paywallId: String) { log += "started" }

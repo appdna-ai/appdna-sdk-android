@@ -1,6 +1,7 @@
 package ai.appdna.sdk.delegates
 
 import ai.appdna.sdk.AppDNABillingDelegate
+import ai.appdna.sdk.billing.Entitlement
 import ai.appdna.sdk.AppDNADeepLinkDelegate
 import ai.appdna.sdk.AppDNAInAppMessageDelegate
 import ai.appdna.sdk.AppDNAInitDelegate

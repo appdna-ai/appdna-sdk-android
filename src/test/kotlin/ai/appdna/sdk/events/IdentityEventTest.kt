@@ -36,7 +36,7 @@ class IdentityEventTest {
             userId = "user-1",
             anonId = "anon-99",
             traits = mapOf("plan" to "pro", "lifetime_value" to 42.0),
-        )
+        )!!
 
         assertEquals("identify", payload["event"])
         assertEquals("user-1", payload["user_id"])
@@ -52,7 +52,7 @@ class IdentityEventTest {
     fun `identify with null traits omits the key`() {
         // iOS parity — when traits is nil, the key is absent rather than
         // serialized as `null`. Saves bytes on every event upload.
-        val payload = IdentityPayload.build(userId = "u2", anonId = "a2", traits = null)
+        val payload = IdentityPayload.build(userId = "u2", anonId = "a2", traits = null)!!
         assertFalse("traits absent when null", payload.containsKey("traits"))
     }
 
