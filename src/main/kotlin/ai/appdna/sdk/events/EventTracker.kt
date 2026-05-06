@@ -10,10 +10,18 @@ import org.json.JSONObject
  * SPEC-070-A A.14: Each tracked event is decorated with the current
  * `experiment_exposures` list (sourced from a lazy provider to break the
  * EventTracker ↔ ExperimentManager construction cycle).
+ *
+ * SPEC-070-A G.10: Each event carries an `environment` tag (`"production"` /
+ * `"sandbox"`) sourced from `Configuration.environment`.
+ *
+ * SPEC-070-A G.17: Each event optionally carries `context.screen` for SPEC-086
+ * zero-code attribution. The currently-visible screen name is supplied by
+ * NavigationInterceptor via [setScreenProvider].
  */
 internal class EventTracker(
     private val identityManager: IdentityManager,
-    private val appVersion: String
+    private val appVersion: String,
+    private val environmentTag: String? = null
 ) {
     private var eventQueue: EventQueue? = null
     private var analyticsConsent = true
@@ -25,6 +33,12 @@ internal class EventTracker(
      */
     private var exposureProvider: (() -> List<ExperimentExposure>)? = null
 
+    /**
+     * SPEC-070-A G.17: Lazy supplier of the currently-visible screen name.
+     * Returns null when no screen is being tracked yet (early app start).
+     */
+    private var screenProvider: (() -> String?)? = null
+
     fun setEventQueue(queue: EventQueue) {
         this.eventQueue = queue
     }
@@ -35,6 +49,13 @@ internal class EventTracker(
      */
     fun setExperimentExposureProvider(provider: (() -> List<ExperimentExposure>)?) {
         this.exposureProvider = provider
+    }
+
+    /**
+     * SPEC-070-A G.17: Wire the screen-name source (typically NavigationInterceptor).
+     */
+    fun setScreenProvider(provider: (() -> String?)?) {
+        this.screenProvider = provider
     }
 
     fun setConsent(analytics: Boolean) {
@@ -49,7 +70,7 @@ internal class EventTracker(
      */
     fun track(event: String, properties: Map<String, Any>? = null) {
         if (!analyticsConsent) {
-            Log.debug("Event '$event' dropped — analytics consent is false")
+            Log.debug { "Event '$event' dropped — analytics consent is false" }
             return
         }
 
@@ -57,7 +78,14 @@ internal class EventTracker(
             exposureProvider?.invoke()
         } catch (e: Exception) {
             // Never let an exposure read break event tracking
-            Log.warning("Exposure provider threw: ${e.message}")
+            Log.warning { "Exposure provider threw: ${e.message}" }
+            null
+        }
+
+        val screen = try {
+            screenProvider?.invoke()
+        } catch (e: Exception) {
+            Log.warning { "Screen provider threw: ${e.message}" }
             null
         }
 
@@ -68,10 +96,12 @@ internal class EventTracker(
             sessionId = identityManager.sessionId,
             appVersion = appVersion,
             analyticsConsent = analyticsConsent,
-            experimentExposures = exposures
+            experimentExposures = exposures,
+            environment = environmentTag,
+            screen = screen
         )
 
         eventQueue?.enqueue(envelope)
-        Log.debug("Tracked event: $event")
+        Log.debug { "Tracked event: $event" }
     }
 }

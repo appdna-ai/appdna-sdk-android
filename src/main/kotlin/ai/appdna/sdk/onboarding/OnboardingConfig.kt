@@ -22,12 +22,37 @@ data class OnboardingFlowConfig(
     val name: String,
     val version: Int,
     val steps: List<OnboardingStep>,
-    val settings: OnboardingSettings
+    val settings: OnboardingSettings,
+    // SPEC-070-A F.1: top-level fields mirroring iOS OnboardingFlowConfig
+    val status: String? = null,
+    val graph_layout: Map<String, Any?>? = null,
+    /**
+     * Lightweight extract of SDK-relevant graph nodes (paywall_trigger, login, end).
+     * Keyed by node ID for O(1) lookup. Preferred over graph_layout for SDK use.
+     */
+    val graph_nodes: Map<String, Any?>? = null,
+    /**
+     * Audience targeting rules. Either a `[Map]` list of conditions OR an object with
+     * `{priority, conditions, match_mode}`. Stored raw — evaluated at present-time
+     * by [OnboardingFlowManager] via `AudienceRuleEvaluator`.
+     */
+    val audience_rules: Any? = null,
 )
 
 /**
  * Flow-level settings.
+ *
+ * SPEC-070-A A.5: `@Keep` so R8/minify cannot strip getters used by reflection
+ * via [OnboardingConfigParser].
  */
+@androidx.annotation.Keep
+data class BackButtonStyle(
+    val icon_size: Double? = null,
+    val icon_color: String? = null,
+    val position: String? = null,  // "left" | "right"
+)
+
+@androidx.annotation.Keep
 data class OnboardingSettings(
     val show_progress: Boolean = true,
     val allow_back: Boolean = true,
@@ -38,6 +63,14 @@ data class OnboardingSettings(
     // Gap 9: Custom progress bar colors
     val progress_color: String? = null,
     val progress_track_color: String? = null,
+    // SPEC-070-A F.1: progress style + back button + content padding (iOS parity)
+    val progress_style: String? = null,  // "dots" | "segmented_bar" | "continuous_bar" | "fraction" | "none"
+    val back_button_style: BackButtonStyle? = null,
+    val dismiss_allowed: Boolean? = null,
+    /** Global horizontal content padding in points. Default 24. */
+    val content_padding: Double? = null,
+    /** Global vertical spacing between content blocks in points. Default 12. */
+    val block_spacing: Double? = null,
 )
 
 /**
@@ -378,6 +411,16 @@ internal object OnboardingConfigParser {
                 colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
             )
         }
+        // SPEC-070-A F.1: parse back_button_style + content_padding + block_spacing
+        val backBtnMap = settingsMap["back_button_style"] as? Map<String, Any>
+        val backButtonStyle = backBtnMap?.let { b ->
+            BackButtonStyle(
+                icon_size = (b["icon_size"] as? Number)?.toDouble(),
+                icon_color = b["icon_color"] as? String,
+                position = b["position"] as? String,
+            )
+        }
+
         val settings = OnboardingSettings(
             show_progress = settingsMap["show_progress"] as? Boolean ?: true,
             allow_back = settingsMap["allow_back"] as? Boolean ?: true,
@@ -386,14 +429,29 @@ internal object OnboardingConfigParser {
             particle_effect = particleEffect,
             progress_color = settingsMap["progress_color"] as? String,
             progress_track_color = settingsMap["progress_track_color"] as? String,
+            progress_style = settingsMap["progress_style"] as? String,
+            back_button_style = backButtonStyle,
+            dismiss_allowed = settingsMap["dismiss_allowed"] as? Boolean,
+            content_padding = (settingsMap["content_padding"] as? Number)?.toDouble(),
+            block_spacing = (settingsMap["block_spacing"] as? Number)?.toDouble(),
         )
+
+        // SPEC-070-A F.1: top-level flow fields (status / graph_layout / graph_nodes / audience_rules)
+        @Suppress("UNCHECKED_CAST")
+        val graphLayout = map["graph_layout"] as? Map<String, Any?>
+        @Suppress("UNCHECKED_CAST")
+        val graphNodes = map["graph_nodes"] as? Map<String, Any?>
 
         return OnboardingFlowConfig(
             id = map["id"] as? String ?: id,
             name = map["name"] as? String ?: "",
             version = (map["version"] as? Number)?.toInt() ?: 1,
             steps = steps,
-            settings = settings
+            settings = settings,
+            status = map["status"] as? String,
+            graph_layout = graphLayout,
+            graph_nodes = graphNodes,
+            audience_rules = map["audience_rules"],
         )
     }
 

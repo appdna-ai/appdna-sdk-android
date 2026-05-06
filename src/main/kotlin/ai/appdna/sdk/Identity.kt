@@ -41,15 +41,55 @@ internal class IdentityManager(private val storage: LocalStorage) {
         _traits = loadTraits()
     }
 
+    /**
+     * Link the anonymous device to a known user.
+     *
+     * SPEC-070-A G.21: when [traits] is null we DO NOT overwrite the stored
+     * traits — mirrors iOS `IdentityManager.identify(userId:traits:)` which only
+     * persists `keychainStore.setUserTraits(traits)` when a non-nil dictionary
+     * is supplied (Sources/AppDNASDK/Core/Identity/IdentityManager.swift:49-58).
+     */
     fun identify(userId: String, traits: Map<String, Any>?) {
         synchronized(lock) {
             _userId = userId
-            _traits = traits
+            if (traits != null) {
+                _traits = traits
+            }
         }
         storage.setString("user_id", userId)
-        // SPEC-088: Persist traits to SharedPreferences
-        persistTraits(traits)
-        Log.info("Identified user: $userId")
+        // G.21: only re-persist when caller passed traits.
+        if (traits != null) {
+            persistTraits(traits)
+        }
+        Log.info { "Identified user: $userId" }
+    }
+
+    /**
+     * SPEC-070-A G.1: Merge [newTraits] into the existing trait map without
+     * overwriting any user-set keys. Used for auto-injected geo/locale/device
+     * traits from the bootstrap response.
+     *
+     * No-op if every value in [newTraits] is already present (avoids a redundant
+     * disk write on every cold start). Matches iOS
+     * `IdentityManager.mergeTraits(_:)` at
+     * Sources/AppDNASDK/Core/Identity/IdentityManager.swift:62-73.
+     */
+    fun mergeTraits(newTraits: Map<String, Any>) {
+        if (newTraits.isEmpty()) return
+        synchronized(lock) {
+            val existing = _traits ?: emptyMap()
+            val merged = LinkedHashMap<String, Any>(existing)
+            var changed = false
+            for ((key, value) in newTraits) {
+                if (!merged.containsKey(key)) {
+                    merged[key] = value
+                    changed = true
+                }
+            }
+            if (!changed) return
+            _traits = merged
+            persistTraits(merged)
+        }
     }
 
     fun reset() {
@@ -60,7 +100,7 @@ internal class IdentityManager(private val storage: LocalStorage) {
         }
         storage.remove("user_id")
         storage.remove("user_traits")
-        Log.info("Identity reset")
+        Log.info { "Identity reset" }
     }
 
     fun newSession() {
@@ -82,8 +122,9 @@ internal class IdentityManager(private val storage: LocalStorage) {
                 json.put(key, value)
             }
             storage.setString("user_traits", json.toString())
-        } catch (_: Exception) {
-            Log.warning("Failed to persist user traits")
+        } catch (e: Exception) {
+            // SPEC-070-A G.11: surface parse errors instead of silently swallowing.
+            Log.warning { "Failed to persist user traits: ${e.message}" }
         }
     }
 
@@ -99,7 +140,9 @@ internal class IdentityManager(private val storage: LocalStorage) {
                 }
             }
             map
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // SPEC-070-A G.11: surface parse errors instead of silently swallowing.
+            Log.warning { "Failed to load user traits: ${e.message}" }
             null
         }
     }

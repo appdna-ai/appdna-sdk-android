@@ -152,6 +152,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-process:2.7.0")
     implementation("androidx.lifecycle:lifecycle-common-java8:2.7.0")
 
+    // SPEC-070-A G.5: EncryptedSharedPreferences for sensitive on-device storage
+    // (anon_id, user_id, user_traits, push token). iOS parity = Keychain.
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+
     // SPEC-070-A A.3: Coil for NetworkImage memory + disk caching.
     // Replaces the BitmapFactory.decodeStream-on-every-recomposition path.
     // Default singleton ImageLoader is configured in core/AppDNAImageLoader.kt

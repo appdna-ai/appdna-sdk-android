@@ -105,6 +105,10 @@ internal class SurveyManager(
             "trigger_event" to triggerEvent
         ))
 
+        // SPEC-070-A B.4 — fire onSurveyPresented to the host's
+        // AppDNASurveyDelegate. Mirrors iOS Feedback/SurveyManager.swift:100.
+        fireOnSurveyPresented(surveyId)
+
         SurveyActivity.questionAnsweredCallback = { qId, qType, answer ->
             onQuestionAnswered(qId, qType, answer)
         }
@@ -118,6 +122,8 @@ internal class SurveyManager(
                     trackCompleted(surveyId, config, result.answers)
                     submitResponse(surveyId, config, result.answers)
                     executeFollowUp(config, result.answers)
+                    // SPEC-070-A B.4 — fire onSurveyCompleted with the typed responses.
+                    fireOnSurveyCompleted(surveyId, result.answers)
                 }
                 is SurveyResult.Dismissed -> {
                     frequencyTracker.recordDisplay(surveyId)
@@ -125,9 +131,55 @@ internal class SurveyManager(
                         "survey_id" to surveyId,
                         "questions_answered" to result.answeredCount
                     ))
+                    // SPEC-070-A B.4 — fire onSurveyDismissed.
+                    fireOnSurveyDismissed(surveyId)
                 }
             }
         }
+    }
+
+    // SPEC-070-A B.4 — main-thread fan-out helpers. Read the host's delegate
+    // fresh on every call so a delegate registered after configure still
+    // receives callbacks. Mirrors iOS SurveyManager.swift dispatch pattern.
+
+    private fun fireOnSurveyPresented(surveyId: String) {
+        try {
+            val delegate = AppDNA.surveys.surveyListener ?: return
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try { delegate.onSurveyPresented(surveyId) } catch (e: Throwable) {
+                    Log.warning("AppDNASurveyDelegate.onSurveyPresented threw: ${e.message}")
+                }
+            }
+        } catch (_: Throwable) { /* best-effort */ }
+    }
+
+    private fun fireOnSurveyCompleted(surveyId: String, answers: List<SurveyAnswer>) {
+        try {
+            val delegate = AppDNA.surveys.surveyListener ?: return
+            val responses = answers.map {
+                ai.appdna.sdk.SurveyResponse(
+                    questionId = it.questionId,
+                    answer = it.answer,
+                    metadata = null,
+                )
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try { delegate.onSurveyCompleted(surveyId, responses) } catch (e: Throwable) {
+                    Log.warning("AppDNASurveyDelegate.onSurveyCompleted threw: ${e.message}")
+                }
+            }
+        } catch (_: Throwable) { /* best-effort */ }
+    }
+
+    private fun fireOnSurveyDismissed(surveyId: String) {
+        try {
+            val delegate = AppDNA.surveys.surveyListener ?: return
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try { delegate.onSurveyDismissed(surveyId) } catch (e: Throwable) {
+                    Log.warning("AppDNASurveyDelegate.onSurveyDismissed threw: ${e.message}")
+                }
+            }
+        } catch (_: Throwable) { /* best-effort */ }
     }
 
     private fun trackCompleted(surveyId: String, config: SurveyConfig, answers: List<SurveyAnswer>) {
@@ -139,14 +191,34 @@ internal class SurveyManager(
     }
 
     private fun submitResponse(surveyId: String, config: SurveyConfig, answers: List<SurveyAnswer>) {
+        // SPEC-070-A G.20 — backend `/api/v1/feedback/responses` canonical
+        // schema requires `user_id` + ISO8601 `completed_at`; the device
+        // field is `device_type` (not `device`). Coordinated with iOS to
+        // emit the same shape.
+        // user_id is persisted under LocalStorage key "user_id" by
+        // IdentityManager.identify(...) — read directly from SharedPreferences
+        // because IdentityManager is internal. Empty/null when the host has
+        // never called identify().
+        val userId = try {
+            context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
+                .getString("user_id", null)
+        } catch (_: Throwable) { null }
+        val completedAt = run {
+            val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            sdf.format(java.util.Date())
+        }
         val body = JSONObject().apply {
             put("survey_id", surveyId)
             put("survey_type", config.surveyType)
+            if (!userId.isNullOrEmpty()) put("user_id", userId)
+            put("completed_at", completedAt)
             put("answers", JSONArray(answers.map { JSONObject(it.toMap()) }))
             put("context", JSONObject().apply {
                 put("sdk_version", AppDNA.sdkVersion)
                 put("platform", "android")
-                put("device", Build.MODEL)
+                // SPEC-070-A G.20 — `device_type` (not `device`) per backend schema.
+                put("device_type", Build.MODEL)
                 put("app_version", getAppVersion())
                 val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
                 put("session_count", prefs.getInt("session_count", 0))
@@ -256,6 +328,13 @@ internal class SurveyManager(
                     eventTracker.track("survey_feedback_submitted", mapOf(
                         "feedback" to feedback
                     ))
+                    // SPEC-070-A G.9 — emit canonical `feedback_form_submitted`
+                    // event so backend Growth Memory + reports surface it
+                    // independently of the survey-followup tracking shape.
+                    val surveyId = currentSurveyId
+                    val props = mutableMapOf<String, Any>("feedback" to feedback)
+                    if (!surveyId.isNullOrEmpty()) props["survey_id"] = surveyId
+                    eventTracker.track("feedback_form_submitted", props)
                 }
                 .setNegativeButton("Cancel") { _, _ ->
                     eventTracker.track("feedback_form_dismissed")

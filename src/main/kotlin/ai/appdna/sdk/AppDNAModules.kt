@@ -435,17 +435,21 @@ class InAppMessagesModule internal constructor() {
 
 /**
  * Surveys module namespace.
+ *
+ * SPEC-070-A B.4 — `surveyListener` is `internal` (was private) so
+ * `SurveyManager` can fan out lifecycle callbacks to the host's registered
+ * delegate. Mirrors the `BillingModule.billingListener` shape.
  */
 class SurveysModule internal constructor() {
     internal var manager: SurveyManager? = null
-    private var listener: AppDNASurveyDelegate? = null
+    internal var surveyListener: AppDNASurveyDelegate? = null
 
     /** Present a specific survey. */
     fun present(surveyId: String) { manager?.present(surveyId) }
 
     /** Set a delegate for survey lifecycle events. */
     fun setDelegate(delegate: AppDNASurveyDelegate?) {
-        this.listener = delegate
+        this.surveyListener = delegate
     }
 }
 

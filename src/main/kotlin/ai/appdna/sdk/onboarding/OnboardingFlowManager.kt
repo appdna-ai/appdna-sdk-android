@@ -1,8 +1,12 @@
 package ai.appdna.sdk.onboarding
 
 import android.app.Activity
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.config.RemoteConfigManager
+import ai.appdna.sdk.core.AudienceRule
+import ai.appdna.sdk.core.AudienceRuleEvaluator
+import ai.appdna.sdk.core.AudienceRuleSet
 import ai.appdna.sdk.events.EventTracker
 
 /**
@@ -22,8 +26,11 @@ internal class OnboardingFlowManager(
         flowId: String? = null,
         listener: AppDNAOnboardingDelegate? = null
     ): Boolean {
-        // Resolve flow config
-        val flow = remoteConfigManager.getOnboardingFlow(flowId)
+        // SPEC-070-A F.13: when no explicit flowId is supplied, evaluate every
+        // flow's audience_rules against current userTraits and pick the
+        // highest-priority match. Falls back to the active flow when nothing
+        // matches. Mirrors iOS OnboardingFlowManager.swift:121-137.
+        val flow = resolveFlow(flowId)
         if (flow == null) {
             Log.warning("Onboarding flow not found -- flowId: ${flowId ?: "active"}")
             return false
@@ -93,5 +100,73 @@ internal class OnboardingFlowManager(
         )
 
         return true
+    }
+
+    // MARK: - Private
+
+    /**
+     * SPEC-070-A F.13: resolve a flow given an optional explicit id.
+     *
+     * - Explicit id → look up directly via [RemoteConfigManager.getOnboardingFlow].
+     * - No id + non-empty userTraits → evaluate every flow's `audience_rules`
+     *   and pick the highest-priority match.
+     * - Otherwise → fall back to the active flow (`getOnboardingFlow(null)`).
+     *
+     * Mirrors iOS `Onboarding/OnboardingFlowManager.swift:115-145`.
+     */
+    private fun resolveFlow(flowId: String?): OnboardingFlowConfig? {
+        if (flowId != null) {
+            return remoteConfigManager.getOnboardingFlow(flowId)
+        }
+
+        val userTraits = AppDNA.getUserTraits()
+        if (userTraits.isNotEmpty()) {
+            val matches = remoteConfigManager.getAllOnboardingFlows().values
+                .mapNotNull { flow ->
+                    val (matched, priority) = evaluateAudienceRules(flow.audience_rules, userTraits)
+                    if (matched) flow to priority else null
+                }
+                .sortedByDescending { it.second }
+
+            val best = matches.firstOrNull()
+            if (best != null) {
+                Log.info("[Onboarding] Audience-matched flow: ${best.first.id} (priority: ${best.second})")
+                return best.first
+            }
+        }
+
+        return remoteConfigManager.getOnboardingFlow(null)
+    }
+
+    /**
+     * Evaluate `audience_rules` against [traits].
+     *
+     * Accepts both shapes used by the console / iOS:
+     *   - `[ {trait, operator, value}, ... ]`  (raw rule list — AND across rules)
+     *   - `{ priority, conditions: [...], match_mode: "all" | "any" }`
+     *     (mirrors [AudienceRuleSet])
+     *
+     * Returns `(matched, priority)` so the caller can sort highest-priority first.
+     * `null` rules → `(false, 0)` so flows without targeting only become the fallback,
+     * never an audience match. Mirrors iOS AudienceRuleEvaluator semantics.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun evaluateAudienceRules(rules: Any?, traits: Map<String, Any>): Pair<Boolean, Int> {
+        return when (rules) {
+            null -> false to 0
+            is List<*> -> {
+                val list = rules.mapNotNull { (it as? Map<String, Any?>)?.let(AudienceRule.Companion::fromMap) }
+                if (list.isEmpty()) false to 0
+                else AudienceRuleEvaluator.evaluate(list, traits) to 0
+            }
+            is Map<*, *> -> {
+                val mp = rules as Map<String, Any?>
+                val priority = (mp["priority"] as? Number)?.toInt() ?: 0
+                val ruleSet = AudienceRuleSet.fromMap(mp)
+                val matched = AudienceRuleEvaluator.evaluate(ruleSet, traits)
+                matched to priority
+            }
+            else -> false to 0
+        }
     }
 }

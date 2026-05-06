@@ -39,10 +39,37 @@ data class AppDNAOptions(
 
 /**
  * Internal logger.
+ *
+ * SPEC-070-A G.22: Lambda-variant API — message providers are only invoked when
+ * the level is enabled, so callers can safely build expensive strings (e.g. JSON
+ * dumps) without paying the cost when `LogLevel.WARNING` is the floor.
+ *
+ * Both lambda + string forms are supported so existing call sites compile
+ * unchanged. New call sites should prefer the lambda variant:
+ *
+ *     Log.debug { "Tracked event: $event with ${properties?.size} props" }
  */
 internal object Log {
     var level: LogLevel = LogLevel.WARNING
 
+    fun error(messageProvider: () -> String) {
+        if (level.level >= LogLevel.ERROR.level) println("[AppDNA][ERROR] ${messageProvider()}")
+    }
+
+    fun warning(messageProvider: () -> String) {
+        if (level.level >= LogLevel.WARNING.level) println("[AppDNA][WARN] ${messageProvider()}")
+    }
+
+    fun info(messageProvider: () -> String) {
+        if (level.level >= LogLevel.INFO.level) println("[AppDNA][INFO] ${messageProvider()}")
+    }
+
+    fun debug(messageProvider: () -> String) {
+        if (level.level >= LogLevel.DEBUG.level) println("[AppDNA][DEBUG] ${messageProvider()}")
+    }
+
+    // String overloads for backward compatibility with existing call sites.
+    // `Log.warning("msg")` continues to work alongside `Log.warning { "msg" }`.
     fun error(message: String) {
         if (level.level >= LogLevel.ERROR.level) println("[AppDNA][ERROR] $message")
     }

@@ -499,26 +499,59 @@ class NativeBillingManager internal constructor(
      * Restore all active purchases from Google Play.
      * Sends purchase tokens to the server for verification and updates the entitlement cache.
      *
+     * SPEC-070-A G.12 — queries BOTH `ProductType.SUBS` AND `ProductType.INAPP`
+     * and merges results so one-time products (lifetime unlocks, consumable
+     * unlocks) are restorable, not just subscriptions. Mirrors iOS
+     * `Billing/NativeBillingManager.swift:184-203` which iterates
+     * `Transaction.currentEntitlements` covering both product types.
+     *
+     * SPEC-070-A G.7 — event names align with iOS:
+     *   - per-product `purchase_restored` (matches iOS line 198)
+     *   - aggregate `purchase_restored` event with `restored_count` only when
+     *     more than 0 (matches iOS PaywallManager.swift:340 + restore_failed
+     *     PaywallManager.swift:352 → `purchase_restore_failed`)
+     *   - removed Android-only `restore_started` / `restore_completed` /
+     *     `restore_failed` strings that iOS never emitted.
+     *
+     * SPEC-070-A B.2 — fires AppDNABillingDelegate.onRestoreCompleted with
+     * the restored product IDs.
+     *
      * @return List of restored Entitlements.
      */
     suspend fun restorePurchases(): List<Entitlement> {
-        Log.info("Restoring purchases")
-        AppDNA.track("restore_started", emptyMap())
+        Log.info("Restoring purchases (SUBS + INAPP)")
 
         val client = connectionManager.awaitConnectedClient()
             ?: return emptyList()
 
-        val params = QueryPurchasesParams.newBuilder()
-            .setProductType(BillingClient.ProductType.SUBS)
-            .build()
-
-        val result = client.queryPurchasesAsync(params)
-        if (result.billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
-            Log.warning("Failed to query purchases: ${result.billingResult.debugMessage}")
-            return emptyList()
+        // SPEC-070-A G.12 — query SUBS and INAPP in parallel.
+        val (subsResult, inappResult) = coroutineScope {
+            val subsDeferred = async {
+                val params = QueryPurchasesParams.newBuilder()
+                    .setProductType(BillingClient.ProductType.SUBS)
+                    .build()
+                client.queryPurchasesAsync(params)
+            }
+            val inappDeferred = async {
+                val params = QueryPurchasesParams.newBuilder()
+                    .setProductType(BillingClient.ProductType.INAPP)
+                    .build()
+                client.queryPurchasesAsync(params)
+            }
+            subsDeferred.await() to inappDeferred.await()
         }
 
-        val transactions = result.purchasesList.map { purchase ->
+        if (subsResult.billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
+            Log.warning("Failed to query SUBS purchases: ${subsResult.billingResult.debugMessage}")
+        }
+        if (inappResult.billingResult.responseCode != BillingClient.BillingResponseCode.OK) {
+            Log.warning("Failed to query INAPP purchases: ${inappResult.billingResult.debugMessage}")
+        }
+
+        val mergedPurchases = (subsResult.purchasesList + inappResult.purchasesList)
+            .distinctBy { it.purchaseToken }
+
+        val transactions = mergedPurchases.map { purchase ->
             mapOf(
                 "token" to purchase.purchaseToken,
                 "productId" to (purchase.products.firstOrNull() ?: "unknown")
@@ -528,6 +561,9 @@ class NativeBillingManager internal constructor(
         if (transactions.isEmpty()) {
             Log.info("No purchases to restore")
             entitlementCache.replaceAll(emptyList())
+            // SPEC-070-A B.2 — fire onRestoreCompleted even with empty list,
+            // mirroring iOS StoreKit2Bridge.swift:86 / RevenueCatBridge.swift:75.
+            fireOnRestoreCompleted(emptyList())
             return emptyList()
         }
 
@@ -535,25 +571,52 @@ class NativeBillingManager internal constructor(
             val entitlements = receiptVerifier.restore(transactions)
             entitlementCache.replaceAll(entitlements)
 
-            // Track per-entitlement purchase_restored event (matches iOS SDK behavior)
+            // SPEC-070-A G.7 — per-product `purchase_restored` (matches iOS SDK behavior)
             for (entitlement in entitlements) {
                 AppDNA.track("purchase_restored", mapOf(
                     "product_id" to entitlement.productId
                 ))
             }
 
-            AppDNA.track("restore_completed", mapOf(
-                "count" to entitlements.size.toString()
+            // SPEC-070-A G.7 — aggregate event with restored_count, matching
+            // iOS `Paywalls/PaywallManager.swift:340` shape.
+            AppDNA.track("purchase_restored", mapOf(
+                "restored_count" to entitlements.size.toString()
             ))
+
+            // SPEC-070-A B.2 — typed delegate fan-out.
+            fireOnRestoreCompleted(entitlements.map { it.productId })
 
             entitlements
         } catch (e: Exception) {
             Log.error("Restore failed: ${e.message}")
-            AppDNA.track("restore_failed", mapOf(
+            // SPEC-070-A G.7 — `purchase_restore_failed` matches iOS PaywallManager.swift:352
+            AppDNA.track("purchase_restore_failed", mapOf(
                 "error" to (e.message ?: "unknown")
             ))
+            // SPEC-070-A B.2 — fire onRestoreCompleted with empty list on failure
+            // (iOS adapters do the same in catch branches — see AdaptyBridge.swift:114).
+            fireOnRestoreCompleted(emptyList())
             emptyList()
         }
+    }
+
+    /**
+     * SPEC-070-A B.2 — main-thread dispatch of onRestoreCompleted to the host's
+     * AppDNABillingDelegate. Best-effort; delegate failures are logged but do
+     * not propagate.
+     */
+    private fun fireOnRestoreCompleted(productIds: List<String>) {
+        try {
+            val delegate = AppDNA.billing.billingListener ?: return
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    delegate.onRestoreCompleted(productIds)
+                } catch (e: Throwable) {
+                    Log.warning("AppDNABillingDelegate.onRestoreCompleted threw: ${e.message}")
+                }
+            }
+        } catch (_: Throwable) { /* best-effort */ }
     }
 
     // -- Product Queries --
@@ -572,6 +635,13 @@ class NativeBillingManager internal constructor(
 
     /**
      * Handle a successful purchase from the PurchasesUpdatedListener.
+     *
+     * SPEC-070-A B.2 — fires AppDNABillingDelegate.onPurchaseCompleted /
+     * onPurchaseFailed in addition to the existing analytics + suspend resume.
+     *
+     * SPEC-070-A G.6 — `purchase_completed` properties extended with `price`,
+     * `currency`, `experiment_id` to match iOS `Billing/NativeBillingManager.swift`
+     * shape so analytics / Growth Memory / experiments aggregations line up.
      */
     private suspend fun handleSuccessfulPurchase(purchase: Purchase) {
         val productId = purchase.products.firstOrNull() ?: return
@@ -612,12 +682,67 @@ class NativeBillingManager internal constructor(
             // Update cache
             entitlementCache.update(entitlement)
 
-            // Track success
-            AppDNA.track("purchase_completed", mapOf(
+            // SPEC-070-A G.6 — resolve price/currency from PriceResolver cache
+            // when available. Resolver is best-effort; failures fall through
+            // with empty strings so the rest of the analytics envelope still
+            // ships.
+            val priceInfo = try {
+                priceResolver.cachedPriceInfo(productId)
+            } catch (_: Throwable) { null }
+
+            val props = mutableMapOf<String, Any>(
                 "product_id" to productId,
                 "paywall_id" to (currentPaywallId ?: ""),
-                "is_trial" to entitlement.isTrial.toString()
-            ))
+                "is_trial" to entitlement.isTrial.toString(),
+            )
+            if (priceInfo != null) {
+                props["price"] = priceInfo.priceMicros / 1_000_000.0
+                props["currency"] = priceInfo.currencyCode
+            }
+            currentExperimentId?.let { props["experiment_id"] = it }
+
+            AppDNA.track("purchase_completed", props)
+
+            // SPEC-070-A B.2 — typed billing delegate fan-out. Build a
+            // TransactionInfo mirror (productId is the most stable handle —
+            // Google Play orderId requires a separate API).
+            val txInfo = ai.appdna.sdk.TransactionInfo(
+                transactionId = purchase.orderId ?: productId,
+                productId = productId,
+                purchaseDate = purchase.purchaseTime.toString(),
+                environment = "production",
+            )
+            try {
+                val delegate = AppDNA.billing.billingListener
+                if (delegate != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            delegate.onPurchaseCompleted(productId, txInfo)
+                        } catch (e: Throwable) {
+                            Log.warning("AppDNABillingDelegate.onPurchaseCompleted threw: ${e.message}")
+                        }
+                    }
+                }
+            } catch (_: Throwable) { /* best-effort */ }
+
+            // SPEC-070-A B.5 — fire onPaywallPurchaseCompleted on the paywall
+            // delegate when this purchase originated from a paywall context
+            // (currentPaywallId set by PaywallManager.present →
+            // PaywallActivity onPlanSelected). Mirrors iOS PaywallManager.swift
+            // post-purchase delegate dispatch.
+            try {
+                val pwId = currentPaywallId
+                val pwDelegate = AppDNA.paywall.listener
+                if (pwId != null && pwDelegate != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            pwDelegate.onPaywallPurchaseCompleted(pwId, productId, txInfo)
+                        } catch (e: Throwable) {
+                            Log.warning("AppDNAPaywallDelegate.onPaywallPurchaseCompleted threw: ${e.message}")
+                        }
+                    }
+                }
+            } catch (_: Throwable) { /* best-effort */ }
 
             resumePurchase(PurchaseResult.Purchased(entitlement))
         } catch (e: Exception) {
@@ -626,6 +751,21 @@ class NativeBillingManager internal constructor(
                 "product_id" to productId,
                 "error" to (e.message ?: "verification_error")
             ))
+
+            // SPEC-070-A B.2 — onPurchaseFailed delegate fan-out.
+            try {
+                val delegate = AppDNA.billing.billingListener
+                if (delegate != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            delegate.onPurchaseFailed(productId, e)
+                        } catch (err: Throwable) {
+                            Log.warning("AppDNABillingDelegate.onPurchaseFailed threw: ${err.message}")
+                        }
+                    }
+                }
+            } catch (_: Throwable) { /* best-effort */ }
+
             resumePurchase(PurchaseResult.Failed(e.message ?: "Verification failed"))
         }
     }

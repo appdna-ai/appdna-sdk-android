@@ -28,12 +28,10 @@ import androidx.savedstate.setViewTreeSavedStateRegistryOwner
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.AppDNAInAppMessageDelegate
 import ai.appdna.sdk.Log
-import ai.appdna.sdk.core.SessionDataStore
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -63,7 +61,6 @@ class MessageManager(
     private val context: Context,
     private val configProvider: () -> Map<String, MessageConfig>,
     @Suppress("unused") private val renderer: InAppMessageRenderer = InAppMessageRenderer.shared,
-    private val frequencyStore: SessionDataStore,
 ) {
 
     /**
@@ -76,7 +73,7 @@ class MessageManager(
 
     private val isPresenting = AtomicBoolean(false)
     private val suppress = AtomicBoolean(false)
-    private val frequencyTracker = MessageFrequencyTracker(frequencyStore)
+    private val frequencyTracker = MessageFrequencyTracker()
     private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
@@ -380,55 +377,5 @@ class InAppMessageRenderer private constructor() {
     }
 }
 
-/**
- * Per-message frequency tracker. Mirrors iOS
- * `MessageFrequencyTracker` (private to `InAppMessaging`).
- *
- * Frequency strings (matching `TriggerRules.frequency`):
- * - `once` — show once per install (persisted)
- * - `once_per_session` — show once per app session (in-memory only)
- * - `every_time` — no cap
- * - `max_times` — show up to `max_displays` total (persisted)
- *
- * Persisted counters live under a `messages_freq` namespace inside
- * `SessionDataStore.sessionData` so they survive process death without
- * a dedicated table.
- */
-internal class MessageFrequencyTracker(
-    private val store: SessionDataStore,
-) {
-    private val prefix = "messages_freq:"
-    private val sessionShown = ConcurrentHashMap<String, Int>()
-
-    fun canShow(messageId: String, frequency: String, maxDisplays: Int?): Boolean {
-        return when (frequency) {
-            "once" -> totalShown(messageId) == 0
-            "once_per_session" -> (sessionShown[messageId] ?: 0) == 0
-            "every_time" -> true
-            "max_times" -> {
-                val cap = maxDisplays ?: return true
-                totalShown(messageId) < cap
-            }
-            else -> true
-        }
-    }
-
-    fun recordShown(messageId: String, frequency: String) {
-        sessionShown.merge(messageId, 1) { acc, inc -> acc + inc }
-        when (frequency) {
-            "once", "max_times" -> {
-                val n = totalShown(messageId) + 1
-                store.setSessionData(prefix + messageId, n)
-            }
-            else -> Unit
-        }
-    }
-
-    fun resetSession() {
-        sessionShown.clear()
-    }
-
-    private fun totalShown(messageId: String): Int {
-        return (store.getSessionData(prefix + messageId) as? Number)?.toInt() ?: 0
-    }
-}
+// MessageFrequencyTracker has been extracted to its own file
+// (messages/MessageFrequencyTracker.kt) per SPEC-070-A F.12.

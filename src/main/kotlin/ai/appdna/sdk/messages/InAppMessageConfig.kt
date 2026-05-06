@@ -44,16 +44,54 @@ data class MessageContent(
     // SPEC-084: Styling fields
     val text_color: String? = null,
     val button_color: String? = null,
+    // SPEC-070-A F.2: button text color + button corner radius (iOS parity)
+    val button_text_color: String? = null,
+    val button_corner_radius: Int? = null,
     val corner_radius: Int? = null,
     val secondary_cta_text: String? = null,
+    // SPEC-070-A F.2: typography parity (font family + title/body sizes)
+    val font_family: String? = null,
+    val title_font_size: Double? = null,
+    val body_font_size: Double? = null,
     // SPEC-085: Rich media fields
+    val lottie_url: String? = null,
+    val rive_url: String? = null,
+    // SPEC-070-A F.2: rive state machine name (iOS parity)
+    val rive_state_machine: String? = null,
+    val video_url: String? = null,
+    val video_thumbnail_url: String? = null,
+    val cta_icon: Any? = null,
+    val secondary_cta_icon: Any? = null,
+    val haptic: ai.appdna.sdk.core.HapticConfig? = null,
+    val particle_effect: ai.appdna.sdk.core.ParticleEffect? = null,
+    val blur_backdrop: ai.appdna.sdk.core.BlurConfig? = null,
+    // SPEC-205 / SPEC-070-A F.2: sparse dark-mode overrides
+    val dark: MessageContentDark? = null,
+)
+
+/**
+ * SPEC-205 / SPEC-070-A F.2: Dark-mode overrides for [MessageContent].
+ * Sparse — only fields set here override the matching light-mode field on the
+ * parent. Mirrors iOS `MessageContentDark` in `InAppMessaging/MessageConfig.swift`.
+ */
+data class MessageContentDark(
+    // Colors
+    val background_color: String? = null,
+    val text_color: String? = null,
+    val button_color: String? = null,
+    val button_text_color: String? = null,
+    // Corner radii
+    val button_corner_radius: Int? = null,
+    val corner_radius: Int? = null,
+    // Themed assets
+    val image_url: String? = null,
     val lottie_url: String? = null,
     val rive_url: String? = null,
     val video_url: String? = null,
     val video_thumbnail_url: String? = null,
     val cta_icon: Any? = null,
     val secondary_cta_icon: Any? = null,
-    val haptic: ai.appdna.sdk.core.HapticConfig? = null,
+    // Rich effects
     val particle_effect: ai.appdna.sdk.core.ParticleEffect? = null,
     val blur_backdrop: ai.appdna.sdk.core.BlurConfig? = null,
 )
@@ -115,11 +153,20 @@ internal object MessageConfigParser {
             auto_dismiss_seconds = (contentMap["auto_dismiss_seconds"] as? Number)?.toInt(),
             text_color = contentMap["text_color"] as? String,
             button_color = contentMap["button_color"] as? String,
+            // SPEC-070-A F.2
+            button_text_color = contentMap["button_text_color"] as? String,
+            button_corner_radius = (contentMap["button_corner_radius"] as? Number)?.toInt(),
             corner_radius = (contentMap["corner_radius"] as? Number)?.toInt(),
             secondary_cta_text = contentMap["secondary_cta_text"] as? String,
+            // SPEC-070-A F.2: typography
+            font_family = contentMap["font_family"] as? String,
+            title_font_size = (contentMap["title_font_size"] as? Number)?.toDouble(),
+            body_font_size = (contentMap["body_font_size"] as? Number)?.toDouble(),
             // SPEC-085: Rich media fields
             lottie_url = contentMap["lottie_url"] as? String,
             rive_url = contentMap["rive_url"] as? String,
+            // SPEC-070-A F.2
+            rive_state_machine = contentMap["rive_state_machine"] as? String,
             video_url = contentMap["video_url"] as? String,
             video_thumbnail_url = contentMap["video_thumbnail_url"] as? String,
             cta_icon = contentMap["cta_icon"],
@@ -151,6 +198,40 @@ internal object MessageConfigParser {
                     radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
                     tint = b["tint"] as? String,
                     saturation = (b["saturation"] as? Number)?.toFloat(),
+                )
+            },
+            // SPEC-205 / SPEC-070-A F.2: dark mode sparse overrides
+            dark = (contentMap["dark"] as? Map<String, Any>)?.let { d ->
+                MessageContentDark(
+                    background_color = d["background_color"] as? String,
+                    text_color = d["text_color"] as? String,
+                    button_color = d["button_color"] as? String,
+                    button_text_color = d["button_text_color"] as? String,
+                    button_corner_radius = (d["button_corner_radius"] as? Number)?.toInt(),
+                    corner_radius = (d["corner_radius"] as? Number)?.toInt(),
+                    image_url = d["image_url"] as? String,
+                    lottie_url = d["lottie_url"] as? String,
+                    rive_url = d["rive_url"] as? String,
+                    video_url = d["video_url"] as? String,
+                    video_thumbnail_url = d["video_thumbnail_url"] as? String,
+                    cta_icon = d["cta_icon"],
+                    secondary_cta_icon = d["secondary_cta_icon"],
+                    particle_effect = (d["particle_effect"] as? Map<String, Any>)?.let { p ->
+                        ai.appdna.sdk.core.ParticleEffect(
+                            type = p["type"] as? String ?: "confetti",
+                            trigger = p["trigger"] as? String ?: "on_appear",
+                            duration_ms = (p["duration_ms"] as? Number)?.toInt() ?: 2500,
+                            intensity = p["intensity"] as? String ?: "medium",
+                            colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
+                        )
+                    },
+                    blur_backdrop = (d["blur_backdrop"] as? Map<String, Any>)?.let { b ->
+                        ai.appdna.sdk.core.BlurConfig(
+                            radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
+                            tint = b["tint"] as? String,
+                            saturation = (b["saturation"] as? Number)?.toFloat(),
+                        )
+                    },
                 )
             },
         )

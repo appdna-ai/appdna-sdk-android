@@ -131,6 +131,21 @@ object AppDNA {
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val readyCallbacks = mutableListOf<() -> Unit>()
 
+    // SPEC-070-A G.18: pre-init event buffer. Calls to track() that arrive before
+    // configure() finishes wiring the EventTracker land here. Drained on first
+    // setEventQueue call (after configure completes constructing the EventQueue).
+    // Cap = 200; on overflow we log + drop the OLDEST so the most recent action
+    // (e.g. a deep-link tap that triggered the configure call) survives.
+    private const val PRE_INIT_BUFFER_CAP = 200
+    private data class PreInitEvent(val name: String, val properties: Map<String, Any>?)
+    private val preInitBuffer = java.util.concurrent.LinkedBlockingQueue<PreInitEvent>(PRE_INIT_BUFFER_CAP)
+
+    // SPEC-070-A G.17: most recent screen name observed by NavigationInterceptor
+    // / ScreenManager / Compose hosts. Surfaced into every event envelope as
+    // `context.screen` for SPEC-086 zero-code attribution. Updated through
+    // [notifyScreenAppeared] (already public) so no extra API required.
+    @Volatile private var lastScreenName: String? = null
+
     // MARK: - Public API: Initialization
 
     /**
@@ -191,7 +206,11 @@ object AppDNA {
             this.apiClient = client
 
             // 4. Initialize event system
-            val tracker = EventTracker(identityMgr, appVersion)
+            // SPEC-070-A G.10: tag every emitted event with the active SDK
+            // environment ("production" / "sandbox") so ingest can route
+            // test-key traffic to the sandbox dataset.
+            val envTag = environment.name.lowercase()
+            val tracker = EventTracker(identityMgr, appVersion, envTag)
             this.eventTracker = tracker
 
             // SPEC-067: Initialize EventDatabase (SQLite) and ConnectivityMonitor
@@ -229,6 +248,25 @@ object AppDNA {
             this.eventQueue = eq
             tracker.setEventQueue(eq)
 
+            // SPEC-070-A G.18: drain any track() calls that arrived before the
+            // EventTracker was wired up. We snapshot+drain so concurrent
+            // late-arriving calls won't block on the lock.
+            val drained = ArrayList<PreInitEvent>(preInitBuffer.size)
+            preInitBuffer.drainTo(drained)
+            if (drained.isNotEmpty()) {
+                Log.info { "Draining ${drained.size} pre-init buffered event(s) into tracker" }
+                for (entry in drained) {
+                    tracker.track(entry.name, entry.properties)
+                }
+            }
+
+            // SPEC-070-A G.17: Wire the screen-name source so every event
+            // envelope can pick up `context.screen` for zero-code attribution.
+            // The latest screen is tracked via [updateCurrentScreen] which
+            // NavigationInterceptor + ScreenManager call as the user navigates
+            // (wired in a follow-up item; field stays null safely until then).
+            tracker.setScreenProvider { lastScreenName }
+
             // 5. Initialize push token manager (v0.4 SPEC-030: backend registration)
             this.pushTokenManager = PushTokenManager(context, storage, tracker, client)
             push.manager = this.pushTokenManager
@@ -239,6 +277,9 @@ object AppDNA {
                 storage = storage,
                 configTTL = options.configTTL
             )
+            // SPEC-070-A G.4: wire EventTracker so RemoteConfigManager.fetchConfigs()
+            // can emit a `config_fetched` event after each successful refresh.
+            remoteCfg.eventTracker = tracker
             this.remoteConfigManager = remoteCfg
 
             this.featureFlagManager = FeatureFlagManager(remoteCfg)
@@ -295,11 +336,10 @@ object AppDNA {
             // SPEC-070-A A.9: MessageManager — trigger evaluator + frequency tracker
             // + presentation queue + delegate veto. Renderer separate (InAppMessageRenderer)
             // per architectural split.
-            ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
+            ai.appdna.sdk.core.SessionDataStore.instance?.let { _ ->
                 this.messageManager = ai.appdna.sdk.messages.MessageManager(
                     context = appContext,
                     configProvider = { activeMessages },
-                    frequencyStore = sds,
                 )
             }
 
@@ -324,7 +364,43 @@ object AppDNA {
      * Link the anonymous device to a known user.
      */
     fun identify(userId: String, traits: Map<String, Any>? = null) {
+        // Capture pre-identify ids so the backend alias call + identify event
+        // can include the previous values (iOS parity, AppDNA.swift:185-216).
+        val previousAnonId = identityManager?.currentIdentity?.anonId
+        val previousUserId = identityManager?.currentIdentity?.userId
+
         identityManager?.identify(userId, traits)
+        val deviceId = identityManager?.currentIdentity?.anonId
+
+        // SPEC-070-A G.3: emit local `identify` event so the existing client
+        // pipeline (BigQuery alias resolution + experiment exposure ledger)
+        // sees the user-id transition immediately.
+        val identifyProps = mutableMapOf<String, Any>(
+            "user_id" to userId,
+            "anon_id" to (previousAnonId ?: ""),
+        )
+        if (previousUserId != null && previousUserId != userId) {
+            identifyProps["previous_user_id"] = previousUserId
+        }
+        if (traits != null) {
+            identifyProps["traits"] = traits
+        }
+        track("identify", identifyProps)
+
+        // SPEC-070-A G.2: fire-and-forget POST to /api/v1/sdk/identify so the
+        // backend can stitch anon → user identities even if the user never
+        // emits another event. Retries on 5xx/network are handled inside
+        // ApiClient.post() (called by postFireAndForget).
+        try {
+            val body = JSONObject()
+            body.put("anon_id", previousAnonId ?: "")
+            body.put("user_id", userId)
+            if (deviceId != null) body.put("device_id", deviceId)
+            if (traits != null) body.put("traits", JSONObject(traits))
+            apiClient?.postFireAndForget("/api/v1/sdk/identify", body.toString())
+        } catch (e: Exception) {
+            Log.warning { "Failed to post identify alias: ${e.message}" }
+        }
 
         // Start web entitlement observer for this user (v0.3)
         val orgId = bootstrapOrgId
@@ -363,7 +439,25 @@ object AppDNA {
      * Track a custom event.
      */
     fun track(event: String, properties: Map<String, Any>? = null) {
-        eventTracker?.track(event, properties)
+        val tracker = eventTracker
+        if (tracker == null) {
+            // SPEC-070-A G.18: pre-init buffer. Tracks issued before configure()
+            // wires the EventTracker land here and are drained on first
+            // setEventQueue call. Cap = 200; on overflow we drop the OLDEST so
+            // the most recent action survives.
+            val entry = PreInitEvent(event, properties)
+            if (!preInitBuffer.offer(entry)) {
+                // Queue full — pop oldest, push new.
+                preInitBuffer.poll()
+                if (!preInitBuffer.offer(entry)) {
+                    Log.warning { "Pre-init event buffer full; dropping '$event'" }
+                } else {
+                    Log.warning { "Pre-init event buffer full; dropping oldest" }
+                }
+            }
+            return
+        }
+        tracker.track(event, properties)
         // Evaluate surveys on every tracked event (v0.3)
         surveyManager?.onEvent(event, properties)
         // SPEC-070-A A.9: evaluate in-app message triggers on every event.
@@ -378,6 +472,10 @@ object AppDNA {
      * destination if they want it to participate in NavigationInterceptor hooks.
      */
     fun notifyScreenAppeared(screenName: String) {
+        // SPEC-070-A G.17: snapshot the latest screen so subsequent events
+        // include `context.screen` even when the host hasn't wired any
+        // NavigationInterceptor hooks (zero-code attribution path).
+        lastScreenName = screenName
         ai.appdna.sdk.screens.NavigationInterceptor.shared.notifyScreenAppeared(screenName)
     }
 

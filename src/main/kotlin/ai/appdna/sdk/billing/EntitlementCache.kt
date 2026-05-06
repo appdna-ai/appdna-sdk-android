@@ -230,16 +230,55 @@ internal class EntitlementCache(
 
     /**
      * Internal setter that updates in-memory cache, persists, and notifies listeners.
+     *
+     * SPEC-070-A B.7 — fan out to:
+     *   1. all callbacks registered via [addChangeListener] (host onEntitlementsChanged
+     *      callback via `BillingModule.onEntitlementsChanged(callback)`)
+     *   2. the typed `AppDNABillingDelegate.onEntitlementsChanged(...)` registered
+     *      on the BillingModule (`AppDNA.billing.setDelegate(...)`).
+     * Mirrors iOS `EntitlementCache.swift` `NotificationCenter .entitlementsChanged`
+     * fan-out.
      */
     private fun setEntitlements(newEntitlements: List<Entitlement>) {
         entitlements = newEntitlements
         saveToDisk(newEntitlements)
         notifyListeners()
+        notifyBillingDelegate()
     }
 
     private fun notifyListeners() {
         for (listener in changeListeners) {
-            listener(entitlements)
+            try {
+                listener(entitlements)
+            } catch (e: Throwable) {
+                Log.warning("EntitlementCache: listener threw: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * SPEC-070-A B.7 — fire the typed delegate's onEntitlementsChanged. Read
+     * fresh on every call so a delegate registered after configure() still
+     * receives updates. Posted to main thread so host code never runs on
+     * the Firestore listener thread.
+     */
+    private fun notifyBillingDelegate() {
+        val delegate = try {
+            AppDNA.billing.billingListener
+        } catch (_: Throwable) {
+            return
+        } ?: return
+        val current = entitlements
+        try {
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    delegate.onEntitlementsChanged(current)
+                } catch (e: Throwable) {
+                    Log.warning("AppDNABillingDelegate.onEntitlementsChanged threw: ${e.message}")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.warning("EntitlementCache: delegate fan-out failed: ${e.message}")
         }
     }
 

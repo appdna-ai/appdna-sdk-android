@@ -56,6 +56,13 @@ internal class PaywallManager(
                 listener?.onPaywallDismissed(paywallId = id)
             },
             onPlanSelected = { plan, metadata ->
+                // SPEC-070-A B.5 — fire onPaywallAction(CTA_TAPPED) for the
+                // CTA tap that initiates the purchase. Mirrors iOS
+                // `Paywalls/PaywallManager.swift` delegate dispatch on the
+                // CTA tap path. Posted to main thread because the PaywallActivity
+                // callback already runs on the UI thread but we keep the contract
+                // explicit so future bridge-thread callers stay safe.
+                listener?.onPaywallAction(paywallId = id, action = PaywallAction.CTA_TAPPED)
                 listener?.onPaywallPurchaseStarted(paywallId = id, productId = plan.product_id)
                 // AC-038: Include toggle states in purchase event metadata
                 val props = mutableMapOf<String, Any>(

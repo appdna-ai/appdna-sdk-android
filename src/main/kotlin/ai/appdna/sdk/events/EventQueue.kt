@@ -60,7 +60,12 @@ internal class EventQueue(
         for (json in stored) {
             try {
                 queue.add(JSONObject(json))
-            } catch (_: Exception) {}
+            } catch (e: Exception) {
+                // SPEC-070-A G.11: surface JSON parse errors instead of dropping
+                // them silently. A bad row in SQLite usually means the writer
+                // changed the envelope shape — we want to know about it.
+                Log.warning { "Skipping persisted event with malformed JSON: ${e.message}" }
+            }
         }
         if (stored.isNotEmpty()) {
             Log.info("Loaded ${stored.size} persisted events from SQLite")

@@ -33,6 +33,20 @@ data class ScreenConfig(
     companion object {
         @Suppress("UNCHECKED_CAST")
         fun fromMap(data: Map<String, Any?>): ScreenConfig {
+            // SPEC-070-A F.7: parse audience_rules (raw list of rule maps)
+            // and variants (per-variant override maps keyed by variant id),
+            // matching iOS `Screens/ScreenConfig.swift` ScreenConfig.
+            val rawAudienceRules = (data["audience_rules"] as? List<*>)?.mapNotNull {
+                @Suppress("UNCHECKED_CAST") (it as? Map<String, Any?>)
+            }
+            val rawVariants = (data["variants"] as? Map<*, *>)?.entries?.mapNotNull { (k, v) ->
+                @Suppress("UNCHECKED_CAST")
+                val km = k as? String ?: return@mapNotNull null
+                @Suppress("UNCHECKED_CAST")
+                val vm = v as? Map<String, Any?> ?: return@mapNotNull null
+                km to vm
+            }?.toMap()
+
             return ScreenConfig(
                 id = data["id"] as? String ?: "",
                 name = data["name"] as? String ?: "",
@@ -48,12 +62,14 @@ data class ScreenConfig(
                 particleEffect = (data["particle_effect"] as? Map<String, Any?>)?.let { ParticleEffectConfig.fromMap(it) },
                 localizations = data["localizations"] as? Map<String, Map<String, String>>,
                 defaultLocale = data["default_locale"] as? String ?: "en",
+                audienceRules = rawAudienceRules,
                 triggerRules = (data["trigger_rules"] as? Map<String, Any?>)?.let { UnifiedTriggerRules.fromMap(it) },
                 slotConfig = (data["slot_config"] as? Map<String, Any?>)?.let { SlotConfig.fromMap(it) },
                 startDate = data["start_date"] as? String,
                 endDate = data["end_date"] as? String,
                 minSdkVersion = data["min_sdk_version"] as? String,
                 experimentId = data["experiment_id"] as? String,
+                variants = rawVariants,
                 analyticsName = data["analytics_name"] as? String,
             )
         }

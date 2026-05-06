@@ -289,6 +289,38 @@ fun ChatStepComposable(
             }
         }
 
+        // SPEC-070-A G.9 — chat rating widget. Shown when a `rating_prompt`
+        // turn-action set `currentRating = 0`. Mirrors iOS ChatStepView.swift:309
+        // 5-star row with `sendRatingEvent` emit. The composable uses a
+        // simple unicode star (★/☆) instead of Material icons to avoid
+        // pulling icon deps inside the chat composable.
+        currentRating?.let { ratingState ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                for (star in 1..5) {
+                    val filled = ratingState >= star
+                    Text(
+                        text = if (filled) "★" else "☆", // ★ vs ☆
+                        color = if (filled) Color(0xFFFBBF24) else Color(0xFF94A3B8),
+                        fontSize = 24.sp,
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp)
+                            .clickable {
+                                currentRating = star
+                                ai.appdna.sdk.AppDNA.track("chat_rating_submitted", mapOf(
+                                    "flow_id" to flowId,
+                                    "step_id" to step.id,
+                                    "rating" to star,
+                                    "turn" to userTurnCount,
+                                ))
+                            }
+                    )
+                }
+            }
+        }
+
         // Quick replies
         if (dynamicQuickReplies.isNotEmpty() && !isCompleted && !isTyping) {
             LazyRow(

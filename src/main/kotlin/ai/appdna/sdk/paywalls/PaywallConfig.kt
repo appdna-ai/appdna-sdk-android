@@ -18,12 +18,22 @@ data class PaywallConfig(
     val haptic: ai.appdna.sdk.core.HapticConfig? = null,
     val particle_effect: ai.appdna.sdk.core.ParticleEffect? = null,
     val video_background_url: String? = null,
+    // SPEC-070-A F.8: top-level placement / version / audience / post-purchase parity with iOS
+    val placement: String? = null,
+    val placement_label: String? = null,
+    val version: Int? = null,
+    val post_purchase: PostPurchaseConfig? = null,
+    /** Raw audience targeting rules (list or object). Mirrors iOS `audience_rules: AnyCodable?`. */
+    val audience_rules: Any? = null,
 )
 
 data class PaywallLayout(
     val type: String, // "stack", "grid", "carousel"
     val spacing: Float? = null,
     val padding: Float? = null,
+    // SPEC-070-A F.8: footer/CTA zone padding + plan display style hint at layout root
+    val footer_padding: Float? = null,
+    val plan_display_style: String? = null,
 )
 
 data class PaywallSection(
@@ -31,6 +41,9 @@ data class PaywallSection(
     val data: PaywallSectionData? = null,
     // SPEC-084: Per-section styling
     val style: ai.appdna.sdk.core.SectionStyleConfig? = null,
+    // SPEC-070-A F.8: per-section id + scroll-collapse parity with iOS
+    val id: String? = null,
+    val collapse_on_scroll: Boolean? = null,
 )
 
 data class PaywallSectionData(
@@ -197,6 +210,8 @@ data class PaywallSectionData(
 data class PaywallLink(
     val label: String,
     val url: String,
+    // SPEC-070-A F.8: action ("restore", "url", etc.) parity with iOS
+    val action: String? = null,
 )
 
 data class PaywallCarouselPage(
@@ -212,6 +227,12 @@ data class PaywallGenericItem(
     val status: String? = null,       // completed | current | upcoming
     val label: String? = null,
     val description: String? = null,
+    // SPEC-070-A F.8: features-list extras (text/image/included/emoji/color) parity with iOS
+    val text: String? = null,
+    val image_url: String? = null,
+    val included: Boolean? = null,
+    val emoji: String? = null,
+    val color: String? = null,
 )
 
 data class PaywallTableColumn(
@@ -230,6 +251,17 @@ data class PaywallReview(
     val rating: Double? = null,
     val avatar_url: String? = null,
     val date: String? = null,
+    // SPEC-070-A F.8: emoji avatar fallback (iOS parity)
+    val avatar_emoji: String? = null,
+)
+
+/**
+ * Structured trial config: `{ duration_days, label }`. Mirrors iOS
+ * `PaywallPlanTrial`. SPEC-070-A F.8.
+ */
+data class PaywallPlanTrial(
+    val duration_days: Int? = null,
+    val label: String? = null,
 )
 
 data class PaywallPlan(
@@ -243,7 +275,15 @@ data class PaywallPlan(
     val is_default: Boolean? = null,
     val label: String = "",
     val price_display: String = "",
-    val sort_order: Int = 0
+    val sort_order: Int = 0,
+    // SPEC-070-A F.8: rich plan metadata (iOS parity)
+    val trial: PaywallPlanTrial? = null,
+    val description: String? = null,
+    val features: List<String>? = null,
+    val savings_text: String? = null,
+    val cta_text: String? = null,
+    val icon: String? = null,
+    val image_url: String? = null,
 )
 
 data class PaywallCTA(
@@ -252,6 +292,10 @@ data class PaywallCTA(
     val bg_color: String? = null,
     val text_color: String? = null,
     val corner_radius: Double? = null,
+    // SPEC-070-A F.8: full PaywallCTAStyle parity with iOS (height/font_size/padding_vertical)
+    val height: Double? = null,
+    val font_size: Double? = null,
+    val padding_vertical: Double? = null,
 )
 
 data class PaywallDismiss(
@@ -263,9 +307,65 @@ data class PaywallDismiss(
 )
 
 data class PaywallBackground(
-    val type: String, // "color", "gradient", "image"
-    val value: String? = null, // hex color, gradient def, or image URL
-    val colors: List<String>? = null
+    val type: String, // "color", "gradient", "image", "video"
+    val value: String? = null, // hex color, gradient def, image URL, or video URL (legacy)
+    val colors: List<String>? = null,
+    // SPEC-070-A F.8: full background parity with iOS PaywallBackground
+    val color: String? = null,           // hex color (Firestore canonical)
+    val gradient: PaywallGradient? = null,
+    val image_url: String? = null,
+    val image_fit: String? = null,        // "cover" | "contain" | "fill"
+    val overlay: String? = null,           // hex color overlay
+    // SPEC-085: Video background
+    val video_url: String? = null,
+    val video_poster_url: String? = null,
+    val video_muted: Boolean? = null,
+    val video_loop: Boolean? = null,
+)
+
+/**
+ * Linear/radial gradient with stops. Mirrors iOS `PaywallGradient`.
+ * SPEC-070-A F.8.
+ */
+data class PaywallGradient(
+    val type: String? = null,    // "linear" | "radial"
+    val angle: Double? = null,
+    val stops: List<PaywallGradientStop>? = null,
+)
+
+data class PaywallGradientStop(
+    val color: String? = null,
+    val position: Double? = null,
+)
+
+// MARK: - Post-purchase config (SPEC-070-A F.8)
+
+/**
+ * Post-purchase action config (mirrors iOS `PostPurchaseConfig`).
+ *
+ * Reads `paywall.post_purchase.{on_success,on_failure}` from Firestore.
+ * The renderer/host app applies these after a successful or failed purchase
+ * (e.g., dismiss, show message, deep link, advance to next onboarding step).
+ */
+data class PostPurchaseConfig(
+    val on_success: PostPurchaseSuccessConfig? = null,
+    val on_failure: PostPurchaseFailureConfig? = null,
+)
+
+data class PostPurchaseSuccessConfig(
+    val action: String,            // "dismiss" | "show_message" | "deep_link" | "next_step"
+    val message: String? = null,
+    val delay_ms: Int? = null,
+    val deep_link_url: String? = null,
+    val confetti: Boolean? = null,
+    val lottie_url: String? = null,
+)
+
+data class PostPurchaseFailureConfig(
+    val action: String,            // "show_error" | "retry" | "dismiss"
+    val message: String? = null,
+    val retry_text: String? = null,
+    val allow_dismiss: Boolean? = null,
 )
 
 // MARK: - Public types
@@ -351,7 +451,10 @@ internal object PaywallConfigParser {
         val layout = PaywallLayout(
             type = layoutMap["type"] as? String ?: "stack",
             spacing = (layoutMap["spacing"] as? Number)?.toFloat(),
-            padding = (layoutMap["padding"] as? Number)?.toFloat()
+            padding = (layoutMap["padding"] as? Number)?.toFloat(),
+            // SPEC-070-A F.8
+            footer_padding = (layoutMap["footer_padding"] as? Number)?.toFloat(),
+            plan_display_style = layoutMap["plan_display_style"] as? String,
         )
 
         val sectionsList = map["sections"] as? List<Map<String, Any>> ?: emptyList()
@@ -370,10 +473,37 @@ internal object PaywallConfigParser {
 
         val bgMap = map["background"] as? Map<String, Any>
         val background = bgMap?.let {
+            // SPEC-070-A F.8: full PaywallBackground parity (color/gradient/image/overlay/video)
+            @Suppress("UNCHECKED_CAST")
+            val gradMap = it["gradient"] as? Map<String, Any>
+            val gradient = gradMap?.let { g ->
+                val stops = (g["stops"] as? List<*>)?.mapNotNull { s ->
+                    @Suppress("UNCHECKED_CAST")
+                    val sm = s as? Map<String, Any> ?: return@mapNotNull null
+                    PaywallGradientStop(
+                        color = sm["color"] as? String,
+                        position = (sm["position"] as? Number)?.toDouble(),
+                    )
+                }
+                PaywallGradient(
+                    type = g["type"] as? String,
+                    angle = (g["angle"] as? Number)?.toDouble(),
+                    stops = stops,
+                )
+            }
             PaywallBackground(
                 type = it["type"] as? String ?: "color",
                 value = it["value"] as? String,
-                colors = (it["colors"] as? List<*>)?.filterIsInstance<String>()
+                colors = (it["colors"] as? List<*>)?.filterIsInstance<String>(),
+                color = it["color"] as? String,
+                gradient = gradient,
+                image_url = it["image_url"] as? String,
+                image_fit = it["image_fit"] as? String,
+                overlay = it["overlay"] as? String,
+                video_url = it["video_url"] as? String,
+                video_poster_url = it["video_poster_url"] as? String,
+                video_muted = it["video_muted"] as? Boolean,
+                video_loop = it["video_loop"] as? Boolean,
             )
         }
 
@@ -427,6 +557,33 @@ internal object PaywallConfigParser {
             )
         }
 
+        // SPEC-070-A F.8: parse post-purchase config
+        @Suppress("UNCHECKED_CAST")
+        val postPurchaseMap = map["post_purchase"] as? Map<String, Any>
+        val postPurchase = postPurchaseMap?.let { pp ->
+            @Suppress("UNCHECKED_CAST")
+            val onSuccess = (pp["on_success"] as? Map<String, Any>)?.let { s ->
+                PostPurchaseSuccessConfig(
+                    action = s["action"] as? String ?: "dismiss",
+                    message = s["message"] as? String,
+                    delay_ms = (s["delay_ms"] as? Number)?.toInt(),
+                    deep_link_url = s["deep_link_url"] as? String,
+                    confetti = s["confetti"] as? Boolean,
+                    lottie_url = s["lottie_url"] as? String,
+                )
+            }
+            @Suppress("UNCHECKED_CAST")
+            val onFailure = (pp["on_failure"] as? Map<String, Any>)?.let { f ->
+                PostPurchaseFailureConfig(
+                    action = f["action"] as? String ?: "show_error",
+                    message = f["message"] as? String,
+                    retry_text = f["retry_text"] as? String,
+                    allow_dismiss = f["allow_dismiss"] as? Boolean,
+                )
+            }
+            PostPurchaseConfig(on_success = onSuccess, on_failure = onFailure)
+        }
+
         return PaywallConfig(
             id = map["id"] as? String ?: id,
             name = map["name"] as? String ?: "",
@@ -440,6 +597,12 @@ internal object PaywallConfigParser {
             haptic = haptic,
             particle_effect = particleEffect,
             video_background_url = map["video_background_url"] as? String,
+            // SPEC-070-A F.8: top-level placement / version / audience / post-purchase
+            placement = map["placement"] as? String,
+            placement_label = map["placement_label"] as? String,
+            version = (map["version"] as? Number)?.toInt(),
+            post_purchase = postPurchase,
+            audience_rules = map["audience_rules"],
         )
     }
 
@@ -471,6 +634,13 @@ internal object PaywallConfigParser {
                             ?: (styleMap?.get("text_color") as? String),
                         corner_radius = (ctaMap["corner_radius"] as? Number)?.toDouble()
                             ?: (styleMap?.get("corner_radius") as? Number)?.toDouble(),
+                        // SPEC-070-A F.8: PaywallCTAStyle extras (height/font_size/padding_vertical)
+                        height = (ctaMap["height"] as? Number)?.toDouble()
+                            ?: (styleMap?.get("height") as? Number)?.toDouble(),
+                        font_size = (ctaMap["font_size"] as? Number)?.toDouble()
+                            ?: (styleMap?.get("font_size") as? Number)?.toDouble(),
+                        padding_vertical = (ctaMap["padding_vertical"] as? Number)?.toDouble()
+                            ?: (styleMap?.get("padding_vertical") as? Number)?.toDouble(),
                     )
                 },
                 rating = (d["rating"] as? Number)?.toDouble(),
@@ -519,6 +689,8 @@ internal object PaywallConfigParser {
                         PaywallLink(
                             label = lm["label"] as? String ?: "",
                             url = lm["url"] as? String ?: "",
+                            // SPEC-070-A F.8: link action ("restore", "url", etc.) parity
+                            action = lm["action"] as? String,
                         )
                     }
                 },
@@ -570,6 +742,12 @@ internal object PaywallConfigParser {
                             status = im["status"] as? String,
                             label = im["label"] as? String,
                             description = im["description"] as? String,
+                            // SPEC-070-A F.8: features-list extras parity
+                            text = im["text"] as? String,
+                            image_url = im["image_url"] as? String,
+                            included = im["included"] as? Boolean,
+                            emoji = im["emoji"] as? String,
+                            color = im["color"] as? String,
                         )
                     }
                 },
@@ -629,6 +807,8 @@ internal object PaywallConfigParser {
                             rating = (rm["rating"] as? Number)?.toDouble(),
                             avatar_url = rm["avatar_url"] as? String,
                             date = rm["date"] as? String,
+                            // SPEC-070-A F.8: emoji avatar fallback (iOS parity)
+                            avatar_emoji = rm["avatar_emoji"] as? String,
                         )
                     }
                 },
@@ -652,7 +832,14 @@ internal object PaywallConfigParser {
         val styleMap = map["style"] as? Map<String, Any>
         val style = styleMap?.let { parseStyle(it) }
 
-        return PaywallSection(type = type, data = data, style = style)
+        return PaywallSection(
+            type = type,
+            data = data,
+            style = style,
+            // SPEC-070-A F.8: section id + scroll-collapse parity
+            id = map["id"] as? String,
+            collapse_on_scroll = map["collapse_on_scroll"] as? Boolean,
+        )
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -733,7 +920,16 @@ internal object PaywallConfigParser {
         )
     }
 
+    @Suppress("UNCHECKED_CAST")
     private fun parsePlanFromMap(map: Map<String, Any>): PaywallPlan {
+        // SPEC-070-A F.8: parse structured trial object (legacy `trial_duration` string still supported)
+        val trialMap = map["trial"] as? Map<String, Any>
+        val trial = trialMap?.let {
+            PaywallPlanTrial(
+                duration_days = (it["duration_days"] as? Number)?.toInt(),
+                label = it["label"] as? String,
+            )
+        }
         return PaywallPlan(
             id = map["id"] as? String ?: "",
             product_id = map["product_id"] as? String ?: "",
@@ -745,7 +941,15 @@ internal object PaywallConfigParser {
             is_default = map["is_default"] as? Boolean,
             label = map["label"] as? String ?: "",
             price_display = map["price_display"] as? String ?: "",
-            sort_order = (map["sort_order"] as? Number)?.toInt() ?: 0
+            sort_order = (map["sort_order"] as? Number)?.toInt() ?: 0,
+            // SPEC-070-A F.8
+            trial = trial,
+            description = map["description"] as? String,
+            features = (map["features"] as? List<*>)?.filterIsInstance<String>(),
+            savings_text = map["savings_text"] as? String,
+            cta_text = map["cta_text"] as? String,
+            icon = map["icon"] as? String,
+            image_url = map["image_url"] as? String,
         )
     }
 }

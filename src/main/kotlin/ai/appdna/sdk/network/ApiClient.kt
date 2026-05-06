@@ -4,6 +4,7 @@ import ai.appdna.sdk.Environment
 import ai.appdna.sdk.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -39,6 +40,12 @@ internal class ApiClient(
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
     private val retryDelays = longArrayOf(1000L, 2000L, 4000L)
+
+    // SPEC-070-A G.2: long-lived scope for fire-and-forget posts so we don't
+    // create a fresh CoroutineScope per call (which would leak on cancellation).
+    private val fireAndForgetScope = kotlinx.coroutines.CoroutineScope(
+        Dispatchers.IO + kotlinx.coroutines.SupervisorJob()
+    )
 
     /**
      * POST a JSON body to the given path with retry.
@@ -113,6 +120,26 @@ internal class ApiClient(
             }
             Log.error("API compressed request exhausted retries: $path — ${lastError?.message}")
             null
+        }
+    }
+
+    /**
+     * SPEC-070-A G.2: Fire-and-forget POST. Used for the identify alias call,
+     * where we don't want a transient backend hiccup to delay the synchronous
+     * SDK API. Behaves identically to [post] except the network work is launched
+     * on a background scope and the caller never blocks. Transient/network
+     * failures are retried internally exactly like [post].
+     *
+     * Returns immediately; logs the outcome at DEBUG.
+     */
+    fun postFireAndForget(path: String, body: String) {
+        fireAndForgetScope.launch {
+            val result = post(path, body)
+            if (result == null) {
+                Log.debug { "Fire-and-forget POST $path eventually failed (no body)" }
+            } else {
+                Log.debug { "Fire-and-forget POST $path completed" }
+            }
         }
     }
 

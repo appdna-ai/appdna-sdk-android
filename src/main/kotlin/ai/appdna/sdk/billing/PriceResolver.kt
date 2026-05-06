@@ -14,6 +14,19 @@ internal class PriceResolver(
 ) {
 
     /**
+     * SPEC-070-A G.6 — In-memory cache of last-seen price/currency keyed
+     * by productId. Populated by [getSubscriptionProducts] / [getInAppProducts]
+     * / [getOffers] and read by [NativeBillingManager.handleSuccessfulPurchase]
+     * to enrich `purchase_completed` analytics. Best-effort — if the host
+     * never queried prices before purchase the cache is empty and the
+     * analytics omit the `price`/`currency` fields.
+     */
+    private val priceInfoCache = java.util.concurrent.ConcurrentHashMap<String, ProductInfo>()
+
+    /** SPEC-070-A G.6 — fetch the cached ProductInfo for analytics enrichment. */
+    fun cachedPriceInfo(productId: String): ProductInfo? = priceInfoCache[productId]
+
+    /**
      * Fetch product details for a list of subscription product IDs.
      *
      * @param productIds The Google Play product IDs to query.
@@ -44,7 +57,7 @@ internal class PriceResolver(
         }
 
         return result.productDetailsList?.map { details ->
-            mapProductDetails(details)
+            mapProductDetails(details).also { priceInfoCache[it.id] = it }
         } ?: emptyList()
     }
 
@@ -87,7 +100,7 @@ internal class PriceResolver(
                 priceMicros = details.oneTimePurchaseOfferDetails?.priceAmountMicros ?: 0,
                 currencyCode = details.oneTimePurchaseOfferDetails?.priceCurrencyCode ?: "",
                 offerToken = null
-            )
+            ).also { priceInfoCache[it.id] = it }
         } ?: emptyList()
     }
 

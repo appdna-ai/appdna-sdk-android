@@ -1,6 +1,7 @@
 package ai.appdna.sdk.config
 
 import ai.appdna.sdk.Log
+import ai.appdna.sdk.events.EventTracker
 import ai.appdna.sdk.onboarding.OnboardingConfigParser
 import ai.appdna.sdk.onboarding.OnboardingFlowConfig
 import ai.appdna.sdk.paywalls.PaywallConfig
@@ -9,6 +10,7 @@ import ai.appdna.sdk.storage.LocalStorage
 import ai.appdna.sdk.AppDNA
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Manages remote config from Firestore with local caching.
@@ -28,6 +30,26 @@ internal class RemoteConfigManager(
     fun setFirestorePath(path: String) {
         this.firestorePath = path
     }
+
+    /**
+     * SPEC-070-A G.4: Optional event tracker so [fetchConfigs] can emit
+     * `config_fetched` after each successful Firestore refresh. Wired by
+     * AppDNA.configure() once both managers are constructed; until then we
+     * simply skip the event (no NPE risk).
+     */
+    @Volatile
+    var eventTracker: EventTracker? = null
+
+    /**
+     * SPEC-070-A G.4: Tracks how many of the 6 Firestore documents in a
+     * fetchConfigs() batch have completed (success OR failure). When the count
+     * reaches the expected total, we emit a single `config_fetched` event with
+     * the count of docs that succeeded — mirrors the iOS one-shot semantic
+     * (Sources/AppDNASDK/Config/RemoteConfigManager.swift `configFetchCompleted`).
+     */
+    private val fetchCompletionCounter = AtomicInteger(0)
+    private val fetchSuccessCounter = AtomicInteger(0)
+    private val fetchExpectedTotal = AtomicInteger(0)
     private var flags: Map<String, Any> = emptyMap()
     private var experiments: Map<String, ExperimentConfig> = emptyMap()
     private var surveys: Map<String, Map<String, Any>> = emptyMap()
@@ -72,6 +94,14 @@ internal class RemoteConfigManager(
     }
 
     /**
+     * SPEC-070-A F.13: read-only view of every parsed onboarding flow keyed by id.
+     * Used by [ai.appdna.sdk.onboarding.OnboardingFlowManager.present] to evaluate
+     * `audience_rules` across all flows when no explicit flowId is supplied —
+     * mirrors iOS `OnboardingFlowManager.swift:121-137`.
+     */
+    fun getAllOnboardingFlows(): Map<String, OnboardingFlowConfig> = onboardingFlows
+
+    /**
      * SPEC-067: Force an immediate config refresh, bypassing the cache TTL.
      * Use this when you need configs to update immediately (e.g., after a user action).
      */
@@ -92,6 +122,14 @@ internal class RemoteConfigManager(
         }
         val basePath = "$path/config"
 
+        // SPEC-070-A G.4: 6 documents — flags, experiments, paywall_index,
+        // onboarding_index, survey_index, screen_index. Re-init counters
+        // whenever a new fetch begins.
+        val expected = 6
+        fetchCompletionCounter.set(0)
+        fetchSuccessCounter.set(0)
+        fetchExpectedTotal.set(expected)
+
         // Fetch flags — unwrap "flags" wrapper from Firestore doc
         db.document("$basePath/flags").get().addOnSuccessListener { snapshot ->
             snapshot.data?.let { data ->
@@ -101,8 +139,10 @@ internal class RemoteConfigManager(
                 cacheData("flags", JSONObject(unwrapped).toString())
                 notifyChangeListeners()
             }
+            markFetchComplete(success = true)
         }.addOnFailureListener { e ->
             Log.error("Failed to fetch flags: ${e.message}")
+            markFetchComplete(success = false)
         }
 
         // Fetch experiments
@@ -111,8 +151,10 @@ internal class RemoteConfigManager(
                 parseExperiments(data)
                 cacheData("experiments", JSONObject(data).toString())
             }
+            markFetchComplete(success = true)
         }.addOnFailureListener { e ->
             Log.error("Failed to fetch experiments: ${e.message}")
+            markFetchComplete(success = false)
         }
 
         // Paywalls: prefer per-item docs via index → fallback to mega-doc
@@ -121,7 +163,8 @@ internal class RemoteConfigManager(
             indexPath = "paywall_index", indexKey = "paywalls",
             itemCollection = "paywall_index/paywalls", megaDocPath = "paywalls",
             parseItem = { id, data -> parseSinglePaywall(id, data) },
-            parseMegaDoc = { data -> parsePaywalls(data); cacheData("paywalls", JSONObject(data).toString()) }
+            parseMegaDoc = { data -> parsePaywalls(data); cacheData("paywalls", JSONObject(data).toString()) },
+            onComplete = { ok -> markFetchComplete(ok) }
         )
 
         // Onboarding: prefer per-item docs via index → fallback to mega-doc
@@ -133,7 +176,8 @@ internal class RemoteConfigManager(
             parseMegaDoc = { data -> parseOnboarding(data); cacheData("onboarding", JSONObject(data).toString()) },
             extraIndexParse = { indexData ->
                 (indexData["active_flow_id"] as? String)?.let { activeOnboardingFlowId = it }
-            }
+            },
+            onComplete = { ok -> markFetchComplete(ok) }
         )
 
         // Surveys: prefer per-item docs via index → fallback to mega-doc
@@ -142,7 +186,8 @@ internal class RemoteConfigManager(
             indexPath = "survey_index", indexKey = "surveys",
             itemCollection = "survey_index/surveys", megaDocPath = "surveys",
             parseItem = { id, data -> parseSingleSurvey(id, data) },
-            parseMegaDoc = { data -> parseSurveys(data); cacheData("surveys", JSONObject(data).toString()) }
+            parseMegaDoc = { data -> parseSurveys(data); cacheData("surveys", JSONObject(data).toString()) },
+            onComplete = { ok -> markFetchComplete(ok) }
         )
 
         // SPEC-089c: Fetch screen_index for server-driven UI
@@ -150,11 +195,39 @@ internal class RemoteConfigManager(
             snapshot.data?.let { data ->
                 parseScreenIndex(data)
             }
+            markFetchComplete(success = true)
         }.addOnFailureListener { e ->
             Log.debug("No screen_index config: ${e.message}")
+            markFetchComplete(success = false)
         }
 
         Log.info("Fetching remote configs from Firestore")
+    }
+
+    /**
+     * SPEC-070-A G.4: Increment the per-fetch completion counter and emit
+     * `config_fetched` exactly once when every doc in the batch has either
+     * succeeded or failed. The event payload mirrors iOS shape:
+     *   - success_count: int (docs with non-null Firestore snapshot)
+     *   - total_count:   int (docs the SDK attempted to fetch)
+     */
+    private fun markFetchComplete(success: Boolean) {
+        if (success) fetchSuccessCounter.incrementAndGet()
+        val done = fetchCompletionCounter.incrementAndGet()
+        val expected = fetchExpectedTotal.get()
+        if (expected > 0 && done >= expected) {
+            val successes = fetchSuccessCounter.get()
+            try {
+                eventTracker?.track("config_fetched", mapOf(
+                    "success_count" to successes,
+                    "total_count" to expected,
+                ))
+            } catch (e: Exception) {
+                Log.warning { "config_fetched event emit failed: ${e.message}" }
+            }
+            // Reset so a subsequent forceRefresh() call doesn't double-fire.
+            fetchExpectedTotal.set(0)
+        }
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -171,13 +244,23 @@ internal class RemoteConfigManager(
                         if (v is Map<*, *>) {
                             @Suppress("UNCHECKED_CAST")
                             val vm = v as Map<String, Any>
+                            // SPEC-070-A F.10: iOS canonical key is `payload`; legacy SDKs wrote
+                            // `config`. Accept both — prefer `payload` when present.
+                            @Suppress("UNCHECKED_CAST")
+                            val variantData =
+                                (vm["payload"] as? Map<String, Any>)
+                                    ?: (vm["config"] as? Map<String, Any>)
+                                    ?: emptyMap()
                             ExperimentVariant(
                                 id = vm["id"] as? String ?: return@mapNotNull null,
                                 weight = (vm["weight"] as? Number)?.toDouble() ?: return@mapNotNull null,
-                                config = vm["config"] as? Map<String, Any> ?: emptyMap()
+                                config = variantData
                             )
                         } else null
                     } ?: emptyList()
+
+                    // SPEC-070-A F.9: parse `segments` for audience targeting (iOS parity).
+                    val segments = (map["segments"] as? List<*>)?.filterIsInstance<String>()
 
                     parsed[key] = ExperimentConfig(
                         id = map["id"] as? String ?: key,
@@ -185,7 +268,8 @@ internal class RemoteConfigManager(
                         status = map["status"] as? String ?: "paused",
                         salt = map["salt"] as? String ?: "",
                         platforms = (map["platforms"] as? List<*>)?.filterIsInstance<String>() ?: listOf("android"),
-                        variants = variants
+                        variants = variants,
+                        segments = segments,
                     )
                 } catch (e: Exception) {
                     Log.warning("Failed to parse experiment '$key': ${e.message}")
@@ -250,7 +334,11 @@ internal class RemoteConfigManager(
         megaDocPath: String,
         parseItem: (String, Map<String, Any>) -> Unit,
         parseMegaDoc: (Map<String, Any>) -> Unit,
-        extraIndexParse: ((Map<String, Any>) -> Unit)? = null
+        extraIndexParse: ((Map<String, Any>) -> Unit)? = null,
+        // SPEC-070-A G.4: invoked once when this index/mega-doc fetch path
+        // resolves — used by the parent fetchConfigs() to count down toward
+        // the single `config_fetched` event.
+        onComplete: ((Boolean) -> Unit)? = null
     ) {
         db.document("$basePath/$indexPath").get()
             .addOnSuccessListener { snapshot ->
@@ -271,15 +359,18 @@ internal class RemoteConfigManager(
                                 Log.warning("[$indexPath] Failed to fetch item $itemId: ${e.message}")
                             }
                     }
+                    onComplete?.invoke(true)
                 } else {
                     // No index — fall back to legacy mega-doc
                     Log.debug("[$indexPath] No index found, falling back to mega-doc $megaDocPath")
                     db.document("$basePath/$megaDocPath").get()
                         .addOnSuccessListener { megaSnapshot ->
                             megaSnapshot.data?.let { data -> parseMegaDoc(data) }
+                            onComplete?.invoke(true)
                         }
                         .addOnFailureListener { e ->
                             Log.error("Failed to fetch $megaDocPath config: ${e.message}")
+                            onComplete?.invoke(false)
                         }
                 }
             }
@@ -289,9 +380,11 @@ internal class RemoteConfigManager(
                 db.document("$basePath/$megaDocPath").get()
                     .addOnSuccessListener { megaSnapshot ->
                         megaSnapshot.data?.let { data -> parseMegaDoc(data) }
+                        onComplete?.invoke(true)
                     }
                     .addOnFailureListener { e2 ->
                         Log.error("Failed to fetch $megaDocPath config: ${e2.message}")
+                        onComplete?.invoke(false)
                     }
             }
     }
@@ -451,7 +544,8 @@ internal class RemoteConfigManager(
 }
 
 /**
- * Experiment config model.
+ * Experiment config model. Mirrors iOS `Config/RemoteConfigManager.swift`
+ * `ExperimentConfig`. SPEC-070-A F.9 adds `segments` for audience targeting.
  */
 data class ExperimentConfig(
     val id: String,
@@ -459,9 +553,20 @@ data class ExperimentConfig(
     val status: String,
     val salt: String,
     val platforms: List<String>,
-    val variants: List<ExperimentVariant>
+    val variants: List<ExperimentVariant>,
+    /** Optional segment IDs gating which users see this experiment (iOS parity). */
+    val segments: List<String>? = null,
 )
 
+/**
+ * A single experiment variant.
+ *
+ * SPEC-070-A F.10: Firestore-canonical key for variant data is `payload`
+ * (matching iOS `ExperimentVariant.payload`); legacy SDKs wrote `config`.
+ * The parser in [RemoteConfigManager.parseExperiments] accepts BOTH keys,
+ * preferring `payload` when set. The Kotlin field stays named `config` so
+ * all existing callers (e.g. [ExperimentManager.getValue]) keep working.
+ */
 data class ExperimentVariant(
     val id: String,
     val weight: Double,

@@ -62,6 +62,24 @@ internal class PushTokenManager(
                 "platform" to "android"
             ))
             Log.info("Push token registered (hash: ${hashedToken.take(12)}...)")
+
+            // SPEC-070-A B.1 — fire onPushTokenRegistered to the host's
+            // AppDNAPushDelegate. Mirrors iOS PushTokenManager.swift:51.
+            // Posted to main thread so host code runs off the FCM listener.
+            try {
+                val listener = pushListener
+                if (listener != null) {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        try {
+                            listener.onPushTokenRegistered(token)
+                        } catch (e: Throwable) {
+                            Log.warning("AppDNAPushDelegate.onPushTokenRegistered threw: ${e.message}")
+                        }
+                    }
+                }
+            } catch (e: Throwable) {
+                Log.warning("PushTokenManager: delegate fan-out failed: ${e.message}")
+            }
         }
 
         // Register token with backend (POST /api/v1/push/token)
