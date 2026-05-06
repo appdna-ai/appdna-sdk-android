@@ -26,6 +26,16 @@ internal class BillingConnectionManager(
     private var retryAttempt = 0
     private val maxRetryDelay = 60_000L // 60 seconds max
     private val baseRetryDelay = 1_000L // 1 second initial
+    // Cap the bit-shift exponent. 2^16 * 1s = 65536s > maxRetryDelay anyway, so
+    // beyond this we are always pinned to maxRetryDelay; preventing the shift
+    // from going into Long-overflow territory.
+    private val maxShiftExponent = 16
+    // After this many consecutive failures we stop reconnecting on our own.
+    // The next caller will re-trigger `startConnection()` via withConnectedClient.
+    // Prevents the runaway loop seen on devices/emulators with no Play Services.
+    private val maxAutoRetries = 10
+    @Volatile
+    private var retryScheduled = false
 
     @Volatile
     var isConnected = false
@@ -97,14 +107,29 @@ internal class BillingConnectionManager(
 
     /**
      * Schedule a reconnection attempt with exponential backoff.
+     *
+     * Uses a capped shift exponent so the delay never overflows Long, and
+     * a hard cap on total automatic retries so a permanently broken device
+     * (no Play Services) doesn't loop indefinitely.
      */
     private fun scheduleRetry() {
-        val delay = min(baseRetryDelay * (1L shl retryAttempt), maxRetryDelay)
+        if (retryAttempt >= maxAutoRetries) {
+            Log.warning(
+                "Billing reconnection gave up after $retryAttempt attempts. " +
+                    "Will retry on next billing operation."
+            )
+            return
+        }
+        if (retryScheduled) return
+        retryScheduled = true
+        val safeExp = min(retryAttempt, maxShiftExponent)
+        val delay = min(baseRetryDelay shl safeExp, maxRetryDelay)
         retryAttempt++
         Log.debug("Scheduling billing reconnection in ${delay}ms (attempt $retryAttempt)")
 
         scope.launch {
             delay(delay)
+            retryScheduled = false
             if (!isConnected) {
                 startConnection()
             }
@@ -125,9 +150,12 @@ internal class BillingConnectionManager(
             synchronized(pendingCallbacks) {
                 pendingCallbacks.add(operation)
             }
-            // Ensure we're attempting to connect
+            // A user-initiated billing call is a fresh signal that we should
+            // try again — reset the auto-retry counter so a previous "gave up"
+            // state doesn't strand the new request.
             if (billingClient != null && !isConnected) {
-                startConnection()
+                retryAttempt = 0
+                if (!retryScheduled) startConnection()
             }
         }
     }
@@ -148,9 +176,11 @@ internal class BillingConnectionManager(
                     continuation.resume(connectedClient) {}
                 }
             }
-            // Ensure connection attempt is in progress
+            // Ensure connection attempt is in progress (reset retry budget —
+            // see withConnectedClient for rationale).
             if (!isConnected) {
-                startConnection()
+                retryAttempt = 0
+                if (!retryScheduled) startConnection()
             }
         }
     }
