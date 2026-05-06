@@ -220,6 +220,7 @@ object AppDNA {
     /**
      * Configure the SDK. Call once at Application.onCreate().
      */
+    @JvmStatic
     fun configure(
         context: Context,
         apiKey: String,
@@ -461,6 +462,8 @@ object AppDNA {
     /**
      * Link the anonymous device to a known user.
      */
+    @JvmStatic
+    @JvmOverloads
     fun identify(userId: String, traits: Map<String, Any>? = null) {
         // Capture pre-identify ids so the backend alias call + identify event
         // can include the previous values (iOS parity, AppDNA.swift:185-216).
@@ -520,6 +523,7 @@ object AppDNA {
     /**
      * Clear user identity (keeps anonymous ID).
      */
+    @JvmStatic
     fun reset() {
         identityManager?.reset()
         experimentManager?.resetExposures()
@@ -536,6 +540,8 @@ object AppDNA {
     /**
      * Track a custom event.
      */
+    @JvmStatic
+    @JvmOverloads
     fun track(event: String, properties: Map<String, Any>? = null) {
         val tracker = eventTracker
         if (tracker == null) {
@@ -580,6 +586,7 @@ object AppDNA {
     /**
      * Force flush all queued events immediately.
      */
+    @JvmStatic
     fun flush() {
         eventQueue?.flush()
     }
@@ -614,6 +621,7 @@ object AppDNA {
      * Get the variant assignment for an experiment.
      * Exposure is auto-tracked on first call per session.
      */
+    @JvmStatic
     fun getExperimentVariant(experimentId: String): String? {
         // SPEC-070-A I.14 — ExperimentManager.getVariant now returns String?
         // matching iOS. No `.id` deref needed.
@@ -623,6 +631,7 @@ object AppDNA {
     /**
      * Check if the user is in a specific variant.
      */
+    @JvmStatic
     fun isInVariant(experimentId: String, variantId: String): Boolean {
         return experimentManager?.isInVariant(experimentId, variantId) ?: false
     }
@@ -630,6 +639,7 @@ object AppDNA {
     /**
      * Get a specific config value from the assigned variant's payload.
      */
+    @JvmStatic
     fun getExperimentConfig(experimentId: String, key: String): Any? {
         return experimentManager?.getExperimentConfig(experimentId, key)
     }
@@ -645,6 +655,8 @@ object AppDNA {
      * @param context Optional paywall context (placement, experiment, variant).
      * @param listener Optional listener for paywall lifecycle events.
      */
+    @JvmStatic
+    @JvmOverloads
     fun presentPaywall(
         activity: Activity,
         id: String,
@@ -670,6 +682,8 @@ object AppDNA {
      * @param listener Optional listener for onboarding lifecycle events.
      * @return true if the flow was presented, false if config was not found.
      */
+    @JvmStatic
+    @JvmOverloads
     fun presentOnboarding(
         activity: Activity,
         flowId: String? = null,
@@ -808,6 +822,7 @@ object AppDNA {
      * [presentPaywall]. Mirrors iOS `AppDNA.showPaywall(_:)` which
      * presents from the top-most view controller.
      */
+    @JvmStatic
     fun showPaywall(id: String) {
         val activity = topActivityRef?.get()
         if (activity == null) {
@@ -830,6 +845,7 @@ object AppDNA {
     }
 
     /** Shorthand to show a survey by ID (used by screen action routing). */
+    @JvmStatic
     fun showSurvey(id: String) {
         surveyManager?.present(surveyId = id)
     }
@@ -840,6 +856,7 @@ object AppDNA {
      * Set the FCM push token. Call from FirebaseMessagingService.onNewToken().
      * This registers the token with the backend for direct push delivery.
      */
+    @JvmStatic
     fun setPushToken(token: String) {
         pushTokenManager?.setPushToken(token)
     }
@@ -847,6 +864,7 @@ object AppDNA {
     /**
      * Report push permission status.
      */
+    @JvmStatic
     fun setPushPermission(granted: Boolean) {
         pushTokenManager?.setPushPermission(granted)
     }

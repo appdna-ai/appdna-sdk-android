@@ -25,9 +25,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.HapticEngine
 import ai.appdna.sdk.core.LocalizationEngine
 import ai.appdna.sdk.core.entryAnimation
 import androidx.compose.ui.graphics.Brush
@@ -239,6 +241,10 @@ internal fun OnboardingFlowHost(
     val initialResponses = OnboardingActivity.restoredResponses ?: emptyMap()
     var currentIndex by rememberSaveable { mutableIntStateOf(initialIndex) }
     val responses = remember { mutableStateMapOf<String, Any>().apply { putAll(initialResponses) } }
+    // SPEC-070-A J.2 — haptic feedback for step advance / back / dismiss /
+    // button-tap interactions, gated by `flow.settings.haptic.enabled`.
+    val hostView = LocalView.current
+    val hapticConfig = flow.settings.haptic
     // Mirror current state back to the Activity companion so onSaveInstanceState
     // can write the latest values when the system asks to persist.
     LaunchedEffect(currentIndex) { OnboardingActivity.savedStepIndex = currentIndex }
@@ -326,6 +332,10 @@ internal fun OnboardingFlowHost(
 
     // Helper functions
     fun advanceOrComplete() {
+        // SPEC-070-A J.2 — fire `on_step_advance` haptic before evaluating
+        // next-step rules (mirrors iOS HapticController invocation in
+        // OnboardingRenderer.advanceStep()).
+        HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
         val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
         val rules = step?.next_step_rules
         val isLastStep = currentIndex >= flow.steps.size - 1
@@ -522,7 +532,12 @@ internal fun OnboardingFlowHost(
             ) {
                 if (flow.settings.allow_back && currentIndex > 0) {
                     IconButton(
-                        onClick = { currentIndex-- },
+                        onClick = {
+                            // SPEC-070-A J.2 — back navigation reuses
+                            // `on_step_advance` haptic style.
+                            HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
+                            currentIndex--
+                        },
                         enabled = !isProcessing
                     ) {
                         Text(
@@ -538,6 +553,8 @@ internal fun OnboardingFlowHost(
 
                 IconButton(
                     onClick = {
+                        // SPEC-070-A J.2 — dismiss reuses on_button_tap haptic.
+                        HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_button_tap, hapticConfig)
                         if (currentIndex < flow.steps.size) {
                             val step = flow.steps[currentIndex]
                             onFlowDismissed(step.id, currentIndex)

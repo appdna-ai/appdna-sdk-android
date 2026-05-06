@@ -11,6 +11,8 @@ import androidx.compose.material3.Divider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -321,21 +323,28 @@ fun PaywallScreen(
 
         // Content in a Column with scrollable area + sticky footer
         Column(modifier = Modifier.fillMaxSize()) {
-            // Scrollable content
-            Column(
+            // SPEC-070-A J.20 — convert eager `Column.verticalScroll` to
+            // `LazyColumn` with stable keys so the recompose-window only
+            // touches sections that scrolled into view + plan/feature
+            // sub-lists don't fully reconstruct when a single section
+            // re-emits. iOS uses `ScrollView { LazyVStack }` for the same
+            // reason (PaywallRenderer.swift:38-67).
+            val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
+            // SPEC-070-A audit Round 2 finding 3: filter `sticky_footer`
+            // (rendered separately below) so it doesn't render twice.
+            // Mirrors iOS PaywallRenderer.swift:38-67,119 partition.
+            val scrollableSections = config.sections.filter {
+                it.type != "sticky_footer"
+            }
+            LazyColumn(
                 modifier = Modifier
                     .weight(1f)
-                    .verticalScroll(rememberScrollState())
-                    .padding((config.layout.padding ?: 20f).dp)
+                    .padding((config.layout.padding ?: 20f).dp),
             ) {
-                val staggerDelay = config.animation?.section_stagger_delay_ms ?: 0
-                // SPEC-070-A audit Round 2 finding 3: filter `sticky_footer`
-                // (rendered separately below) so it doesn't render twice.
-                // Mirrors iOS PaywallRenderer.swift:38-67,119 partition.
-                val scrollableSections = config.sections.filter {
-                    it.type != "sticky_footer"
-                }
-                scrollableSections.forEachIndexed { index, section ->
+                itemsIndexed(
+                    items = scrollableSections,
+                    key = { idx, section -> "${section.type}_${section.id ?: idx}" },
+                ) { index, section ->
                     Box(
                         modifier = Modifier.sectionStagger(
                             config.animation?.section_stagger,
