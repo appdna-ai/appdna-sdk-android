@@ -1442,6 +1442,15 @@ object AppDNA {
             try { paywallManager?.shutdown() } catch (_: Throwable) {}
             try { deferredDeepLinkManager?.shutdown() } catch (_: Throwable) {}
 
+            // SPEC-070-A final audit pass B F1 — release the
+            // ProcessLifecycleOwner observer SessionManager registers in
+            // its constructor (SessionManager.kt:117). Without this the
+            // observer survives shutdown because ProcessLifecycleOwner is
+            // a process-scoped singleton holding a strong ref. iOS ARC
+            // handles this via `sessionManager = nil`; Android needs the
+            // explicit `lifecycle.removeObserver(...)` call inside stop().
+            try { sessionManager?.stop() } catch (_: Throwable) {}
+
             // SPEC-070-A H.24: close the SQLite handle. EventDatabase extends
             // SQLiteOpenHelper, so close() releases the underlying db file
             // without losing pending rows (they live on disk until uploaded).
