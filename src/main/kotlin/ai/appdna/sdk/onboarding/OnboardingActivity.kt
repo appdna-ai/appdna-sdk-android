@@ -215,38 +215,98 @@ internal fun OnboardingFlowHost(
         }
     }
 
+    // SPEC-070-A A.21 — emit `flow_completed_via_fallback` whenever the flow
+    // ends because no next_step_rule matched on the last step (rule-failure
+    // bailout) instead of from a natural sequential end. Lets ETL distinguish
+    // fully-authored flows from misconfigured ones.
+    fun emitFallbackCompletion() {
+        eventTracker?.track(
+            FLOW_COMPLETED_VIA_FALLBACK_EVENT,
+            mapOf(
+                "flow_id" to flow.id,
+                "step_id" to (flow.steps.lastOrNull()?.id ?: ""),
+                "step_index" to (flow.steps.size - 1).coerceAtLeast(0),
+            ),
+        )
+    }
+
     // Helper functions
     fun advanceOrComplete() {
         val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
         val rules = step?.next_step_rules
-        if (!rules.isNullOrEmpty()) {
-            // Evaluate next_step_rules: first matching rule wins
+        val isLastStep = currentIndex >= flow.steps.size - 1
+        if (step != null && !rules.isNullOrEmpty()) {
+            // SPEC-070-A A.21: evaluate `condition` / `conditions[]` per iOS
+            // `OnboardingRenderer.swift:851-924`. First matching rule wins;
+            // unmatched rules fall through.
             for (rule in rules) {
-                val target = rule.target_step_id
-                if (target.isBlank()) continue
-                // Paywall trigger — complete the flow with a paywall_trigger marker
-                if (target.startsWith("paywall_trigger_")) {
-                    val merged = responses.toMutableMap()
-                    merged["__paywall_trigger"] = target.removePrefix("paywall_trigger_")
-                    @Suppress("UNCHECKED_CAST")
-                    onFlowCompleted(merged.toMap() as Map<String, Any>)
-                    return
-                }
-                // End flow
-                if (target.startsWith("end_")) {
-                    @Suppress("UNCHECKED_CAST")
-                    onFlowCompleted(responses.toMap() as Map<String, Any>)
-                    return
-                }
-                // Navigate to specific step
-                val targetIndex = flow.steps.indexOfFirst { it.id == target }
-                if (targetIndex >= 0) {
-                    currentIndex = targetIndex
-                    return
+                val matches = NextStepRuleEvaluator.evaluateRule(
+                    rule = rule,
+                    stepId = step.id,
+                    responses = responses.toMap(),
+                    step = step,
+                )
+                if (!matches) continue
+
+                when (val classified = classifyRuleTarget(rule.target_step_id)) {
+                    is RuleTarget.Empty -> continue
+                    is RuleTarget.PaywallTrigger -> {
+                        val merged = responses.toMutableMap()
+                        merged["__paywall_trigger"] = classified.rawTarget.removePrefix("paywall_trigger_")
+                        @Suppress("UNCHECKED_CAST")
+                        onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        return
+                    }
+                    is RuleTarget.EndFlow -> {
+                        @Suppress("UNCHECKED_CAST")
+                        onFlowCompleted(responses.toMap() as Map<String, Any>)
+                        return
+                    }
+                    is RuleTarget.Permission -> {
+                        // Mirror iOS auto-route: surface the permission name in the
+                        // completion payload so the host (or paywall bridge) can
+                        // request it. Marker sentinel matches `__paywall_trigger`.
+                        val merged = responses.toMutableMap()
+                        merged["__permission_request"] = classified.name
+                        @Suppress("UNCHECKED_CAST")
+                        onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        return
+                    }
+                    is RuleTarget.Screen -> {
+                        val merged = responses.toMutableMap()
+                        merged["__screen_present"] = classified.screenId
+                        @Suppress("UNCHECKED_CAST")
+                        onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        return
+                    }
+                    is RuleTarget.SubFlow -> {
+                        val merged = responses.toMutableMap()
+                        merged["__sub_flow"] = classified.flowId
+                        @Suppress("UNCHECKED_CAST")
+                        onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        return
+                    }
+                    is RuleTarget.Step -> {
+                        val targetIndex = flow.steps.indexOfFirst { it.id == classified.stepId }
+                        if (targetIndex >= 0) {
+                            currentIndex = targetIndex
+                            return
+                        }
+                    }
+                    is RuleTarget.Unknown -> continue
                 }
             }
+            // No rule matched. If we're on the last step this is a
+            // rule-failure-bailout, not a natural end — emit the
+            // distinguishing event so ETL can tell them apart.
+            if (isLastStep) {
+                emitFallbackCompletion()
+                @Suppress("UNCHECKED_CAST")
+                onFlowCompleted(responses.toMap() as Map<String, Any>)
+                return
+            }
         }
-        // Fallback: sequential advance
+        // Fallback: sequential advance.
         if (currentIndex + 1 >= flow.steps.size) {
             @Suppress("UNCHECKED_CAST")
             onFlowCompleted(responses.toMap() as Map<String, Any>)

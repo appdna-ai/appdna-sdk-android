@@ -143,17 +143,67 @@ internal class ReceiptVerifier(
 
     /**
      * Parse a JSON object into an Entitlement data class.
+     *
+     * SPEC-070-A A.13: backend `ReceiptValidationService.ts:96-119`
+     * (`VerificationResult` shape, see `SubscriptionService.ts:6-38`)
+     * returns **camelCase** fields. Snake_case keys are kept as fallbacks
+     * so older shipped clients still parse responses from any future
+     * mixed-shape rollout, and so disk-cached entitlements written under
+     * the previous schema rehydrate correctly.
      */
     private fun parseEntitlement(json: JSONObject): Entitlement {
+        // productId — camelCase primary, product_id fallback
+        val productId = json.optStringOrNull("productId")
+            ?: json.optStringOrNull("product_id")
+            ?: ""
+
+        // store — same key on both sides, but legacy server sometimes
+        // omitted it for Google Play; default preserved.
+        val store = json.optStringOrNull("store") ?: "google_play"
+
+        // status — same key on both sides.
+        val status = json.optStringOrNull("status") ?: "unknown"
+
+        // expiresAt — backend returns ISO-formatted `currentPeriodEnd`
+        // (Date serialised by JSON.stringify -> "2026-05-06T12:00:00Z").
+        // Older payload sometimes called it `expires_at`. Accept both.
+        val expiresAt = json.optStringOrNull("currentPeriodEnd")
+            ?: json.optStringOrNull("expires_at")
+
+        // isTrial — backend uses `isTrialPeriod`. Snake_case kept as fallback.
+        val isTrial = when {
+            json.has("isTrialPeriod") -> json.optBoolean("isTrialPeriod", false)
+            json.has("is_trial") -> json.optBoolean("is_trial", false)
+            else -> status == "trialing"
+        }
+
+        // offerType — nested under `offerApplied.offer_type` per backend
+        // `SubscriptionService.ts:27-30`. Top-level `offer_type` kept as
+        // legacy fallback.
+        val offerType = json.optJSONObject("offerApplied")?.optStringOrNull("offer_type")
+            ?: json.optStringOrNull("offer_type")
+
         return Entitlement(
-            productId = json.optString("product_id", ""),
-            store = json.optString("store", "google_play"),
-            status = json.optString("status", "unknown"),
-            expiresAt = json.optString("expires_at", null),
-            isTrial = json.optBoolean("is_trial", false),
-            offerType = json.optString("offer_type", null)
+            productId = productId,
+            store = store,
+            status = status,
+            expiresAt = expiresAt,
+            isTrial = isTrial,
+            offerType = offerType
         )
     }
+}
+
+/**
+ * `JSONObject.optString` returns the literal string "null" when a JSON
+ * `null` value is present — and an empty string when the key is missing.
+ * This helper turns both into a real Kotlin `null` so absent / explicit-null
+ * fields don't sneak through as bogus strings.
+ */
+private fun JSONObject.optStringOrNull(key: String): String? {
+    if (!has(key) || isNull(key)) return null
+    val v = optString(key, "")
+    return if (v.isEmpty()) null else v
 }
 
 /**

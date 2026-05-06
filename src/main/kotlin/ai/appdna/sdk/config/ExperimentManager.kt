@@ -27,10 +27,16 @@ internal class ExperimentManager(
         val identity = identityManager.currentIdentity
         val userId = identity.userId ?: identity.anonId
 
+        // SPEC-070-A A.22 — fall back to experimentId when salt is blank, so a
+        // missing/empty salt produces identical bucketing to iOS
+        // (Config/ExperimentManager.swift:33-38 uses `config.salt ?? experimentId`).
+        // Without this, blank-salt experiments hashed an empty seed on Android
+        // vs the experimentId on iOS → cross-platform variant divergence.
+        val effectiveSalt = config.salt.ifBlank { experimentId }
         val variant = assignVariant(
             experimentId = experimentId,
             userId = userId,
-            salt = config.salt,
+            salt = effectiveSalt,
             variants = config.variants
         ) ?: return null
 

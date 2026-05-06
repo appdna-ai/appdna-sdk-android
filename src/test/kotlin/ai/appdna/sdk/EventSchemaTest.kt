@@ -19,7 +19,10 @@ class EventSchemaTest {
 
     @Test
     fun testSdkVersion() {
-        assertEquals("1.0.3", EventSchema.SDK_VERSION)
+        // SPEC-070-A A.6: SDK_VERSION is now a live reference to AppDNA.sdkVersion,
+        // not a stale literal. Verify they stay in sync — drift is the regression we
+        // are guarding against.
+        assertEquals(AppDNA.sdkVersion, EventSchema.SDK_VERSION)
     }
 
     @Test
@@ -48,7 +51,8 @@ class EventSchemaTest {
         // Device
         val device = envelope.getJSONObject("device")
         assertEquals("android", device.getString("platform"))
-        assertEquals("1.0.3", device.getString("sdk_version"))
+        // SPEC-070-A A.6: sdk_version reads through to AppDNA.sdkVersion at call time.
+        assertEquals(AppDNA.sdkVersion, device.getString("sdk_version"))
         assertEquals("1.0.0", device.getString("app_version"))
 
         // Context

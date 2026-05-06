@@ -243,18 +243,38 @@ object StyleEngine {
 
     /**
      * Parse a hex color string to Compose Color.
+     *
+     * Byte order matches iOS `Color(hex:)` in `Paywalls/PaywallHelperViews.swift`:
+     *   - 6-char  → RGB,  alpha = 0xFF
+     *   - 8-char  → RGBA  (R, G, B, A — NOT Compose's default ARGB long form)
+     *   - 3-char  → expanded RGB shorthand (e.g. `#1A3` → `#11AA33`), alpha = 0xFF
+     *   - 4-char  → expanded RGBA shorthand (e.g. `#1234` → `#11223344`)
+     *   - "transparent" / "clear" → Color.Transparent
+     *   - any other / parse failure → Color.Transparent (matches iOS fallback `(0, 0, 0, 0)`)
+     *
+     * SPEC-070-A A.2 — fixes the prior `Color(colorLong)` ARGB interpretation that
+     * rotated channels for every console-saved RGBA color.
      */
     fun parseColor(hex: String): Color {
         return try {
-            val cleaned = hex.removePrefix("#")
-            val colorLong = cleaned.toLong(16)
-            when (cleaned.length) {
-                6 -> Color(0xFF000000 or colorLong)
-                8 -> Color(colorLong)
-                else -> Color.Black
+            val lowered = hex.lowercase().trim()
+            if (lowered == "transparent" || lowered == "clear") return Color.Transparent
+
+            val cleaned = lowered.removePrefix("#")
+            val expanded = when (cleaned.length) {
+                3 -> cleaned.map { "$it$it" }.joinToString("")
+                4 -> cleaned.map { "$it$it" }.joinToString("")
+                6, 8 -> cleaned
+                else -> return Color.Transparent
             }
+
+            val r = expanded.substring(0, 2).toInt(16)
+            val g = expanded.substring(2, 4).toInt(16)
+            val b = expanded.substring(4, 6).toInt(16)
+            val a = if (expanded.length == 8) expanded.substring(6, 8).toInt(16) else 255
+            Color(r, g, b, a)
         } catch (_: Exception) {
-            Color.Black
+            Color.Transparent
         }
     }
 }

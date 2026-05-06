@@ -87,8 +87,33 @@ internal class ScreenManager private constructor() {
         }
     }
 
-    fun enableNavigationInterception(forScreens: List<String>? = null) { interceptionEnabled = true; interceptionFilter = forScreens }
-    fun disableNavigationInterception() { interceptionEnabled = false; interceptionFilter = null }
+    fun enableNavigationInterception(forScreens: List<String>? = null) {
+        interceptionEnabled = true
+        interceptionFilter = forScreens
+        // SPEC-070-A A.10: register a marker hook per pattern so
+        // `NavigationInterceptor.shared` knows which screens this host has
+        // opted in for. The hook body is a no-op returning `Allow` —
+        // server-driven `screen_index.interceptions[*]` evaluation is
+        // already wired inside `NavigationInterceptor.evaluateInterceptions`
+        // which calls back into `ScreenManager.evaluateInterceptions`. The
+        // hook list serves as the host's allowlist; without these entries
+        // the interceptor still fans out via Activity callbacks but won't
+        // be aware of which Compose-only routes are eligible.
+        val patterns = forScreens ?: listOf("*")
+        for (pattern in patterns) {
+            NavigationInterceptor.shared.registerHook(pattern) { _ ->
+                InterceptionResult.Allow
+            }
+        }
+    }
+    fun disableNavigationInterception() {
+        interceptionEnabled = false
+        val patterns = interceptionFilter ?: listOf("*")
+        for (pattern in patterns) {
+            NavigationInterceptor.shared.unregisterHook(pattern)
+        }
+        interceptionFilter = null
+    }
 
     fun evaluateInterceptions(screenName: String, timing: String) {
         if (!interceptionEnabled) return

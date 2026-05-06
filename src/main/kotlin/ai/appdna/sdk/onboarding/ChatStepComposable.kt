@@ -26,8 +26,10 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 // Avatar uses initial-based circle (no coil dependency)
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -425,6 +427,16 @@ private data class ChatWebhookMessage(
     val delay_ms: Int?
 )
 
+/**
+ * SPEC-070-A A.31 — fire chat webhook off the Main thread.
+ *
+ * The body is wrapped in `withContext(Dispatchers.IO)` because callers run on
+ * the Compose `rememberCoroutineScope` (Main) and we do blocking
+ * `URL.openConnection() + outputStream + bufferedReader().readText()`.
+ * Without the wrap, every chat turn produces a `NetworkOnMainThreadException`
+ * (or worse, a frozen UI). Mirrors the `executeWebhook` IO wrap in
+ * `OnboardingActivity.executeWebhook` (SPEC-083 P1).
+ */
 @Suppress("UNCHECKED_CAST")
 private suspend fun fireWebhook(
     webhook: StepHookConfig?,
@@ -434,9 +446,9 @@ private suspend fun fireWebhook(
     turn: Int,
     maxTurns: Int,
     remaining: Int
-): WebhookResponse? {
-    webhook ?: return null
-    val url = webhook.webhook_url ?: return null
+): WebhookResponse? = withContext(Dispatchers.IO) {
+    webhook ?: return@withContext null
+    val url = webhook.webhook_url ?: return@withContext null
 
     val iso = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
     val msgsJson = JSONArray().apply {
@@ -478,7 +490,7 @@ private suspend fun fireWebhook(
         conn.outputStream.use { it.write(body.toString().toByteArray()) }
         if (conn.responseCode !in 200..299) {
             Log.e("ChatWebhook", "HTTP ${conn.responseCode}")
-            return null
+            return@withContext null
         }
         val respText = conn.inputStream.bufferedReader().readText()
         val json = JSONObject(respText)
@@ -505,7 +517,7 @@ private suspend fun fireWebhook(
             map
         }
 
-        return WebhookResponse(
+        WebhookResponse(
             action = json.optString("action", null),
             messages = respMessages,
             quick_replies = respQRs,

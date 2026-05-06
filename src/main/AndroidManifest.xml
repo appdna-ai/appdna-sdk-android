@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    AppDNA Android SDK — library manifest.
+
+    SPEC-070-A Phase A.4 (A.4.1–A.4.4): ship a library AndroidManifest so host
+    apps integrating `ai.appdna:sdk-android:1.0.60` get all required SDK
+    declarations via manifest-merger without copy/pasting boilerplate.
+
+    Reference:
+      .ai/specs/SPEC-070-A-2026-05-05-android-sdk-catchup.md §3.1 P0-5/P0-A.4
+      ADR-001 (thin native SDK wrappers) + SPEC-070-0 (cross-platform SDK foundation)
+
+    A.4.1 Permissions:
+      INTERNET, ACCESS_NETWORK_STATE, WAKE_LOCK, POST_NOTIFICATIONS (33+),
+      VIBRATE.
+
+    A.4.2 <queries>:
+      Custom Tabs / Intent.ACTION_VIEW http+https resolution on API 30+.
+
+    A.4.3 <application> components, all `android:exported="false"`:
+      PaywallActivity, OnboardingActivity, SurveyActivity,
+      AppDNAScreenSlotActivity (forward-declared — current SDK uses an
+      inline Compose host `screens/AppDNAScreenSlot.kt`; a dedicated
+      Activity is forward-compatible and tracked for SPEC-070-A H/L phases).
+      AppDNAMessagingService (FirebaseMessagingService) with the
+      `com.google.firebase.MESSAGING_EVENT` intent filter.
+
+    A.4.4 manifest-merger strategy:
+      WorkManager auto-init: hosts that disable WorkManager auto-init via
+      androidx.startup must use tools:node="merge" — SDK does NOT declare
+      a <provider>; we rely on host's WorkManager initialization.
+      Firebase default-icon: SDK does NOT declare a default
+      `com.google.firebase.messaging.default_notification_icon` meta-data;
+      hosts MAY add one. If both ever ship one, hosts should use
+      tools:replace="android:resource".
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- A.4.1 Permissions -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- API 33+ runtime notification permission (FCM + InAppMessage). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+        A.4.2 <queries>: required on API 30+ so InAppBrowser / Custom Tabs
+        invocation via Intent.ACTION_VIEW resolves. Without this,
+        `intent.resolveActivity(packageManager)` returns null and links
+        silently fail on Android 11+.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="http" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
+    <application>
+
+        <!--
+            A.4.3 SDK-owned Activities. All translucent, no title bar,
+            android:exported="false" (Android 12+ install requirement).
+        -->
+
+        <!-- Paywall — packages/.../paywalls/PaywallActivity.kt -->
+        <activity
+            android:name="ai.appdna.sdk.paywalls.PaywallActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Onboarding flow — packages/.../onboarding/OnboardingActivity.kt -->
+        <activity
+            android:name="ai.appdna.sdk.onboarding.OnboardingActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!-- Survey — packages/.../feedback/SurveyActivity.kt -->
+        <activity
+            android:name="ai.appdna.sdk.feedback.SurveyActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <!--
+            Screen slot Activity — forward-declared.
+            TODO(SPEC-070-A phases H/L): the current SDK exposes a Compose
+            composable `ai.appdna.sdk.screens.AppDNAScreenSlot` (a host-
+            embeddable view) rather than a dedicated Activity. When the
+            standalone Activity is added (host-presented full-screen slot),
+            this declaration is forward-compatible — class lives in
+            `ai.appdna.sdk.screens.AppDNAScreenSlotActivity`. Manifest
+            stays here so library consumers don't need a re-publish to
+            pick it up.
+        -->
+        <activity
+            android:name="ai.appdna.sdk.screens.AppDNAScreenSlotActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            tools:ignore="MissingClass" />
+
+        <!--
+            FirebaseMessagingService — packages/.../integrations/AppDNAMessagingService.kt
+            Intent-filter wires FCM delivery into the SDK push pipeline
+            (token registration + remote-message handling + notification
+            display). exported="false" because Firebase does the dispatch
+            internally; no other process should bind directly.
+        -->
+        <service
+            android:name="ai.appdna.sdk.integrations.AppDNAMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
+    </application>
+</manifest>

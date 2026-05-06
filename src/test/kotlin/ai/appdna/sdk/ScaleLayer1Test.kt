@@ -9,36 +9,42 @@ import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
-import java.util.zip.GZIPInputStream
+import java.util.zip.Inflater
+import java.util.zip.InflaterInputStream
 
 /**
  * SPEC-067: Tests for SDK Scale Layer 1 optimizations.
+ *
+ * SPEC-070-A A.15: gzip compression has been replaced with raw deflate
+ * (matching iOS `compression_encode_buffer(..., COMPRESSION_ZLIB)`). These tests
+ * use `Inflater(nowrap = true)` to round-trip raw deflate output.
  */
 class ScaleLayer1Test {
 
-    // MARK: - Gzip Compression
+    // MARK: - Deflate Compression (SPEC-070-A A.15)
 
     @Test
-    fun `gzip compress produces valid gzip data`() {
-        val original = "Hello, this is a test string for gzip compression"
-        val compressed = ApiClient.gzipCompress(original.toByteArray(Charsets.UTF_8))
+    fun `deflate compress produces valid raw deflate data`() {
+        val original = "Hello, this is a test string for deflate compression"
+        val compressed = ApiClient.deflateCompress(original.toByteArray(Charsets.UTF_8))
 
         assertTrue("Compressed data should be non-empty", compressed.isNotEmpty())
 
-        // Verify it's valid gzip by decompressing
-        val decompressed = gzipDecompress(compressed)
+        // Verify it's valid raw deflate by decompressing
+        val decompressed = deflateDecompress(compressed)
         assertEquals(original, String(decompressed, Charsets.UTF_8))
     }
 
     @Test
-    fun `gzip compress empty data`() {
-        val compressed = ApiClient.gzipCompress(ByteArray(0))
-        // Should produce valid (small) gzip output for empty input
-        assertTrue("Even empty data should produce gzip output", compressed.isNotEmpty())
+    fun `deflate compress empty data does not crash`() {
+        // Java's Deflater emits a tiny end-of-stream marker for empty input.
+        val compressed = ApiClient.deflateCompress(ByteArray(0))
+        // Should produce valid (small) deflate output even for empty input.
+        assertTrue("Even empty data should produce deflate output", compressed.isNotEmpty())
     }
 
     @Test
-    fun `gzip achieves at least 5x compression on event batch`() {
+    fun `deflate achieves at least 5x compression on event batch`() {
         // Create a batch of 50 realistic events
         val events = JSONArray()
         for (i in 0 until 50) {
@@ -68,7 +74,7 @@ class ScaleLayer1Test {
 
         val payload = JSONObject().put("batch", events).toString()
         val originalBytes = payload.toByteArray(Charsets.UTF_8)
-        val compressed = ApiClient.gzipCompress(originalBytes)
+        val compressed = ApiClient.deflateCompress(originalBytes)
 
         val ratio = originalBytes.size.toDouble() / compressed.size.coerceAtLeast(1)
         assertTrue(
@@ -78,7 +84,7 @@ class ScaleLayer1Test {
     }
 
     @Test
-    fun `gzip roundtrip preserves data integrity`() {
+    fun `deflate roundtrip preserves data integrity`() {
         val events = JSONArray()
         for (i in 0 until 100) {
             events.put(JSONObject().apply {
@@ -88,8 +94,8 @@ class ScaleLayer1Test {
         }
         val original = JSONObject().put("batch", events).toString()
 
-        val compressed = ApiClient.gzipCompress(original.toByteArray(Charsets.UTF_8))
-        val decompressed = String(gzipDecompress(compressed), Charsets.UTF_8)
+        val compressed = ApiClient.deflateCompress(original.toByteArray(Charsets.UTF_8))
+        val decompressed = String(deflateDecompress(compressed), Charsets.UTF_8)
 
         assertEquals(original, decompressed)
     }
@@ -149,7 +155,13 @@ class ScaleLayer1Test {
 
     // MARK: - Helpers
 
-    private fun gzipDecompress(data: ByteArray): ByteArray {
-        return GZIPInputStream(ByteArrayInputStream(data)).use { it.readBytes() }
+    /**
+     * SPEC-070-A A.15: Decompress raw deflate (no zlib wrapper, matches iOS
+     * COMPRESSION_ZLIB output). Use `Inflater(nowrap = true)`.
+     */
+    private fun deflateDecompress(data: ByteArray): ByteArray {
+        if (data.isEmpty()) return ByteArray(0)
+        val inflater = Inflater(/* nowrap = */ true)
+        return InflaterInputStream(ByteArrayInputStream(data), inflater).use { it.readBytes() }
     }
 }

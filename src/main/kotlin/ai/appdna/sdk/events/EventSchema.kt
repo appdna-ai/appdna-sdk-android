@@ -9,10 +9,20 @@ import java.util.UUID
 
 /**
  * SDK event envelope — matches iOS SDKEvent schema exactly.
+ *
+ * SPEC-070-A A.6: `SDK_VERSION` is the live `AppDNA.sdkVersion` value (not a stale literal).
+ * SPEC-070-A A.14: `experiment_exposures` is now part of the envelope `context` object.
  */
 internal object EventSchema {
     const val SCHEMA_VERSION = 1
-    const val SDK_VERSION = "1.0.3"
+
+    /**
+     * SDK version reported in the event envelope `device.sdk_version` field.
+     * Sources directly from [ai.appdna.sdk.AppDNA.sdkVersion] so it cannot drift
+     * (the previous hard-coded "1.0.3" literal was 27 versions out of date).
+     */
+    val SDK_VERSION: String
+        get() = ai.appdna.sdk.AppDNA.sdkVersion
 
     /**
      * Build an event envelope JSON matching the iOS format.
@@ -23,7 +33,8 @@ internal object EventSchema {
         identity: DeviceIdentity,
         sessionId: String,
         appVersion: String,
-        analyticsConsent: Boolean
+        analyticsConsent: Boolean,
+        experimentExposures: List<ExperimentExposure>? = null
     ): JSONObject {
         return JSONObject().apply {
             put("schema_version", SCHEMA_VERSION)
@@ -50,6 +61,20 @@ internal object EventSchema {
 
             put("context", JSONObject().apply {
                 put("session_id", sessionId)
+                // SPEC-070-A A.14: include experiment exposure context so the
+                // BigQuery ETL can attribute events to the assigned variant.
+                // Shape mirrors iOS Events/EventSchema.swift `EventContext.experiment_exposures`:
+                //   [{ exp: <experimentId>, variant: <variantId> }, ...]
+                if (!experimentExposures.isNullOrEmpty()) {
+                    put("experiment_exposures", JSONArray().apply {
+                        for (exposure in experimentExposures) {
+                            put(JSONObject().apply {
+                                put("exp", exposure.experimentId)
+                                put("variant", exposure.variantId)
+                            })
+                        }
+                    })
+                }
             })
 
             if (properties != null && properties.isNotEmpty()) {
@@ -64,3 +89,15 @@ internal object EventSchema {
         }
     }
 }
+
+/**
+ * SPEC-070-A A.14: Single experiment-exposure tuple emitted in the event envelope's
+ * `context.experiment_exposures` array.
+ *
+ * Sourced from [ai.appdna.sdk.config.ExperimentManager.getExposures] when an event is tracked.
+ * Wire-format shape matches iOS `Events/EventSchema.swift` `ExperimentExposure { exp, variant }`.
+ */
+internal data class ExperimentExposure(
+    val experimentId: String,
+    val variantId: String
+)

@@ -43,9 +43,18 @@ internal class BillingConnectionManager(
             return
         }
 
+        // SPEC-070-A A.25 — `enablePendingPurchases()` (no-arg) is deprecated in
+        // billing-ktx 7+. Use the typed `PendingPurchasesParams` builder. We
+        // currently only sell subscriptions and one-time products, so opt in to
+        // one-time-product pending purchases. (Subscription pending state is
+        // always enabled and does not need a flag.)
         billingClient = BillingClient.newBuilder(context)
             .setListener(purchasesUpdatedListener)
-            .enablePendingPurchases()
+            .enablePendingPurchases(
+                PendingPurchasesParams.newBuilder()
+                    .enableOneTimeProducts()
+                    .build()
+            )
             .build()
 
         Log.info("BillingClient created, starting connection...")

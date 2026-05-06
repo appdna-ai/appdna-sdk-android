@@ -3940,16 +3940,26 @@ private data class LocationSuggestion(
     val longitude: Double,
 )
 
-/** Fetch location suggestions from the AppDNA backend geocoding API. */
+/** Fetch location suggestions from the AppDNA backend geocoding API.
+ *
+ * SPEC-070-A A.12: Path is `/api/v1/sdk/geocode/autocomplete` (matches the actual
+ * SDK-scoped backend route — the previous `/api/v1/geocoding/autocomplete` 404'd).
+ * Host is sourced from the configured environment so sandbox builds hit the
+ * correct backend; the SDK API key is forwarded via `x-api-key` to match other
+ * SDK calls.
+ */
 private suspend fun fetchLocationSuggestions(query: String): List<LocationSuggestion> {
     return try {
         val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
-        val url = java.net.URL("https://api.appdna.ai/api/v1/geocoding/autocomplete?q=$encodedQuery")
+        val baseUrl = ai.appdna.sdk.AppDNA.getApiBaseUrl()
+        val apiKey = ai.appdna.sdk.AppDNA.getApiKey()
+        val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete?q=$encodedQuery")
         val connection = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             (url.openConnection() as? java.net.HttpURLConnection)?.apply {
                 requestMethod = "GET"
                 connectTimeout = 10000
                 readTimeout = 10000
+                if (apiKey != null) setRequestProperty("x-api-key", apiKey)
             }
         }
         if (connection == null || connection.responseCode != 200) return emptyList()

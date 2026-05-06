@@ -12,7 +12,11 @@ import ai.appdna.sdk.core.ParticleEffect
 
 /**
  * A single onboarding flow definition.
+ *
+ * SPEC-070-A A.5: `@Keep` so R8/minify cannot strip getters used by
+ * reflective `fromMap`-style parsing in [OnboardingConfigParser].
  */
+@androidx.annotation.Keep
 data class OnboardingFlowConfig(
     val id: String,
     val name: String,
@@ -38,9 +42,21 @@ data class OnboardingSettings(
 
 /**
  * A single step within a flow.
+ *
+ * SPEC-070-A A.21: matches iOS `NextStepRule` shape — supports both the
+ * legacy single-`condition` field AND the multi-`conditions` array with
+ * AND/OR `logic` composition. Mirrors `OnboardingConfig.swift:122-127`.
+ *
+ * Evaluation precedence (see [NextStepRuleEvaluator]):
+ *   1. If `conditions` is non-null/non-empty → evaluate every entry under `logic`.
+ *   2. Else if `condition` is non-null → wrap as a 1-element list.
+ *   3. Else → treat as `always` (rule matches unconditionally).
  */
+@androidx.annotation.Keep
 data class NextStepRule(
     val condition: Any? = null,
+    val conditions: List<Map<String, Any?>>? = null,
+    val logic: String? = null,  // "and" | "or" — null defaults to "and" at evaluation time
     val target_step_id: String = ""
 )
 
@@ -810,13 +826,24 @@ internal object OnboardingConfigParser {
             } else null
         }
 
-        // Parse next_step_rules
+        // Parse next_step_rules — SPEC-070-A A.21: also pull `conditions` array + `logic`
+        // so the iOS multi-condition shape (`OnboardingConfig.swift:122-127`) round-trips.
         @Suppress("UNCHECKED_CAST")
         val nextStepRules = (map["next_step_rules"] as? List<*>)?.mapNotNull { r ->
             if (r is Map<*, *>) {
                 val rm = r as Map<String, Any>
+                val conditionsRaw = rm["conditions"] as? List<*>
+                val conditionsList = conditionsRaw?.mapNotNull { entry ->
+                    when (entry) {
+                        is Map<*, *> -> @Suppress("UNCHECKED_CAST") (entry as Map<String, Any?>)
+                        is String -> mapOf<String, Any?>("type" to entry)
+                        else -> null
+                    }
+                }
                 NextStepRule(
                     condition = rm["condition"],
+                    conditions = conditionsList,
+                    logic = rm["logic"] as? String,
                     target_step_id = rm["target_step_id"] as? String ?: ""
                 )
             } else null

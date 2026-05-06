@@ -121,10 +121,20 @@ internal class PushTokenManager(
 
     /**
      * Proactively fetch FCM token and register with backend.
+     *
+     * SPEC-070-A A.24 (part 1) — bind to the SDK's secondary FirebaseApp
+     * ("appdna") so AppDNA receives push tokens issued against the AppDNA
+     * Firebase project — not the host app's default FirebaseApp (which
+     * would otherwise produce tokens that AppDNA's backend can't deliver
+     * to). When the secondary app is unavailable (host hasn't shipped
+     * `google-services-appdna.json`) we fall back to the default app and
+     * log loudly, matching the existing fallback contract elsewhere in the
+     * SDK.
      */
     fun registerToken() {
         try {
-            com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnCompleteListener { task ->
+            val messaging = appdnaScopedMessaging() ?: com.google.firebase.messaging.FirebaseMessaging.getInstance()
+            messaging.token.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     val token = task.result
                     if (token != null) setPushToken(token)
@@ -134,6 +144,20 @@ internal class PushTokenManager(
             }
         } catch (e: Exception) {
             Log.warning("Firebase not available: ${e.message}")
+        }
+    }
+
+    /**
+     * Returns the FirebaseMessaging instance bound to the AppDNA secondary
+     * FirebaseApp ("appdna"), or null if the secondary app isn't initialized
+     * (caller should fall back to the default app).
+     */
+    private fun appdnaScopedMessaging(): com.google.firebase.messaging.FirebaseMessaging? {
+        return try {
+            val app = com.google.firebase.FirebaseApp.getInstance("appdna")
+            com.google.firebase.messaging.FirebaseMessaging.getInstance(app)
+        } catch (_: Exception) {
+            null
         }
     }
 

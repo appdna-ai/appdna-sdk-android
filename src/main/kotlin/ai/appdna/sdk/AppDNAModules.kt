@@ -1,8 +1,12 @@
 package ai.appdna.sdk
 
 import android.app.Activity
+import android.os.Build
 import ai.appdna.sdk.billing.Entitlement
 import ai.appdna.sdk.billing.NativeBillingManager
+import ai.appdna.sdk.billing.ProductInfo
+import ai.appdna.sdk.billing.PurchaseOptions as BillingPurchaseOptions
+import ai.appdna.sdk.billing.PurchaseResult
 import ai.appdna.sdk.config.ExperimentManager
 import ai.appdna.sdk.config.FeatureFlagManager
 import ai.appdna.sdk.config.RemoteConfigManager
@@ -11,7 +15,13 @@ import ai.appdna.sdk.integrations.PushTokenManager
 import ai.appdna.sdk.onboarding.OnboardingFlowManager
 import ai.appdna.sdk.paywalls.PaywallContext
 import ai.appdna.sdk.paywalls.PaywallManager
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.*
+import kotlinx.coroutines.future.future
+import java.util.UUID
+import java.util.concurrent.CompletableFuture
+import kotlin.coroutines.resume
 
 // MARK: - Module Namespaces (v1.0)
 // Provides `AppDNA.push.*`, `AppDNA.billing.*`, etc.
@@ -92,27 +102,83 @@ class PushModule internal constructor() {
     /** Track push tapped. */
     fun trackTapped(pushId: String, action: String? = null) = AppDNA.trackPushTapped(pushId, action)
 
-    /** Request push notification permission from the user. */
-    fun requestPermission() {
-        manager?.requestPermission()
-            ?: Log.warning("Cannot request push permission — SDK not configured")
+    /**
+     * SPEC-070-A A.30 — typed suspend permission request.
+     *
+     * On Android 13+ (`Build.VERSION_CODES.TIRAMISU` / API 33), requesting
+     * `POST_NOTIFICATIONS` is a runtime permission and MUST be triggered from
+     * an Activity via the Activity Result API. We use
+     * `registerForActivityResult(RequestPermission)` and suspend until the
+     * user answers.
+     *
+     * Below API 33, push permission is implicit (granted at install) and we
+     * return `true` immediately. We still emit the same analytics through
+     * [PushTokenManager.setPushPermission].
+     *
+     * @param activity Required on API 33+. May be `null` on older API levels;
+     *                 the permission is implicit there.
+     * @return `true` if the user granted the permission (or no permission is
+     *         required on this OS version), `false` if denied.
+     */
+    suspend fun requestPermission(activity: Activity? = null): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            // Permission is implicit pre-13; report granted.
+            manager?.setPushPermission(true)
+            return true
+        }
+        val componentActivity = activity as? ComponentActivity
+        if (componentActivity == null) {
+            Log.warning("PushModule.requestPermission: requires a ComponentActivity on Android 13+")
+            return false
+        }
+        return suspendCancellableCoroutine { cont ->
+            val launcher = componentActivity.activityResultRegistry.register(
+                "ai.appdna.sdk.push.permission.${UUID.randomUUID()}",
+                ActivityResultContracts.RequestPermission(),
+            ) { granted ->
+                manager?.setPushPermission(granted)
+                if (cont.isActive) cont.resume(granted)
+            }
+            cont.invokeOnCancellation {
+                runCatching { launcher.unregister() }
+            }
+            launcher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
+
+    /**
+     * Java-friendly overload — returns a [CompletableFuture]. Mirrors the
+     * suspend [requestPermission] above for non-Kotlin consumers.
+     */
+    @JvmOverloads
+    fun requestPermissionFuture(activity: Activity? = null): CompletableFuture<Boolean> =
+        moduleScope.future { requestPermission(activity) }
 
     /** Set a delegate for push notification lifecycle events. */
     fun setDelegate(delegate: AppDNAPushDelegate?) {
         this.listener = delegate
         manager?.pushListener = delegate
     }
+
+    companion object {
+        // Shared scope for Java-future overloads. Kept in a companion to avoid
+        // per-instance lifecycle leaks; the SDK never re-creates PushModule.
+        private val moduleScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    }
 }
 
 /**
  * Billing module namespace.
  * Delegates to NativeBillingManager when available.
+ *
+ * SPEC-070-A A.29 / A.30 — public APIs are typed suspend functions returning
+ * concrete data classes (`TransactionInfo`, `ProductInfo`, `Entitlement`),
+ * mirroring iOS `AppDNA.Billing` (AppDNA+Modules.swift). Java consumers get
+ * `*Future` overloads via [kotlinx.coroutines.future.future].
  */
 class BillingModule internal constructor() {
     internal var manager: NativeBillingManager? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var entitlementsCallback: ((List<Map<String, Any>>) -> Unit)? = null
 
     /** Check if user has active subscription. */
     fun hasActiveSubscription(): Boolean {
@@ -120,62 +186,81 @@ class BillingModule internal constructor() {
     }
 
     /**
-     * Get product information for a list of product IDs.
-     * Returns results asynchronously via callback since it requires a network call.
+     * SPEC-070-A A.30 — typed suspend product fetch.
+     *
+     * Returns `ProductInfo` data classes from [NativeBillingManager.getProducts].
+     * Replaces the previous broken `scope.launch; return result` stub which
+     * always returned an empty list synchronously.
      */
-    fun getProducts(ids: List<String>): List<Map<String, Any>> {
+    suspend fun getProducts(productIds: List<String>): List<ProductInfo> {
         val mgr = manager ?: run {
             Log.warning("BillingModule: manager not available — returning empty products")
             return emptyList()
         }
-        var result: List<Map<String, Any>> = emptyList()
-        // Launch and block-free fetch; callers should use the suspend variant for async
-        scope.launch {
-            try {
-                val products = mgr.getProducts(ids)
-                result = products.map { p ->
-                    mapOf(
-                        "id" to p.id,
-                        "name" to p.name,
-                        "description" to p.description,
-                        "formattedPrice" to p.formattedPrice,
-                        "priceMicros" to p.priceMicros,
-                        "currencyCode" to p.currencyCode
-                    )
-                }
-            } catch (e: Exception) {
-                Log.error("BillingModule.getProducts failed: ${e.message}")
-            }
+        return try {
+            mgr.getProducts(productIds)
+        } catch (e: Exception) {
+            Log.error("BillingModule.getProducts failed: ${e.message}")
+            emptyList()
         }
-        return result
     }
 
+    /** Java-friendly overload — returns a [CompletableFuture]. */
+    fun getProductsFuture(productIds: List<String>): CompletableFuture<List<ProductInfo>> =
+        scope.future { getProducts(productIds) }
+
     /**
-     * Initiate a purchase flow for the given product.
+     * SPEC-070-A A.29 / A.30 — initiate a purchase flow.
      *
-     * @param productId The product ID to purchase.
-     * @param options Optional parameters (e.g., "offerToken", "paywallId").
+     * Activity is now the FIRST parameter (required by Google Play Billing
+     * `launchBillingFlow`). Mirrors iOS `BillingModule.purchase(productId:options:)`
+     * (AppDNA+Modules.swift:72).
+     *
+     * Returns a [TransactionInfo] on success. Throws on failure (cancelled,
+     * pending, billing error).
+     *
+     * @param activity Activity used to launch the Play billing dialog.
+     * @param productId The Google Play product ID to purchase.
+     * @param options Optional purchase parameters (offer token, app account token).
      */
-    fun purchase(productId: String, options: Map<String, Any>? = null) {
+    @JvmOverloads
+    suspend fun purchase(
+        activity: Activity,
+        productId: String,
+        options: BillingPurchaseOptions? = null,
+    ): TransactionInfo {
         val mgr = manager ?: run {
             Log.warning("BillingModule: manager not available — cannot purchase")
-            return
+            throw IllegalStateException("BillingModule: NativeBillingManager not initialized — call AppDNA.configure() first")
         }
-        scope.launch {
-            try {
-                // NativeBillingManager.purchase requires an Activity; use current context
-                val offerToken = options?.get("offerToken") as? String
-                Log.info("BillingModule.purchase: $productId (offerToken=$offerToken)")
-                // Note: Activity-based purchase must be called from UI context.
-                // This stub tracks the intent; full UI flow uses presentPaywall().
-                AppDNA.track("billing_purchase_requested", mapOf(
-                    "product_id" to productId
-                ))
-            } catch (e: Exception) {
-                Log.error("BillingModule.purchase failed: ${e.message}")
+        AppDNA.track("billing_purchase_requested", mapOf("product_id" to productId))
+
+        val result = mgr.purchase(activity, productId, options)
+        return when (result) {
+            is PurchaseResult.Purchased -> {
+                val ent = result.entitlement
+                TransactionInfo(
+                    transactionId = ent.productId, // Google Play exposes the orderId via the receipt; entitlement productId is the closest stable handle
+                    productId = ent.productId,
+                    purchaseDate = ent.expiresAt ?: "",
+                    environment = "production",
+                )
             }
+            is PurchaseResult.Cancelled -> throw PurchaseCancelledException(productId)
+            is PurchaseResult.Pending -> throw PurchasePendingException(productId)
+            is PurchaseResult.Failed -> throw PurchaseFailedException(productId, result.error)
+            is PurchaseResult.Unknown -> throw PurchaseFailedException(productId, "unknown billing result")
         }
     }
+
+    /** Java-friendly overload — returns a [CompletableFuture]. */
+    @JvmOverloads
+    fun purchaseFuture(
+        activity: Activity,
+        productId: String,
+        options: BillingPurchaseOptions? = null,
+    ): CompletableFuture<TransactionInfo> =
+        scope.future { purchase(activity, productId, options) }
 
     /**
      * Restore previously completed purchases.
@@ -195,28 +280,26 @@ class BillingModule internal constructor() {
     }
 
     /**
-     * Get the current list of active entitlements.
+     * SPEC-070-A A.30 — typed suspend entitlements fetch.
+     *
+     * Returns the current cached active entitlements as `Entitlement`
+     * data classes. Suspend so future implementations can refresh from
+     * the network without a breaking change.
      */
-    fun getEntitlements(): List<Map<String, Any>> {
+    suspend fun getEntitlements(): List<Entitlement> {
         val mgr = manager ?: return emptyList()
-        val entitlements = mgr.entitlementCache.getAll()
-        return entitlements.map { e ->
-            mapOf(
-                "productId" to e.productId,
-                "store" to e.store,
-                "status" to e.status,
-                "expiresAt" to (e.expiresAt ?: ""),
-                "isTrial" to e.isTrial,
-                "offerType" to (e.offerType ?: "")
-            )
-        }
+        return mgr.entitlementCache.getAll()
     }
+
+    /** Java-friendly overload — returns a [CompletableFuture]. */
+    fun getEntitlementsFuture(): CompletableFuture<List<Entitlement>> =
+        scope.future { getEntitlements() }
 
     /**
      * Register a callback for entitlement changes.
      */
-    fun onEntitlementsChanged(callback: (List<Map<String, Any>>) -> Unit) {
-        this.entitlementsCallback = callback
+    fun onEntitlementsChanged(callback: (List<Entitlement>) -> Unit) {
+        manager?.entitlementCache?.addChangeListener(callback)
     }
 
     /**
@@ -228,6 +311,15 @@ class BillingModule internal constructor() {
 
     internal var billingListener: AppDNABillingDelegate? = null
 }
+
+/** Thrown by [BillingModule.purchase] when the user cancels. */
+class PurchaseCancelledException(val productId: String) : RuntimeException("Purchase cancelled for product: $productId")
+
+/** Thrown by [BillingModule.purchase] when the purchase enters PENDING state (e.g. parental approval). */
+class PurchasePendingException(val productId: String) : RuntimeException("Purchase pending for product: $productId")
+
+/** Thrown by [BillingModule.purchase] when Google Play returns an error. */
+class PurchaseFailedException(val productId: String, val error: String) : RuntimeException("Purchase failed for $productId: $error")
 
 /**
  * Onboarding module namespace.
@@ -320,16 +412,24 @@ class FeaturesModule internal constructor() {
  * In-app messages module namespace.
  */
 class InAppMessagesModule internal constructor() {
-    private var listener: AppDNAInAppMessageDelegate? = null
+    /**
+     * Public delegate exposed for hosts that read it directly. The
+     * source-of-truth is `MessageManager.delegate` — this field is kept
+     * in lockstep via `setDelegate(...)` so callers querying
+     * `AppDNA.inAppMessages` see the same instance.
+     */
+    var delegate: AppDNAInAppMessageDelegate? = null
+        private set
 
-    /** Temporarily suppress display. */
+    /** SPEC-070-A A.11: Temporarily suppress display. Forwards to MessageManager. */
     fun suppressDisplay(suppress: Boolean) {
-        // Wired via MessageManager
+        AppDNA.messageManager?.suppressDisplay(suppress)
     }
 
-    /** Set a delegate for in-app message lifecycle events. */
+    /** SPEC-070-A A.11: Set a delegate for in-app message lifecycle events. */
     fun setDelegate(delegate: AppDNAInAppMessageDelegate?) {
-        this.listener = delegate
+        this.delegate = delegate
+        AppDNA.messageManager?.delegate = delegate
     }
 }
 

@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.30"
+    const val sdkVersion = "1.0.60"
 
     // Module namespaces (v1.0)
     /** Push notification module. */
@@ -110,6 +110,13 @@ object AppDNA {
     private var onboardingFlowManager: OnboardingFlowManager? = null
     private var surveyManager: SurveyManager? = null
     private var webEntitlementManager: WebEntitlementManager? = null
+    // SPEC-070-A A.8/A.9: SessionManager + MessageManager wired in configure().
+    // Snapshot of the active message catalog kept alongside the manager so the
+    // configProvider lambda has a stable read path when triggers evaluate.
+    internal var messageManager: ai.appdna.sdk.messages.MessageManager? = null
+    internal var sessionManager: ai.appdna.sdk.core.SessionManager? = null
+    @Volatile
+    private var activeMessages: Map<String, ai.appdna.sdk.messages.MessageConfig> = emptyMap()
     // SPEC-203: journey-triggered pending-messages listener.
     private var pendingMessageListener: ai.appdna.sdk.messages.PendingMessageListener? = null
     private var deferredDeepLinkManager: DeferredDeepLinkManager? = null
@@ -148,33 +155,17 @@ object AppDNA {
 
             Log.info("Configuring AppDNA SDK v$sdkVersion (${environment.name})")
 
-            // Configure Firebase for Firestore config access.
-            // Priority: secondary app from google-services-appdna.json in assets > default FirebaseApp.
             // Validate API key format
             if (!apiKey.startsWith("adn_live_") && !apiKey.startsWith("adn_test_")) {
                 Log.error("API key format invalid. Keys must start with 'adn_live_' (production) or 'adn_test_' (sandbox). Got: ${apiKey.take(10)}...")
             }
 
-            val secondaryOptions = loadSecondaryFirebaseOptions(context)
-            if (secondaryOptions != null) {
-                val existingApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
-                if (existingApp == null) {
-                    FirebaseApp.initializeApp(context, secondaryOptions, "appdna")
-                }
-                val secondaryApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
-                if (secondaryApp != null) {
-                    firestoreDB = FirebaseFirestore.getInstance(secondaryApp)
-                    Log.info("Firebase: Using secondary app 'appdna' (google-services-appdna.json)")
-                } else {
-                    Log.error("Firebase: google-services-appdna.json found but failed to create secondary app. Check the JSON content.")
-                }
-            } else if (FirebaseApp.getApps(context).isEmpty()) {
-                // No Firebase at all — try standard google-services.json
-                Log.error("Firebase: No configuration found. Download google-services-appdna.json from Console -> Settings -> SDK and add it to your app/src/main/assets/ directory. See: https://docs.appdna.ai/sdks/android/installation#firebase-configuration")
-            } else {
-                // Host app has Firebase, but no AppDNA config file
-                Log.error("Firebase: Your app already has Firebase configured (its own project), but google-services-appdna.json was NOT found. AppDNA needs its own Firebase config. Download it from Console -> Settings -> SDK and add to app/src/main/assets/. Remote config will NOT work without this file.")
-            }
+            // SPEC-070-A A.31a — Firebase asset I/O (loadSecondaryFirebaseOptions
+            // reads google-services-appdna.json and parses JSON) is moved off
+            // the configure-thread (Main on Application.onCreate()) into the
+            // bootstrap coroutine on Dispatchers.IO. Until bootstrap finishes
+            // `firestoreDB` stays null — every consumer already null-checks it
+            // (`firestoreDB?.collection(...)`), so the lazy init is safe.
 
             this.appContext = context.applicationContext
             val appContext = this.appContext ?: run {
@@ -211,12 +202,29 @@ object AppDNA {
             val connMonitor = ai.appdna.sdk.network.ConnectivityMonitor(appContext)
             this.connectivityMonitor = connMonitor
 
+            // SPEC-070-A A.18: pass the application context + a background scheduler
+            // so EventQueue can register a ProcessLifecycleOwner observer and hand
+            // off remaining events to WorkManager when the app is backgrounded.
+            val bgScheduler = object : ai.appdna.sdk.events.BackgroundUploadScheduler {
+                override fun scheduleIfNeeded() {
+                    try {
+                        ai.appdna.sdk.background.EventUploadWorker.scheduleIfNeeded(
+                            appContext, apiKey, environment.baseUrl, eventDb
+                        )
+                    } catch (e: Throwable) {
+                        Log.warning("Background upload schedule failed: ${e.message}")
+                    }
+                }
+            }
+
             val eq = EventQueue(
                 apiClient = client,
                 eventDatabase = eventDb,
                 connectivityMonitor = connMonitor,
                 batchSize = options.batchSize,
-                flushInterval = options.flushInterval
+                flushInterval = options.flushInterval,
+                context = appContext,
+                backgroundUploadScheduler = bgScheduler
             )
             this.eventQueue = eq
             tracker.setEventQueue(eq)
@@ -235,11 +243,21 @@ object AppDNA {
 
             this.featureFlagManager = FeatureFlagManager(remoteCfg)
 
-            this.experimentManager = ExperimentManager(
+            val expManager = ExperimentManager(
                 remoteConfigManager = remoteCfg,
                 identityManager = identityMgr,
                 eventTracker = tracker
             )
+            this.experimentManager = expManager
+
+            // SPEC-070-A A.14: every event envelope now carries
+            // `context.experiment_exposures` so BigQuery ETL can attribute
+            // conversions to the variant the user was bucketed into.
+            tracker.setExperimentExposureProvider {
+                expManager.getExposures().map { (experimentId, variantId) ->
+                    ai.appdna.sdk.events.ExperimentExposure(experimentId, variantId)
+                }
+            }
 
             // Paywall & onboarding managers
             this.paywallManager = PaywallManager(
@@ -265,6 +283,33 @@ object AppDNA {
                 }.toMap()
                 surveyManager?.updateConfigs(parsed)
             }
+
+            // SPEC-070-A A.8: SessionManager — observes ProcessLifecycle to emit
+            // session_start / session_end / app_open / app_close with 30-min idle rotation.
+            ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
+                val sm = ai.appdna.sdk.core.SessionManager(appContext, tracker, sds)
+                this.sessionManager = sm
+                sm.start()
+            }
+
+            // SPEC-070-A A.9: MessageManager — trigger evaluator + frequency tracker
+            // + presentation queue + delegate veto. Renderer separate (InAppMessageRenderer)
+            // per architectural split.
+            ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
+                this.messageManager = ai.appdna.sdk.messages.MessageManager(
+                    context = appContext,
+                    configProvider = { activeMessages },
+                    frequencyStore = sds,
+                )
+            }
+
+            // SPEC-070-A A.10: NavigationInterceptor — observes Activity resume to
+            // fire registered hooks. Compose-only screens use AppDNA.notifyScreenAppeared(...).
+            (appContext as? android.app.Application)?.registerActivityLifecycleCallbacks(
+                ai.appdna.sdk.screens.NavigationInterceptorActivityCallbacks(
+                    ai.appdna.sdk.screens.NavigationInterceptor.shared
+                )
+            )
 
             // 7. Bootstrap (fetch orgId/appId, then Firestore configs)
             scope.launch {
@@ -307,6 +352,8 @@ object AppDNA {
         surveyManager?.resetSession()
         webEntitlementManager?.stopObserving()
         pendingMessageListener?.stopObserving()
+        // SPEC-070-A A.9: clear in-session message frequency counters + queue.
+        messageManager?.resetSession()
         Log.info("Identity reset")
     }
 
@@ -319,6 +366,19 @@ object AppDNA {
         eventTracker?.track(event, properties)
         // Evaluate surveys on every tracked event (v0.3)
         surveyManager?.onEvent(event, properties)
+        // SPEC-070-A A.9: evaluate in-app message triggers on every event.
+        messageManager?.onEvent(event, properties ?: emptyMap())
+    }
+
+    /**
+     * SPEC-070-A A.10: notify the SDK that a Compose-only screen has appeared
+     * (Activity-based screens fire automatically via the lifecycle callback
+     * registered in `configure()`). Hosts should call this from
+     * `LaunchedEffect(Unit)` of any composable that represents a navigable
+     * destination if they want it to participate in NavigationInterceptor hooks.
+     */
+    fun notifyScreenAppeared(screenName: String) {
+        ai.appdna.sdk.screens.NavigationInterceptor.shared.notifyScreenAppeared(screenName)
     }
 
     /**
@@ -612,6 +672,22 @@ object AppDNA {
 
     // MARK: - Internal accessors (used by onboarding hooks, SPEC-088)
 
+    /**
+     * SPEC-070-A A.12: Returns the configured environment's base URL so internal
+     * Composables (e.g. the AC-046 location autocomplete renderer) can issue
+     * sandbox-vs-production-aware backend requests without hard-coding hosts.
+     *
+     * Returns Production base URL when called before [configure] (defensive fallback).
+     */
+    internal fun getApiBaseUrl(): String = environment.baseUrl
+
+    /**
+     * SPEC-070-A: Internal accessor for the SDK API key, used by ad-hoc HTTP calls
+     * inside renderers that don't go through [ApiClient] (e.g. the geocode autocomplete).
+     * Null before [configure] runs.
+     */
+    internal fun getApiKey(): String? = apiKey
+
     internal fun getCurrentUserId(): String? {
         return identityManager?.currentIdentity?.userId
             ?: identityManager?.currentIdentity?.anonId
@@ -637,6 +713,20 @@ object AppDNA {
         remoteCfg: RemoteConfigManager,
         tracker: EventTracker
     ) {
+        // SPEC-070-A A.31a — Firebase asset I/O moved off the configure-thread.
+        // Reads google-services-appdna.json from assets + parses JSON; we run
+        // it here on Dispatchers.IO before any Firestore consumer needs it.
+        // SPEC-070-A A.24 — also adds GCM sender ID so the secondary
+        // FirebaseApp can do FCM (otherwise PushTokenManager.registerToken
+        // returns nothing because the SDK FirebaseApp has no project number).
+        initSecondaryFirebaseAppIfNeeded()
+
+        // SPEC-070-A A.26 — instantiate NativeBillingManager and bind to
+        // BillingModule.manager so AppDNA.billing.purchase() / restore() /
+        // getProducts() / getEntitlements() all work. Was never set,
+        // resulting in silent no-ops every time the host called billing.
+        initBillingModuleIfNeeded(tracker, client)
+
         val result = client.get("/api/v1/sdk/bootstrap")
         if (result != null) {
             try {
@@ -768,6 +858,11 @@ object AppDNA {
             val projectInfo = config.optJSONObject("project_info") ?: return null
             val projectId = projectInfo.optString("project_id", "").ifEmpty { return null }
             val storageBucket = projectInfo.optString("storage_bucket", "$projectId.appspot.com")
+            // SPEC-070-A A.24 (part 2) — pull `project_number` so we can populate
+            // `setGcmSenderId` on the secondary FirebaseApp. Without this, FCM
+            // (`FirebaseMessaging.getInstance(secondaryApp).token`) returns an
+            // error because the secondary app has no sender ID.
+            val gcmSenderId = projectInfo.optString("project_number", "").ifEmpty { null }
 
             // Find the first client entry
             val clients = config.optJSONArray("client") ?: return null
@@ -791,12 +886,81 @@ object AppDNA {
             if (apiKey != null) {
                 builder.setApiKey(apiKey)
             }
+            if (gcmSenderId != null) {
+                builder.setGcmSenderId(gcmSenderId)
+            }
 
             builder.build()
         } catch (_: Exception) {
             null
         }
     }
+
+    // SPEC-070-A A.31a — Firebase asset I/O moved off the configure-thread.
+    private fun initSecondaryFirebaseAppIfNeeded() {
+        val context = appContext ?: return
+        if (firestoreDB != null) return  // already initialized
+        val secondaryOptions = loadSecondaryFirebaseOptions(context)
+        synchronized(this@AppDNA) {
+            if (secondaryOptions != null) {
+                val existingApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
+                if (existingApp == null) {
+                    FirebaseApp.initializeApp(context, secondaryOptions, "appdna")
+                }
+                val secondaryApp = try { FirebaseApp.getInstance("appdna") } catch (_: Exception) { null }
+                if (secondaryApp != null) {
+                    firestoreDB = FirebaseFirestore.getInstance(secondaryApp)
+                    Log.info("Firebase: Using secondary app 'appdna' (google-services-appdna.json)")
+                } else {
+                    Log.error("Firebase: google-services-appdna.json found but failed to create secondary app. Check the JSON content.")
+                }
+            } else if (FirebaseApp.getApps(context).isEmpty()) {
+                Log.error("Firebase: No configuration found. Download google-services-appdna.json from Console -> Settings -> SDK and add it to your app/src/main/assets/ directory. See: https://docs.appdna.ai/sdks/android/installation#firebase-configuration")
+            } else {
+                Log.error("Firebase: Your app already has Firebase configured (its own project), but google-services-appdna.json was NOT found. AppDNA needs its own Firebase config. Download it from Console -> Settings -> SDK and add to app/src/main/assets/. Remote config will NOT work without this file.")
+            }
+        }
+    }
+
+    // SPEC-070-A A.26 — instantiate NativeBillingManager and bind to BillingModule.
+    private fun initBillingModuleIfNeeded(
+        tracker: ai.appdna.sdk.events.EventTracker,
+        client: ai.appdna.sdk.network.ApiClient,
+    ) {
+        if (billing.manager != null) return
+        val ctx = appContext ?: return
+        val storage = LocalStorage(ctx)
+        try {
+            val verifier = ai.appdna.sdk.billing.ReceiptVerifier(client)
+            val cache = ai.appdna.sdk.billing.EntitlementCache(ctx)
+            val mgr = ai.appdna.sdk.billing.NativeBillingManager(
+                context = ctx,
+                receiptVerifier = verifier,
+                entitlementCache = cache,
+                storage = storage,
+            )
+            mgr.initialize()
+            synchronized(this@AppDNA) {
+                billing.manager = mgr
+            }
+            // Start observing entitlement changes from Firestore once we have org/app/user.
+            val orgId = bootstrapOrgId
+            val appId = bootstrapAppId
+            val userId = identityManager?.currentIdentity?.userId
+            if (orgId != null && appId != null && userId != null) {
+                cache.startObserving(orgId, appId, userId)
+            }
+            Log.info("BillingModule: NativeBillingManager initialized")
+        } catch (e: Exception) {
+            Log.error("BillingModule init failed: ${e.message}")
+        }
+    }
+
+    /**
+     * Internal accessor for bridges that need the application context but
+     * aren't passed it directly (e.g. `RevenueCatBridge.configure`).
+     */
+    internal fun appContextForBridges(): Context? = appContext
 
     /**
      * Shut down the SDK and release resources. Call from Application.onTerminate().

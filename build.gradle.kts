@@ -18,6 +18,10 @@ android {
         targetSdk = 34
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // SPEC-070-A Phase A.5 — ship ProGuard/R8 keep rules to consumers
+        // so any host enabling minify doesn't silently strip SDK config DTOs.
+        consumerProguardFiles("consumer-rules.pro")
     }
 
     compileOptions {
@@ -122,6 +126,10 @@ dependencies {
     // Kotlin Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // SPEC-070-A A.30 — `future { ... }` coroutine builder so suspend public APIs
+    // (PushModule.requestPermission, BillingModule.purchase/getProducts/getEntitlements)
+    // can expose `CompletableFuture` overloads for Java consumers.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.7.3")
 
     // JSON serialization
     implementation("org.json:json:20231013")
@@ -138,8 +146,25 @@ dependencies {
     // SPEC-067: WorkManager for background event upload
     implementation("androidx.work:work-runtime-ktx:2.9.0")
 
-    // RevenueCat (optional — conditionally used)
-    compileOnly("com.revenuecat.purchases:purchases:7.0.0")
+    // SPEC-070-A A.18: ProcessLifecycleOwner observer for app-foreground/background
+    // hooks (parity with iOS UIApplication.didEnterBackgroundNotification observer
+    // in EventQueue.swift).
+    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
+    implementation("androidx.lifecycle:lifecycle-common-java8:2.7.0")
+
+    // SPEC-070-A A.3: Coil for NetworkImage memory + disk caching.
+    // Replaces the BitmapFactory.decodeStream-on-every-recomposition path.
+    // Default singleton ImageLoader is configured in core/AppDNAImageLoader.kt
+    // with a 25%-of-available-memory cache + 50 MB disk cache at
+    // <cacheDir>/appdna_image_cache.
+    implementation("io.coil-kt:coil-compose:2.7.0")
+
+    // RevenueCat (optional — conditionally used).
+    // SPEC-070-A A.19 — bumped to 8.x to match the public Purchases API
+    // (`Purchases.sharedInstance`, `Purchases.configure(PurchasesConfiguration)`,
+    // suspend `awaitOfferings()`, `awaitPurchase()`, `awaitRestore()`,
+    // `awaitCustomerInfo()`) we use in integrations/RevenueCatBridge.kt.
+    compileOnly("com.revenuecat.purchases:purchases:8.4.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")

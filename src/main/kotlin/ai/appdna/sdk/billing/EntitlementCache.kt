@@ -114,6 +114,17 @@ internal class EntitlementCache(
     /**
      * Start observing entitlement changes from Firestore.
      *
+     * SPEC-070-A A.23 — Listens to a single document at
+     * `orgs/{orgId}/apps/{appId}/users/{userId}/entitlements/current` and parses
+     * its `subscriptions[]` array, mirroring iOS `EntitlementCache.swift:30-39,63-64`.
+     *
+     * Backend writes the doc at this path — see
+     * `src/modules/monetization/services/EntitlementSyncService.ts:95`.
+     *
+     * Previously this code treated the same path as a *collection* and called
+     * `db.collection(path).addSnapshotListener` — which never matched the
+     * backend's document layout, so subscription state never streamed in.
+     *
      * @param orgId The organization ID.
      * @param appId The app ID.
      * @param userId The user ID.
@@ -121,49 +132,46 @@ internal class EntitlementCache(
     fun startObserving(orgId: String, appId: String, userId: String) {
         stopObserving()
 
-        val path = "orgs/$orgId/apps/$appId/users/$userId/entitlements/current"
-        Log.debug("EntitlementCache: observing Firestore at $path")
+        val basePath = "orgs/$orgId/apps/$appId/users/$userId"
+        val docPath = "$basePath/entitlements/current"
+        Log.debug("EntitlementCache: observing Firestore at $docPath")
 
         val db = AppDNA.firestoreDB ?: run {
             Log.warning("EntitlementCache: Firestore not available — skipping real-time sync")
             return
         }
         firestoreListener = db
-            .collection(path)
+            .document(docPath)
             .addSnapshotListener { snapshot, error ->
                 if (error != null) {
                     Log.error("EntitlementCache Firestore error: ${error.message}")
                     return@addSnapshotListener
                 }
 
-                if (snapshot == null || snapshot.isEmpty) {
+                val data = snapshot?.data
+                if (snapshot == null || !snapshot.exists() || data == null) {
                     if (entitlements.isNotEmpty()) {
                         setEntitlements(emptyList())
                     }
                     return@addSnapshotListener
                 }
 
-                val newEntitlements = snapshot.documents.mapNotNull { doc ->
-                    try {
-                        val data = doc.data ?: return@mapNotNull null
-                        Entitlement(
-                            productId = data["product_id"] as? String ?: doc.id,
-                            store = data["store"] as? String ?: "google_play",
-                            status = data["status"] as? String ?: "unknown",
-                            expiresAt = data["expires_at"] as? String,
-                            isTrial = data["is_trial"] as? Boolean ?: false,
-                            offerType = data["offer_type"] as? String
-                        )
-                    } catch (e: Exception) {
-                        Log.warning("Failed to parse entitlement document: ${e.message}")
-                        null
-                    }
-                }
-
+                val newEntitlements = parseSubscriptions(data)
                 Log.debug("EntitlementCache: received ${newEntitlements.size} entitlements from Firestore")
                 setEntitlements(newEntitlements)
             }
     }
+
+    /**
+     * Parse the `subscriptions[]` array from a Firestore document map into
+     * [Entitlement] instances. Mirrors iOS `parseFirestoreData`
+     * (EntitlementCache.swift:63-81).
+     *
+     * Visible to tests via `internal` (delegates to the static helper in
+     * the companion object so unit tests can invoke without a Context).
+     */
+    internal fun parseSubscriptions(data: Map<String, Any?>): List<Entitlement> =
+        parseSubscriptionsImpl(data)
 
     /**
      * Stop observing Firestore entitlement changes.
@@ -241,5 +249,31 @@ internal class EntitlementCache(
 
         /** Statuses considered "active" for entitlement checks. */
         private val ACTIVE_STATUSES = setOf("active", "trialing", "grace_period")
+
+        /**
+         * Static parser for Firestore subscription documents. Pure — no I/O,
+         * safe to call from unit tests without a `Context`.
+         */
+        @Suppress("UNCHECKED_CAST")
+        internal fun parseSubscriptionsImpl(data: Map<String, Any?>): List<Entitlement> {
+            val raw = data["subscriptions"] as? List<Map<String, Any?>> ?: return emptyList()
+            return raw.mapNotNull { sub ->
+                try {
+                    val productId = sub["product_id"] as? String ?: return@mapNotNull null
+                    val store = sub["store"] as? String ?: return@mapNotNull null
+                    val status = sub["status"] as? String ?: return@mapNotNull null
+                    Entitlement(
+                        productId = productId,
+                        store = store,
+                        status = status,
+                        expiresAt = sub["expires_at"] as? String,
+                        isTrial = (sub["is_trial"] as? Boolean) ?: false,
+                        offerType = sub["offer_type"] as? String,
+                    )
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        }
     }
 }

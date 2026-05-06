@@ -51,17 +51,24 @@ internal class EventUploadWorker(
             put("batch", batchArray)
         }.toString()
 
-        // Compress and send
-        val compressed = ApiClient.gzipCompress(body.toByteArray(Charsets.UTF_8))
+        // SPEC-070-A A.15: Compress with deflate (parity with iOS APIClient.deflateCompress)
+        val compressed = ApiClient.deflateCompress(body.toByteArray(Charsets.UTF_8))
         Log.debug("Background upload: ${batch.size} events, ${body.length} → ${compressed.size} bytes")
 
-        // Use a simple OkHttp request since we don't have ApiClient DI here
-        // The worker reads apiKey and environment from shared preferences
+        // SPEC-070-A A.1 + A.12b: API key required; baseUrl required (no host fallback).
+        // The SDK refuses to upload to an unknown host — silently sending events to
+        // the production endpoint when the integrator targeted SANDBOX is a much
+        // worse failure mode than a Result.failure here (which WorkManager will
+        // surface in logs and the next foreground flush will reschedule with a
+        // correct baseUrl).
         val apiKey = inputData.getString(KEY_API_KEY) ?: run {
-            Log.error("Background upload: missing API key")
+            Log.error("Background upload: missing API key — refusing to upload")
             return@withContext Result.failure()
         }
-        val baseUrl = inputData.getString(KEY_BASE_URL) ?: "https://api.appdna.ai"
+        val baseUrl = inputData.getString(KEY_BASE_URL) ?: run {
+            Log.error("Background upload: missing baseUrl input data — refusing to upload (set KEY_BASE_URL via scheduleIfNeeded)")
+            return@withContext Result.failure()
+        }
 
         try {
             val client = okhttp3.OkHttpClient.Builder()
@@ -71,14 +78,15 @@ internal class EventUploadWorker(
 
             val request = okhttp3.Request.Builder()
                 .url("$baseUrl/api/v1/ingest/events")
-                .header("Authorization", "Bearer $apiKey")
+                .header("x-api-key", apiKey) // SPEC-070-A A.1
                 .header("Content-Type", "application/json")
-                .header("Content-Encoding", "gzip")
-                .header("Accept-Encoding", "gzip")
+                .header("Content-Encoding", "deflate") // SPEC-070-A A.15
+                .header("Accept-Encoding", "gzip, deflate")
                 .post(compressed.toRequestBody("application/json".toMediaType()))
                 .build()
 
             client.newCall(request).execute().use { response ->
+                val code = response.code
                 if (response.isSuccessful) {
                     eventDatabase.removeByIds(batch.map { it.first })
                     Log.info("Background upload successful: ${batch.size} events")
@@ -90,8 +98,19 @@ internal class EventUploadWorker(
                     }
 
                     return@withContext Result.success()
+                } else if (code == 429 || code in 500..599) {
+                    // SPEC-070-A A.16: 5xx + 429 are transient — retry with WorkManager backoff.
+                    Log.warning("Background upload transient failure (HTTP $code) — will retry")
+                    return@withContext Result.retry()
+                } else if (code in 400..499) {
+                    // SPEC-070-A A.16: 4xx (excluding 429) means the payload or auth is wrong.
+                    // Retrying won't help; drop this batch from disk so the worker doesn't
+                    // re-pick it forever.
+                    Log.error("Background upload rejected (HTTP $code) — dropping batch (retry won't help)")
+                    eventDatabase.removeByIds(batch.map { it.first })
+                    return@withContext Result.failure()
                 } else {
-                    Log.warning("Background upload failed: ${response.code}")
+                    Log.warning("Background upload unexpected status (HTTP $code) — will retry")
                     return@withContext Result.retry()
                 }
             }
