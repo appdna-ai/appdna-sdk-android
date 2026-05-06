@@ -35,6 +35,65 @@ internal class PaywallManager(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /**
+     * SPEC-070-A I.13 — Present the highest-priority paywall whose
+     * `placement` matches and whose audience rules evaluate true for the
+     * current user.  Mirrors iOS
+     * `Paywalls/PaywallManager.swift:28-58 presentByPlacement(...)`.
+     *
+     * Selection algorithm (must match iOS):
+     *   1. filter `getAllPaywalls()` by `placement == placement`,
+     *   2. sort descending by `audience_rules.priority` (default 0),
+     *   3. pick first whose `audience_rules` evaluates true (no rules == match).
+     *
+     * Returns silently when no paywall matches — host can fall back to a
+     * static experience or omit the placement.
+     */
+    fun presentByPlacement(
+        activity: Activity,
+        placement: String,
+        context: PaywallContext? = null,
+        listener: AppDNAPaywallDelegate? = null,
+    ) {
+        val all = remoteConfigManager.getAllPaywalls()
+        val userTraits = AppDNA.getUserTraits()
+
+        // Filter by placement, then sort by audience_rules.priority desc
+        val candidates = all.values
+            .filter { it.placement == placement }
+            .sortedByDescending { pw ->
+                val rules = pw.audience_rules
+                @Suppress("UNCHECKED_CAST")
+                val priority = (rules as? Map<String, Any?>)?.get("priority") as? Number
+                priority?.toInt() ?: 0
+            }
+
+        // First candidate that matches audience rules wins. Iterate the
+        // raw map/list payload and short-circuit when rules evaluate false.
+        val match = candidates.firstOrNull { pw ->
+            val rules = pw.audience_rules ?: return@firstOrNull true
+            try {
+                @Suppress("UNCHECKED_CAST")
+                val ruleSet = (rules as? Map<String, Any?>)?.let {
+                    ai.appdna.sdk.core.AudienceRuleSet.fromMap(it)
+                }
+                if (ruleSet == null) {
+                    true
+                } else {
+                    ai.appdna.sdk.core.AudienceRuleEvaluator.evaluate(ruleSet, userTraits)
+                }
+            } catch (_: Throwable) {
+                true
+            }
+        }
+
+        if (match == null) {
+            Log.warning("No paywall found for placement: $placement")
+            return
+        }
+        present(activity = activity, id = match.id, context = context, listener = listener)
+    }
+
+    /**
      * Present a paywall. Must be called with a valid Activity.
      */
     fun present(

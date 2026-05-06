@@ -27,9 +27,31 @@ AppDNA gives you a single drop-in SDK for the growth surfaces every subscription
 
 ## Installation
 
-Add JitPack to your `settings.gradle.kts`:
+The SDK ships to **Maven Central** (preferred) and is also still available via JitPack for legacy hosts.
+
+### Maven Central (recommended)
 
 ```kotlin
+// settings.gradle.kts
+dependencyResolutionManagement {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+```
+
+```kotlin
+// app/build.gradle.kts
+dependencies {
+    implementation("ai.appdna:sdk-android:1.0.60")
+}
+```
+
+### JitPack (legacy)
+
+```kotlin
+// settings.gradle.kts
 dependencyResolutionManagement {
     repositories {
         google()
@@ -39,11 +61,10 @@ dependencyResolutionManagement {
 }
 ```
 
-Add the dependency to your app's `build.gradle.kts`:
-
 ```kotlin
+// app/build.gradle.kts
 dependencies {
-    implementation("com.github.appdna-ai:appdna-sdk-android:v1.0.31")
+    implementation("com.github.appdna-ai:appdna-sdk-android:v1.0.60")
 }
 ```
 

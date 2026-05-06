@@ -13,12 +13,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.LocationOn
 import ai.appdna.sdk.core.interpolated
 import java.text.SimpleDateFormat
 import java.util.*
@@ -146,7 +145,11 @@ fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
                     }
                     field.validation?.pattern?.let { pattern ->
                         val v = values[field.id]?.toString() ?: ""
-                        if (v.isNotEmpty() && !Regex(pattern).matches(v)) {
+                        // SPEC-070-A I.5 — `containsMatchIn` for partial-match
+                        // parity with iOS `NSRegularExpression.firstMatch`.
+                        // Authors typically write patterns like `\d{6}` to test
+                        // *contains* a 6-digit run, not anchored full-string.
+                        if (v.isNotEmpty() && !Regex(pattern).containsMatchIn(v)) {
                             errors[field.id] = field.validation.pattern_message ?: "Invalid format"
                         }
                     }
@@ -182,17 +185,25 @@ private fun FormFieldControl(
 ) {
     when (field.type) {
         FormFieldType.TEXT, FormFieldType.EMAIL, FormFieldType.PHONE -> {
-            val keyboardType = when (field.type) {
-                FormFieldType.EMAIL -> KeyboardType.Email
-                FormFieldType.PHONE -> KeyboardType.Phone
-                else -> KeyboardType.Text
-            }
+            // SPEC-070-A I.5b — keyboardType selection now respects the
+            // optional `field.config.keyboard_type` override ("url",
+            // "number", "decimal", "phone", "email", "ascii", "default").
+            // Falls back to the FormFieldType-derived default. iOS reads
+            // `keyboard_type` from `OnboardingConfig.keyboard_type` to back
+            // the same field-level override; Android does the same.
+            val keyboardType = resolveKeyboardType(field)
             OutlinedTextField(
                 value = values[field.id]?.toString() ?: "",
                 onValueChange = { values[field.id] = it; errors.remove(field.id) },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
+                // SPEC-070-A I.5b — `imeAction = Done` so the soft keyboard
+                // shows a "Done" key that dismisses the IME. Mirrors iOS
+                // `submitLabel(.done)`.
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = keyboardType,
+                    imeAction = ImeAction.Done,
+                ),
                 isError = errors.containsKey(field.id),
                 singleLine = true
             )
@@ -221,7 +232,11 @@ private fun FormFieldControl(
                     },
                     modifier = Modifier.weight(1f),
                     placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    // SPEC-070-A I.5b — number keyboard + Done IME action.
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
                     isError = errors.containsKey(field.id),
                     singleLine = true
                 )
@@ -328,26 +343,16 @@ private fun FormFieldControl(
         }
 
         FormFieldType.LOCATION -> {
-            // Location autocomplete field (SPEC-089)
-            // Renders as a text field with search icon — autocomplete UI is handled
-            // by LocationFieldComposable when the full implementation is available.
-            // For now, renders as a text input that the backend will geocode.
-            val textValue = values[field.id]?.toString() ?: ""
-            OutlinedTextField(
-                value = textValue,
-                onValueChange = { values[field.id] = it },
-                label = { Text(field.label.interpolated()) },
-                placeholder = { Text(field.config?.location_placeholder ?: "Search for a location...") },
-                leadingIcon = {
-                    Icon(
-                        Icons.Default.LocationOn,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp)
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                isError = errors.containsKey(field.id),
-                singleLine = true
+            // SPEC-070-A I.18 — full autocomplete location input. Reuses the
+            // dedicated `LocationFieldComposable` so the legacy form-step
+            // path matches block-based rendering fidelity. Honours
+            // `location_type`, `location_bias_country`, `location_language`,
+            // `location_min_chars`, `location_placeholder` from
+            // `OnboardingConfig.kt:204-208`.
+            LocationFieldComposable(
+                field = field,
+                values = values,
+                errors = errors,
             )
         }
         FormFieldType.SEGMENTED -> {
@@ -399,7 +404,16 @@ private fun DateField(
             DatePickerDialog(
                 context,
                 { _, year, month, day ->
-                    val formatted = String.format("%04d-%02d-%02d", year, month + 1, day)
+                    // SPEC-070-A I.6 — ISO8601 (`yyyy-MM-dd`) submission
+                    // matches iOS `DateFormatter.iso8601` round-trip exactly.
+                    // Locale.US prevents Arabic-numeral substitution
+                    // (Locale.getDefault() in fa-IR / ar would format
+                    // `۱۴۰۲-۰۱-۰۵` and break server geocoding).
+                    val formatted = String.format(
+                        Locale.US,
+                        "%04d-%02d-%02d",
+                        year, month + 1, day,
+                    )
                     values[field.id] = formatted
                     errors.remove(field.id)
                 },
@@ -437,9 +451,13 @@ private fun TimeField(
             TimePickerDialog(
                 context,
                 { _, hour, minute ->
-                    val formatted = String.format("%02d:%02d", hour, minute)
+                    // SPEC-070-A I.6/I.10 — `Locale.US` keeps digits ASCII-numeric
+                    // so the time round-trips with iOS server geocoding regardless
+                    // of device locale (Arabic / Persian / Bengali otherwise emit
+                    // their native numerals here).
+                    val formatted = String.format(Locale.US, "%02d:%02d", hour, minute)
                     values[timeKey] = formatted
-                    // For datetime, merge date + time
+                    // For datetime, merge date + time as ISO8601 (`YYYY-MM-DDTHH:MM`).
                     val dateStr = values[field.id]?.toString() ?: ""
                     if (dateStr.isNotEmpty() && field.type == FormFieldType.DATETIME) {
                         values[field.id] = "${dateStr}T$formatted"
@@ -463,6 +481,34 @@ private fun TimeField(
             else
                 MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+/**
+ * SPEC-070-A I.5b — derive a [KeyboardType] for a [FormField]. Honours the
+ * optional `keyboard_type` config override ("url", "number", "decimal",
+ * "phone", "email", "ascii", "default") and falls back to the field type.
+ */
+private fun resolveKeyboardType(field: FormField): KeyboardType {
+    val override = field.config?.keyboard_type?.lowercase()
+    if (override != null) {
+        when (override) {
+            "url", "uri" -> return KeyboardType.Uri
+            "number", "numeric" -> return KeyboardType.Number
+            "decimal" -> return KeyboardType.Decimal
+            "phone", "tel" -> return KeyboardType.Phone
+            "email" -> return KeyboardType.Email
+            "ascii" -> return KeyboardType.Ascii
+            "password" -> return KeyboardType.Password
+            "number_password" -> return KeyboardType.NumberPassword
+            "default", "text" -> return KeyboardType.Text
+        }
+    }
+    return when (field.type) {
+        FormFieldType.EMAIL -> KeyboardType.Email
+        FormFieldType.PHONE -> KeyboardType.Phone
+        FormFieldType.NUMBER -> KeyboardType.Number
+        else -> KeyboardType.Text
     }
 }
 

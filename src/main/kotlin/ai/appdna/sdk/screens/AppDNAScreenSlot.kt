@@ -2,6 +2,8 @@ package ai.appdna.sdk.screens
 
 import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.core.AudienceRuleEvaluator
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 
 /**
@@ -81,14 +84,42 @@ fun AppDNAScreenSlot(name: String) {
             val slotConfig = config.slotConfig
             val maxHeight = slotConfig?.maxHeight
 
+            // SPEC-070-A I.3 — slot action dispatch mirrors iOS
+            // `Screens/AppDNAScreenSlot.swift handleSlotAction(_:config:)`.
+            // Dismiss is intentionally inert (slot is inline content host
+            // can't pop). OpenURL + DeepLink both resolve via ACTION_VIEW
+            // through the host activity context; this matches iOS's
+            // `UIApplication.shared.open(url)` behavior. Veto is checked via
+            // `ScreenManager.shared.handleScreenAction` so a host delegate
+            // can intercept slot actions just like full-screen ones.
+            val activityContext = LocalContext.current
             val context = SectionContext(
                 screenId = config.id,
-                onAction = { action ->
+                onAction = onAction@{ action ->
+                    val payload = mapOf<String, Any?>(
+                        "type" to (action::class.simpleName ?: "unknown")
+                    )
+                    val allow = ScreenManager.shared.handleScreenAction(config.id, payload)
+                    if (!allow) return@onAction
                     when (action) {
-                        is SectionAction.OpenURL -> { /* open URL */ }
-                        is SectionAction.DeepLink -> { /* deep link */ }
+                        is SectionAction.OpenURL -> {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                activityContext.startActivity(intent)
+                            } catch (_: Throwable) { /* best-effort */ }
+                        }
+                        is SectionAction.DeepLink -> {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                activityContext.startActivity(intent)
+                            } catch (_: Throwable) { /* best-effort */ }
+                        }
                         is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
                         is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
+                        is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
+                        is SectionAction.Dismiss -> { /* slot can't dismiss inline content */ }
                         else -> {}
                     }
                 },

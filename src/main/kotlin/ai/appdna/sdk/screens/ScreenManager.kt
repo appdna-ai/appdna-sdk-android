@@ -40,6 +40,51 @@ class ScreenManager private constructor() {
     internal fun cacheFlow(id: String, config: FlowConfig) { lock.lock(); try { flowCache[id] = config } finally { lock.unlock() } }
     internal fun getCachedFlow(id: String): FlowConfig? { lock.lock(); try { return flowCache[id] } finally { lock.unlock() } }
 
+    /**
+     * SPEC-070-A I.11 — preview a screen from a raw JSON payload (host-side,
+     * not from remote config). Mirrors iOS `ScreenManager.previewScreen(json:)`.
+     * Parses → cache under the parsed `id` → present via [showScreen].
+     * Used by the console preview flow + integration tests.
+     *
+     * Returns the parsed [ScreenConfig] on success, null on parse failure.
+     */
+    fun previewScreen(json: String): ScreenConfig? {
+        return try {
+            val obj = org.json.JSONObject(json)
+            val map = jsonObjectToMap(obj)
+            val config = ScreenConfig.fromMap(map)
+            cacheScreen(config.id, config)
+            showScreen(config.id)
+            config
+        } catch (e: Throwable) {
+            ai.appdna.sdk.Log.warning("previewScreen failed: ${e.message}")
+            null
+        }
+    }
+
+    private fun jsonObjectToMap(obj: org.json.JSONObject): Map<String, Any?> {
+        val out = mutableMapOf<String, Any?>()
+        val it = obj.keys()
+        while (it.hasNext()) {
+            val key = it.next()
+            out[key] = unwrapJsonValue(obj.opt(key))
+        }
+        return out
+    }
+
+    private fun jsonArrayToList(arr: org.json.JSONArray): List<Any?> {
+        val out = ArrayList<Any?>(arr.length())
+        for (i in 0 until arr.length()) out.add(unwrapJsonValue(arr.opt(i)))
+        return out
+    }
+
+    private fun unwrapJsonValue(value: Any?): Any? = when (value) {
+        is org.json.JSONObject -> jsonObjectToMap(value)
+        is org.json.JSONArray -> jsonArrayToList(value)
+        org.json.JSONObject.NULL -> null
+        else -> value
+    }
+
     fun showScreen(screenId: String, callback: ((ScreenResult) -> Unit)? = null) {
         // Acquire lock once for the entire nesting check + config lookup + decrement
         val config: ScreenConfig?

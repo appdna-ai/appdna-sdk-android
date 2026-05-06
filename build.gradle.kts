@@ -1,12 +1,15 @@
 plugins {
-    id("com.android.library") version "8.2.0"
-    id("org.jetbrains.kotlin.android") version "1.9.22"
+    alias(libs.plugins.android.library)
+    alias(libs.plugins.kotlin.android)
+    // SPEC-070-A J.5 — kotlinx-serialization plugin. Dep is added below; existing
+    // org.json-based DTOs are unchanged so future migration can happen incrementally.
+    alias(libs.plugins.kotlin.serialization)
     id("maven-publish")
     id("signing")
     // SPEC-070-0 §3.4 — visual snapshot harness (Android leg).
     // Roborazzi runs Compose snapshot tests on the JVM via Robolectric — no device required.
     // PNG goldens live in src/test/snapshots/ and are committed; reviewed during PR.
-    id("io.github.takahirom.roborazzi") version "1.21.0"
+    alias(libs.plugins.roborazzi)
 }
 
 android {
@@ -24,6 +27,21 @@ android {
         consumerProguardFiles("consumer-rules.pro")
     }
 
+    // SPEC-070-A J.14 — explicit debug + release build types.
+    // - release: log noise gated by BuildConfig.DEBUG inside Configuration.kt's
+    //   `Log` object so verbose logs get suppressed in production builds even
+    //   when callers leave LogLevel at DEBUG.
+    // - debug: leaves all logs on; LeakCanary auto-installs (J.16).
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            consumerProguardFiles("consumer-rules.pro")
+        }
+        debug {
+            isMinifyEnabled = false
+        }
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -35,10 +53,20 @@ android {
 
     buildFeatures {
         compose = true
+        // Expose BuildConfig.DEBUG to runtime (J.14 log gating).
+        buildConfig = true
     }
 
     composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.8"
+        kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
+    }
+
+    // SPEC-070-A J.3 — emit sources + javadoc jars for Maven Central / Sonatype.
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
     }
 }
 
@@ -86,9 +114,26 @@ afterEvaluate {
         }
 
         repositories {
+            // Local staging dir — used by sdk-publish CI for artifact inspection.
             maven {
                 name = "LocalStaging"
                 url = uri(layout.buildDirectory.dir("staging-deploy"))
+            }
+
+            // SPEC-070-A J.3 — Sonatype OSSRH (Maven Central) staging repo.
+            // Credentials come from env vars so they never live in version control:
+            //   OSSRH_USERNAME / OSSRH_PASSWORD (Sonatype Jira account)
+            //   GPG_SIGNING_KEY / GPG_SIGNING_PASSWORD (signing block below)
+            // Activated by `./gradlew publishReleasePublicationToOSSRHRepository`.
+            maven {
+                name = "OSSRH"
+                val releasesRepoUrl = "https://s01.oss.sonatype.org/service/local/staging/deploy/maven2/"
+                val snapshotsRepoUrl = "https://s01.oss.sonatype.org/content/repositories/snapshots/"
+                url = uri(if (sdkVersion.endsWith("SNAPSHOT")) snapshotsRepoUrl else releasesRepoUrl)
+                credentials {
+                    username = System.getenv("OSSRH_USERNAME") ?: ""
+                    password = System.getenv("OSSRH_PASSWORD") ?: ""
+                }
             }
         }
     }
@@ -104,80 +149,104 @@ afterEvaluate {
 }
 
 dependencies {
-    // Jetpack Compose
-    val composeBom = platform("androidx.compose:compose-bom:2024.01.00")
+    // Jetpack Compose — bumped to 2024.02.02 (SPEC-070-A J.13). Compose Compiler
+    // 1.5.8 + Kotlin 1.9.22 caps the supported BoM at 2024.02.02; the 2024.09.x
+    // line requires Kotlin 1.9.25 + compiler 1.5.15 which is out of scope here.
+    val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
-    implementation("androidx.compose.ui:ui")
-    implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
-    implementation("androidx.compose.ui:ui-tooling-preview")
-    implementation("androidx.activity:activity-compose:1.8.2")
-    debugImplementation("androidx.compose.ui:ui-tooling")
+    implementation(libs.compose.ui)
+    implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.ext)
+    implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.activity.compose)
+    debugImplementation(libs.compose.ui.tooling)
 
     // Firebase Firestore for remote config
-    implementation("com.google.firebase:firebase-firestore:25.1.1")
+    implementation(libs.firebase.firestore)
 
     // Firebase Cloud Messaging for push notifications
-    implementation("com.google.firebase:firebase-messaging:24.1.0")
+    implementation(libs.firebase.messaging)
 
     // OkHttp for event ingestion
-    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(libs.okhttp)
 
-    // Kotlin Coroutines
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+    // Kotlin Coroutines — bumped to 1.8.1 (SPEC-070-A J.13).
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.coroutines.android)
     // SPEC-070-A A.30 — `future { ... }` coroutine builder so suspend public APIs
     // (PushModule.requestPermission, BillingModule.purchase/getProducts/getEntitlements)
     // can expose `CompletableFuture` overloads for Java consumers.
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-jdk8:1.7.3")
+    implementation(libs.kotlinx.coroutines.jdk8)
 
-    // JSON serialization
-    implementation("org.json:json:20231013")
+    // JSON serialization (legacy — most DTOs still use this).
+    implementation(libs.org.json)
+    // SPEC-070-A J.5 — kotlinx-serialization-json. Future DTOs can opt in by
+    // annotating with `@Serializable`; existing DTOs are unchanged in this PR.
+    implementation(libs.kotlinx.serialization.json)
 
     // Google Play Billing Library
-    implementation("com.android.billingclient:billing-ktx:7.0.0")
+    implementation(libs.billing.ktx)
 
     // Google Play In-App Review
-    implementation("com.google.android.play:review-ktx:2.0.1")
+    implementation(libs.play.review.ktx)
 
     // Google Play Install Referrer (for deferred deep links)
-    implementation("com.android.installreferrer:installreferrer:2.2")
+    implementation(libs.installreferrer)
 
     // SPEC-067: WorkManager for background event upload
-    implementation("androidx.work:work-runtime-ktx:2.9.0")
+    implementation(libs.work.runtime.ktx)
 
     // SPEC-070-A A.18: ProcessLifecycleOwner observer for app-foreground/background
     // hooks (parity with iOS UIApplication.didEnterBackgroundNotification observer
     // in EventQueue.swift).
-    implementation("androidx.lifecycle:lifecycle-process:2.7.0")
-    implementation("androidx.lifecycle:lifecycle-common-java8:2.7.0")
+    implementation(libs.lifecycle.process)
+    implementation(libs.lifecycle.common.java8)
 
     // SPEC-070-A G.5: EncryptedSharedPreferences for sensitive on-device storage
     // (anon_id, user_id, user_traits, push token). iOS parity = Keychain.
-    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation(libs.security.crypto)
 
     // SPEC-070-A A.3: Coil for NetworkImage memory + disk caching.
     // Replaces the BitmapFactory.decodeStream-on-every-recomposition path.
     // Default singleton ImageLoader is configured in core/AppDNAImageLoader.kt
     // with a 25%-of-available-memory cache + 50 MB disk cache at
     // <cacheDir>/appdna_image_cache.
-    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation(libs.coil.compose)
+
+    // SPEC-070-A E.1 — rich media catch-up to iOS SPEC-085 parity.
+    // Lottie (Airbnb) for vector animations in onboarding/messages/surveys/push.
+    // Rive (state-machine animations) for richer interactive content.
+    // ExoPlayer (media3) for inline video playback in messages + onboarding.
+    // Coil GIF decoder so animated GIFs render in NetworkImage (otherwise Coil
+    // shows the first frame as a static image).
+    // AndroidSVG so vector .svg URLs (icon library, hero artwork) decode to
+    // bitmaps inside NetworkImage rather than failing silently.
+    implementation(libs.lottie.compose)
+    implementation(libs.rive.android)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
+    implementation(libs.coil.gif)
+    implementation(libs.androidsvg.aar)
 
     // RevenueCat (optional — conditionally used).
     // SPEC-070-A A.19 — bumped to 8.x to match the public Purchases API
     // (`Purchases.sharedInstance`, `Purchases.configure(PurchasesConfiguration)`,
     // suspend `awaitOfferings()`, `awaitPurchase()`, `awaitRestore()`,
     // `awaitCustomerInfo()`) we use in integrations/RevenueCatBridge.kt.
-    compileOnly("com.revenuecat.purchases:purchases:8.4.0")
+    compileOnly(libs.revenuecat.purchases)
+
+    // SPEC-070-A J.16 — LeakCanary auto-installs in debug builds and reports
+    // leaks via the Android system notification shade. Excluded from release.
+    debugImplementation(libs.leakcanary.android)
 
     // Testing
-    testImplementation("junit:junit:4.13.2")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
 
     // SPEC-070-0 §3.4 — visual snapshot harness (JVM-only; no device required)
-    testImplementation("org.robolectric:robolectric:4.11.1")
-    testImplementation("androidx.compose.ui:ui-test-junit4")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.21.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.21.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.21.0")
+    testImplementation(libs.robolectric)
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
+    testImplementation(libs.roborazzi.junit.rule)
 }

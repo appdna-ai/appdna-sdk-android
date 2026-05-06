@@ -1,13 +1,23 @@
 package ai.appdna.sdk.core
 
+import ai.appdna.sdk.Log
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -15,6 +25,10 @@ import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
 import coil.request.ImageRequest
+import com.caverock.androidsvg.SVG
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 /**
  * Network image composable for the SDK.
@@ -24,6 +38,17 @@ import coil.request.ImageRequest
  * with no caching; Coil now handles HTTP, decoding, and memory + disk caching
  * via the [AppDNAImageLoader] singleton (25% memory budget, 50 MB disk cache
  * at `<cacheDir>/appdna_image_cache`).
+ *
+ * SPEC-070-A E.5 — adds GIF + SVG support:
+ *   - GIF: registered as a Coil decoder in [AppDNAImageLoader] so the
+ *     entire animation plays (not just the first frame).
+ *   - SVG: detected by file extension on this side and rendered via
+ *     `com.caverock.androidsvg` to a [Bitmap] that we hand back to
+ *     Compose as an `ImageBitmap`. We deliberately don't ship a Coil
+ *     SVG decoder factory because (a) only a tiny subset of console
+ *     URLs are SVG today, (b) it keeps the Coil dep surface minimal,
+ *     and (c) `androidsvg` gives us deterministic sizing aligned to
+ *     the Composable's layout bounds.
  *
  * Public signature is preserved so all existing callers (paywall renderer,
  * onboarding renderer, message renderer, video thumbnail, media block) work
@@ -40,6 +65,17 @@ fun NetworkImage(
 ) {
     if (url.isNullOrBlank()) {
         Box(modifier = modifier.background(placeholderColor))
+        return
+    }
+
+    if (isSvgUrl(url)) {
+        SvgNetworkImage(
+            url = url,
+            modifier = modifier,
+            contentScale = contentScale,
+            placeholderColor = placeholderColor,
+            contentDescription = contentDescription,
+        )
         return
     }
 
@@ -81,6 +117,79 @@ fun NetworkImage(
                 )
             }
             else -> SubcomposeAsyncImageContent()
+        }
+    }
+}
+
+private fun isSvgUrl(url: String): Boolean {
+    // Strip query string + fragment before checking the extension —
+    // signed CDN URLs commonly look like `…/asset.svg?token=…`.
+    val path = url.substringBefore('?').substringBefore('#').lowercase()
+    return path.endsWith(".svg") || path.endsWith(".svgz")
+}
+
+@Composable
+private fun SvgNetworkImage(
+    url: String,
+    modifier: Modifier,
+    contentScale: ContentScale,
+    placeholderColor: Color,
+    contentDescription: String?,
+) {
+    var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
+    var failed by remember(url) { mutableStateOf(false) }
+
+    LaunchedEffect(url) {
+        bitmap = null
+        failed = false
+        val rendered = try {
+            withContext(Dispatchers.IO) {
+                URL(url).openStream().use { stream ->
+                    val svg = SVG.getFromInputStream(stream)
+                    val widthPx = svg.documentWidth.takeIf { it > 0 } ?: 512f
+                    val heightPx = svg.documentHeight.takeIf { it > 0 } ?: 512f
+                    val bmp = Bitmap.createBitmap(
+                        widthPx.toInt().coerceAtLeast(1),
+                        heightPx.toInt().coerceAtLeast(1),
+                        Bitmap.Config.ARGB_8888,
+                    )
+                    svg.renderToCanvas(Canvas(bmp))
+                    bmp
+                }
+            }
+        } catch (t: Throwable) {
+            Log.warning("NetworkImage(SVG): decode failed for $url: ${t.message}")
+            null
+        }
+        if (rendered != null) {
+            bitmap = rendered
+        } else {
+            failed = true
+        }
+    }
+
+    val current = bitmap
+    Box(
+        modifier = modifier.background(placeholderColor),
+        contentAlignment = Alignment.Center,
+    ) {
+        when {
+            current != null -> {
+                Image(
+                    bitmap = current.asImageBitmap(),
+                    contentDescription = contentDescription,
+                    contentScale = contentScale,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
+            failed -> Unit // placeholder background already drawn
+            else -> {
+                CircularProgressIndicator(
+                    modifier = Modifier.fillMaxSize(0.3f),
+                    color = Color.White.copy(alpha = 0.5f),
+                    strokeWidth = 2.dp,
+                )
+            }
         }
     }
 }

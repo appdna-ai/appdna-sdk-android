@@ -383,8 +383,10 @@ object AppDNA {
             // `context.experiment_exposures` so BigQuery ETL can attribute
             // conversions to the variant the user was bucketed into.
             tracker.setExperimentExposureProvider {
-                expManager.getExposures().map { (experimentId, variantId) ->
-                    ai.appdna.sdk.events.ExperimentExposure(experimentId, variantId)
+                // SPEC-070-A I.15 — getExposures() now returns named ExposureEntry
+                // values; map to the EventTracker's ExperimentExposure wire shape.
+                expManager.getExposures().map { entry ->
+                    ai.appdna.sdk.events.ExperimentExposure(entry.experimentId, entry.variant)
                 }
             }
 
@@ -613,7 +615,9 @@ object AppDNA {
      * Exposure is auto-tracked on first call per session.
      */
     fun getExperimentVariant(experimentId: String): String? {
-        return experimentManager?.getVariant(experimentId)?.id
+        // SPEC-070-A I.14 — ExperimentManager.getVariant now returns String?
+        // matching iOS. No `.id` deref needed.
+        return experimentManager?.getVariant(experimentId)
     }
 
     /**
@@ -686,6 +690,89 @@ object AppDNA {
     /** Show a server-driven screen by ID. */
     fun showScreen(screenId: String, callback: ((ai.appdna.sdk.screens.ScreenResult) -> Unit)? = null) {
         ai.appdna.sdk.screens.ScreenManager.shared.showScreen(screenId, callback)
+    }
+
+    /**
+     * SPEC-070-A I.11 — preview a server-driven screen from a raw JSON
+     * payload (no remote-config fetch). Mirrors iOS `AppDNA.previewScreen(json:)`.
+     * Used by the console live-preview pipe + integration tests. Returns
+     * `true` if the JSON parsed and a screen was presented, `false` otherwise.
+     */
+    fun previewScreen(json: String): Boolean {
+        return ai.appdna.sdk.screens.ScreenManager.shared.previewScreen(json) != null
+    }
+
+    /**
+     * SPEC-070-A I.11 — fetch the structured [ai.appdna.sdk.onboarding.LocationData]
+     * captured by the named onboarding form field. Returns `null` if the
+     * field hasn't been answered yet, was answered with a free-text value,
+     * or no flow has run this session. Mirrors iOS
+     * `AppDNA.getLocationData(fieldId:)`.
+     */
+    fun getLocationData(fieldId: String): ai.appdna.sdk.onboarding.LocationData? {
+        val responses = ai.appdna.sdk.core.SessionDataStore.instance?.onboardingResponses
+            ?: return null
+        for ((_, stepData) in responses) {
+            val raw = stepData[fieldId] as? Map<*, *> ?: continue
+            val address = raw["formatted_address"] as? String ?: raw["address"] as? String ?: continue
+            return ai.appdna.sdk.onboarding.LocationData(
+                formatted_address = address,
+                city = raw["city"] as? String ?: "",
+                state = raw["state"] as? String ?: "",
+                state_code = raw["state_code"] as? String ?: "",
+                country = raw["country"] as? String ?: "",
+                country_code = raw["country_code"] as? String ?: "",
+                latitude = (raw["latitude"] as? Number)?.toDouble() ?: 0.0,
+                longitude = (raw["longitude"] as? Number)?.toDouble() ?: 0.0,
+                timezone = raw["timezone"] as? String ?: "UTC",
+                timezone_offset = (raw["timezone_offset"] as? Number)?.toInt() ?: 0,
+                postal_code = raw["postal_code"] as? String,
+                raw_query = raw["raw_query"] as? String ?: "",
+            )
+        }
+        return null
+    }
+
+    /**
+     * SPEC-070-A I.11 — schedule (or re-schedule) all SDK-owned background
+     * tasks. Hosts can call this to opt into the periodic config refresh
+     * job before [configure] returns, or after the host's WorkManager has
+     * finished initialising.  Idempotent — WorkManager dedupes by
+     * unique-name.  Mirrors iOS `AppDNA.registerBackgroundTasks()`.
+     */
+    fun registerBackgroundTasks() {
+        try {
+            appContext?.let { ai.appdna.sdk.background.ConfigRefreshWorker.schedule(it) }
+        } catch (e: Throwable) {
+            Log.warning("registerBackgroundTasks: schedule failed: ${e.message}")
+        }
+    }
+
+    /**
+     * SPEC-070-A I.11 — debug snapshot of the SDK's bootstrap state. Returns
+     * a multi-line human-readable string covering: configured flag, env
+     * (production / sandbox), api base url, identity (anon_id + user_id),
+     * org/app ids, sdk version, current bundle version, consent status.
+     * Mirrors iOS `AppDNA.diagnose()`. Safe to call before configure() —
+     * unset fields surface as `<unset>`.
+     */
+    fun diagnose(): String {
+        val identity = identityManager?.currentIdentity
+        val sb = StringBuilder()
+        sb.appendLine("=== AppDNA SDK diagnose ===")
+        sb.appendLine("configured: $isConfigured")
+        sb.appendLine("environment: ${environment.name.lowercase()}")
+        sb.appendLine("base_url: ${environment.baseUrl}")
+        sb.appendLine("api_key: ${if (apiKey.isNullOrBlank()) "<unset>" else "${apiKey?.take(8)}…"}")
+        sb.appendLine("sdk_version: $sdkVersion")
+        sb.appendLine("bundle_version: $currentBundleVersion")
+        sb.appendLine("anon_id: ${identity?.anonId ?: "<unset>"}")
+        sb.appendLine("user_id: ${identity?.userId ?: "<unset>"}")
+        sb.appendLine("org_id: ${bootstrapOrgId ?: "<unset>"}")
+        sb.appendLine("app_id: ${bootstrapAppId ?: "<unset>"}")
+        sb.appendLine("consent.analytics: ${eventTracker?.isConsentGranted ?: true}")
+        sb.appendLine("=== end ===")
+        return sb.toString()
     }
 
     /** Show a server-driven multi-screen flow by ID. */

@@ -40,6 +40,10 @@ class SurveyActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // SPEC-070-A I.16 — edge-to-edge so Compose receives IME inset changes
+        // via `imePadding()` + `safeDrawingPadding()` modifiers in SurveyScreen.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
         val surveyId = intent.getStringExtra(EXTRA_SURVEY_ID) ?: run {
             finish()
             return
@@ -73,6 +77,25 @@ class SurveyActivity : ComponentActivity() {
             callback?.invoke(SurveyResult.Dismissed(answeredCount))
             cleanup()
         }
+
+        // SPEC-070-A I.9 — system back: when on a question past the first, decrement
+        // instead of dismissing. iOS SurveyRenderer pops the question stack on
+        // swipe-back; Android maps that to the system back button. The Compose
+        // recomposition reads `currentQuestionIndex` from the companion field
+        // which is updated by SurveyScreen's "Back" button click handler too.
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                val cb = surveyBackHandler
+                if (cb == null || !cb.invoke()) {
+                    // No question to step back to → dismiss.
+                    isEnabled = false
+                    @Suppress("DEPRECATION")
+                    onBackPressedDispatcher.onBackPressed()
+                    pendingCallback?.invoke(SurveyResult.Dismissed(0))
+                    cleanup()
+                }
+            }
+        })
 
         setContent {
             // SPEC-205 / SPEC-070-A D.5: read system color scheme at the
@@ -117,6 +140,15 @@ class SurveyActivity : ComponentActivity() {
         private var pendingCallback: ((SurveyResult) -> Unit)? = null
         internal var questionAnsweredCallback: ((String, String, Any) -> Unit)? = null
 
+        /**
+         * SPEC-070-A I.9 — set by SurveyScreen so the Activity's back-press
+         * callback can decrement question index instead of dismissing the
+         * Activity. Returns true when the question pointer was decremented;
+         * false means we're on the first (or only) question and the host
+         * should fall through to dismiss.
+         */
+        @Volatile internal var surveyBackHandler: (() -> Boolean)? = null
+
         fun launch(context: Context, surveyId: String, config: SurveyConfig, callback: (SurveyResult) -> Unit) {
             pendingSurveyConfig = config
             pendingCallback = callback
@@ -142,6 +174,22 @@ fun SurveyScreen(
 ) {
     var currentIndex by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, SurveyAnswer>() }
+
+    // SPEC-070-A I.9 — register a back-handler so the Activity's
+    // OnBackPressedDispatcher can decrement question index instead of
+    // dismissing. Cleared on dispose so the handler doesn't survive
+    // SurveyScreen recompositions across surveys.
+    DisposableEffect(Unit) {
+        SurveyActivity.surveyBackHandler = {
+            if (currentIndex > 0) {
+                currentIndex--
+                true
+            } else {
+                false
+            }
+        }
+        onDispose { SurveyActivity.surveyBackHandler = null }
+    }
     var showCompletion by remember { mutableStateOf(false) }
     val currentView = LocalView.current
     val visibleQuestions by remember {
@@ -196,6 +244,11 @@ fun SurveyScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            // SPEC-070-A I.16 — IME insets so keyboard pushes content up; safe
+            // drawing keeps content out of system bars while the survey
+            // itself paints the background edge-to-edge.
+            .imePadding()
+            .safeDrawingPadding()
             .clip(RoundedCornerShape(topStart = containerRadius, topEnd = containerRadius))
             .background(bgColor)
             .padding(24.dp),

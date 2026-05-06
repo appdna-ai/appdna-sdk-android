@@ -1,7 +1,10 @@
 package ai.appdna.sdk.core
 
 import android.content.Context
+import android.os.Build
 import coil.ImageLoader
+import coil.decode.GifDecoder
+import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import java.io.File
@@ -22,6 +25,15 @@ import java.io.File
  * default Coil loader (`Coil.imageLoader(context)`) so the SDK's caching
  * behaviour can't be accidentally clobbered by a host app that sets a
  * different default singleton via `Coil.setImageLoader(...)`.
+ *
+ * SPEC-070-A E.5 — animated-GIF decoder registered alongside the static
+ * decoders. On API 28+ Coil's [ImageDecoderDecoder] uses the platform
+ * `ImageDecoder` (covers GIF + animated WebP + animated HEIF); on older
+ * devices the legacy [GifDecoder] is registered as a fallback so GIF
+ * URLs still animate frame-by-frame instead of rendering a static
+ * first frame. SVG is handled in [NetworkImage] directly via
+ * `androidsvg` rather than as a Coil decoder so we don't add a third
+ * decoder dependency to the host classpath.
  */
 internal object AppDNAImageLoader {
 
@@ -52,6 +64,15 @@ internal object AppDNAImageLoader {
 
     private fun build(appContext: Context): ImageLoader {
         return ImageLoader.Builder(appContext)
+            .components {
+                // SPEC-070-A E.5 — register GIF decoder so animated GIFs
+                // render their full animation rather than the first frame.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    add(ImageDecoderDecoder.Factory())
+                } else {
+                    add(GifDecoder.Factory())
+                }
+            }
             .memoryCache {
                 MemoryCache.Builder(appContext)
                     .maxSizePercent(MEMORY_CACHE_PERCENT)

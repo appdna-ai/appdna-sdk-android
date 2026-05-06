@@ -83,6 +83,14 @@ internal class RemoteConfigManager(
     fun getPaywallConfig(id: String): PaywallConfig? = paywalls[id]
 
     /**
+     * SPEC-070-A I.13 — return every paywall config currently held in remote
+     * config, keyed by id. Used by [PaywallManager.presentByPlacement] to
+     * filter by `placement` + audience rules. Mirrors iOS
+     * `RemoteConfigManager.getAllPaywalls()`.
+     */
+    fun getAllPaywalls(): Map<String, PaywallConfig> = paywalls
+
+    /**
      * Get an onboarding flow by ID, or the active flow if id is null.
      */
     fun getOnboardingFlow(id: String?): OnboardingFlowConfig? {

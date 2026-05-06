@@ -5,7 +5,6 @@ import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import com.android.billingclient.api.*
 import kotlinx.coroutines.*
-import kotlin.math.min
 import kotlin.random.Random
 
 /**
@@ -20,7 +19,11 @@ import kotlin.random.Random
  */
 internal class BillingConnectionManager(
     private val context: Context,
-    private val purchasesUpdatedListener: PurchasesUpdatedListener
+    private val purchasesUpdatedListener: PurchasesUpdatedListener,
+    // SPEC-070-A J.23 — injectable factory so unit tests can swap in a fake
+    // BillingClient. Default is the production builder which wires
+    // PendingPurchasesParams identically to the previous inline implementation.
+    private val factory: BillingClientFactory = DefaultBillingClientFactory,
 ) {
     private var billingClient: BillingClient? = null
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -62,19 +65,11 @@ internal class BillingConnectionManager(
             return
         }
 
-        // SPEC-070-A A.25 — `enablePendingPurchases()` (no-arg) is deprecated in
-        // billing-ktx 7+. Use the typed `PendingPurchasesParams` builder. We
-        // currently only sell subscriptions and one-time products, so opt in to
-        // one-time-product pending purchases. (Subscription pending state is
-        // always enabled and does not need a flag.)
-        billingClient = BillingClient.newBuilder(context)
-            .setListener(purchasesUpdatedListener)
-            .enablePendingPurchases(
-                PendingPurchasesParams.newBuilder()
-                    .enableOneTimeProducts()
-                    .build()
-            )
-            .build()
+        // SPEC-070-A A.25 + J.23 — delegate to `factory` so unit tests can sub
+        // in a fake BillingClient. Production factory wires the same
+        // PendingPurchasesParams (subs always pending; opt in to one-time-
+        // product pending purchases).
+        billingClient = factory.create(context, purchasesUpdatedListener)
 
         Log.info("BillingClient created, starting connection...")
         startConnection()

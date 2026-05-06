@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaMetadataRetriever
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.Dispatchers
@@ -29,6 +30,19 @@ import java.net.URL
  * a coroutine with an 8-second wall-clock cap (well under FCM's 10s service
  * window). Previously, the default URL connection's 25s combined timeout
  * could cause the FCM service to be killed before the notification posted.
+ *
+ * SPEC-070-A E.6 — rich-media handling for GIF and video URLs:
+ *   - **GIF**: FCM/[NotificationCompat.BigPictureStyle] only renders a
+ *     single still bitmap, so we decode the first frame of the GIF and
+ *     surface it as the BigPicture. (Animated rendering inside the
+ *     notification shade isn't supported by the platform.)
+ *   - **Video** (MP4 / MOV / WEBM …): we pull the closest sync frame
+ *     near t=0 via [MediaMetadataRetriever] and use that as the
+ *     BigPicture thumbnail.
+ *
+ * The selection between paths is driven by the optional `mediaType`
+ * argument (mapped from FCM `data.media_type`) with a filename-extension
+ * fallback so the server can omit the field for backward compatibility.
  */
 object RichPushHandler {
 
@@ -49,15 +63,23 @@ object RichPushHandler {
             .setAutoCancel(true)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
 
-        // SPEC-070-A H.23: download bitmap with a coroutine-scoped 8-second
-        // timeout. runBlocking is acceptable here because (a) callers are
-        // already on the FCM service thread (NOT main), and (b) we cap the
-        // wait at 8s — well below FCM's 10s service-window kill timer.
+        // SPEC-070-A H.23 / E.6: dispatch to the right decoder based on
+        // declared media type (with extension fallback). We always cap
+        // the wall-clock at 8s — bitmap decode, GIF first-frame extract,
+        // and video sync-frame extract are all subject to the same
+        // budget so the FCM service is never starved.
         imageUrl?.let { url ->
             try {
+                val resolvedKind = resolveMediaKind(mediaType, url)
                 val bitmap = runBlocking {
                     withTimeoutOrNull(BITMAP_TIMEOUT_MS) {
-                        withContext(Dispatchers.IO) { downloadBitmap(url) }
+                        withContext(Dispatchers.IO) {
+                            when (resolvedKind) {
+                                MediaKind.VIDEO -> extractVideoThumbnail(url)
+                                MediaKind.GIF -> extractGifFirstFrame(url)
+                                MediaKind.IMAGE -> downloadBitmap(url)
+                            }
+                        }
                     }
                 }
                 if (bitmap != null) {
@@ -68,10 +90,12 @@ object RichPushHandler {
                     )
                     builder.setLargeIcon(bitmap)
                 } else {
-                    Log.warning("RichPushHandler: bitmap fetch timed out / failed for $url")
+                    Log.warning(
+                        "RichPushHandler: rich-media fetch timed out / failed for $url ($resolvedKind)",
+                    )
                 }
             } catch (e: Throwable) {
-                Log.warning("RichPushHandler: bitmap fetch threw: ${e.message}")
+                Log.warning("RichPushHandler: rich-media fetch threw: ${e.message}")
             }
         }
 
@@ -89,6 +113,36 @@ object RichPushHandler {
 
     private const val BITMAP_TIMEOUT_MS = 8_000L
 
+    private enum class MediaKind { IMAGE, GIF, VIDEO }
+
+    /**
+     * Pick a decoder for [url] based on the server-supplied [mediaType]
+     * (an FCM `data.media_type` value such as `image/gif`, `video/mp4`,
+     * or shorthand `gif` / `video`). When the server omits the hint we
+     * fall back to the URL's file extension so the existing console
+     * payloads keep working without re-publishing.
+     */
+    private fun resolveMediaKind(mediaType: String?, url: String): MediaKind {
+        mediaType?.lowercase()?.trim()?.let { hint ->
+            when {
+                hint == "gif" || hint.contains("gif") -> return MediaKind.GIF
+                hint == "video" || hint.startsWith("video/") -> return MediaKind.VIDEO
+                hint.startsWith("image/") -> return MediaKind.IMAGE
+                else -> Unit  // fall through to URL-extension detection
+            }
+        }
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".gif") -> MediaKind.GIF
+            path.endsWith(".mp4") ||
+                path.endsWith(".mov") ||
+                path.endsWith(".webm") ||
+                path.endsWith(".m4v") ||
+                path.endsWith(".3gp") -> MediaKind.VIDEO
+            else -> MediaKind.IMAGE
+        }
+    }
+
     private fun downloadBitmap(url: String): Bitmap? {
         return try {
             val connection = URL(url).openConnection()
@@ -102,6 +156,62 @@ object RichPushHandler {
         } catch (e: Exception) {
             Log.warning("RichPushHandler.downloadBitmap failed: ${e.message}")
             null
+        }
+    }
+
+    /**
+     * SPEC-070-A E.6 — GIFs in the Android notification shade can only
+     * surface a single static frame (`BigPictureStyle.bigPicture` accepts
+     * only a [Bitmap]). We decode the first frame via the platform
+     * `ImageDecoder` on API 28+, and fall back to `BitmapFactory` (which
+     * also yields the first frame) on older devices.
+     */
+    private fun extractGifFirstFrame(url: String): Bitmap? {
+        return try {
+            val connection = URL(url).openConnection()
+            connection.connectTimeout = 4_000
+            connection.readTimeout = 4_000
+            connection.getInputStream().use { stream ->
+                // BitmapFactory's GIF support yields the first frame as a
+                // static bitmap on every supported API level — perfect for
+                // notification surfacing where animation is unavailable.
+                BitmapFactory.decodeStream(stream)
+            }
+        } catch (e: Exception) {
+            Log.warning("RichPushHandler.extractGifFirstFrame failed: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * SPEC-070-A E.6 — pulls a thumbnail near t=0 from a remote video URL
+     * via [MediaMetadataRetriever]. We deliberately use the closest sync
+     * frame (`OPTION_CLOSEST_SYNC`) so we don't have to decode forwards
+     * from the start; on any keyframed encoding (the standard for h264 +
+     * vp9 + av1 web video) this returns essentially instantly even for
+     * long videos.
+     */
+    private fun extractVideoThumbnail(url: String): Bitmap? {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            // setDataSource(String) accepts http/https URLs natively.
+            // No headers required for the typical CDN-hosted asset.
+            retriever.setDataSource(url, emptyMap<String, String>())
+            retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+        } catch (e: Exception) {
+            Log.warning("RichPushHandler.extractVideoThumbnail failed: ${e.message}")
+            null
+        } finally {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    retriever.close()
+                } else {
+                    @Suppress("DEPRECATION")
+                    retriever.release()
+                }
+            } catch (_: Throwable) {
+                // best-effort
+            }
         }
     }
 

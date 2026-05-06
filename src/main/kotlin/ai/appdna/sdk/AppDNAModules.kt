@@ -513,11 +513,19 @@ class DeepLinksModule internal constructor() {
 class ExperimentsModule internal constructor() {
     internal var manager: ExperimentManager? = null
 
-    /** Get variant for an experiment. */
-    fun getVariant(experimentId: String): String? = manager?.getVariant(experimentId)?.id
+    /**
+     * SPEC-070-A I.14 — Get the assigned variant id for an experiment, or
+     * `null` if the user is not eligible.  Type matches iOS
+     * `getVariant(experimentId:) -> String?`.
+     */
+    fun getVariant(experimentId: String): String? = manager?.getVariant(experimentId)
 
-    /** Get all active exposures. */
-    fun getExposures(): List<Pair<String, String>> = manager?.getExposures() ?: emptyList()
+    /**
+     * SPEC-070-A I.15 — Get all active exposures as named [ai.appdna.sdk.config.ExposureEntry]
+     * tuples, matching iOS's `[(experimentId: String, variant: String)]` shape.
+     */
+    fun getExposures(): List<ai.appdna.sdk.config.ExposureEntry> =
+        manager?.getExposures() ?: emptyList()
 }
 
 /**

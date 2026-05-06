@@ -38,14 +38,125 @@ internal class FlowManager(
         currentScreenId?.let { screensViewed.add(it) }
     }
 
+    /**
+     * SPEC-070-A I.2 — handle every SectionAction the SDUI layer can dispatch.
+     * Mirrors iOS `Screens/FlowManager.swift handleAction(_:)`. Cases that
+     * surface platform-level behavior (deep_link, paywall present, purchase)
+     * fan out through [ai.appdna.sdk.AppDNA] so a single source of truth
+     * runs both flows AND standalone Activity hosts.
+     */
     fun handleAction(action: SectionAction) {
         when (action) {
-            is SectionAction.Next -> advanceToNextScreen()
-            is SectionAction.Back -> navigateBack()
+            // 1. dismiss
             is SectionAction.Dismiss -> dismissFlow()
+            // 2. next_step
+            is SectionAction.Next -> advanceToNextScreen()
+            // 3. prev_step
+            is SectionAction.Back -> navigateBack()
+            // 4. restart
+            is SectionAction.Restart -> restartFlow()
+            // 5. complete
+            is SectionAction.Complete -> completeFlow()
+            // 6. set_response
+            is SectionAction.SetResponse -> {
+                action.value?.let { responses[action.key] = it }
+            }
+            // 7. present_paywall
+            is SectionAction.PresentPaywall -> {
+                action.id?.let { ai.appdna.sdk.AppDNA.showPaywall(it) }
+            }
+            // 8. dismiss_paywall (no-op at flow level — paywall hosts its own dismissal)
+            is SectionAction.DismissPaywall -> { /* paywall Activity dismisses itself */ }
+            // 9. show_survey
+            is SectionAction.ShowSurvey -> {
+                action.id?.let { ai.appdna.sdk.AppDNA.showSurvey(it) }
+            }
+            // 10. show_message
+            is SectionAction.ShowMessage -> {
+                action.id?.let { /* MessageManager presents by id; surface via track */ }
+                ai.appdna.sdk.AppDNA.track("message_request", mapOf("message_id" to (action.id ?: "")))
+            }
+            // 11. deep_link
+            is SectionAction.DeepLink -> {
+                openDeepLink(action.url)
+            }
+            // 12. open_url (uses OpenURL verb here; OpenWebview reserved for in-app)
+            is SectionAction.OpenURL -> openExternalUrl(action.url)
+            is SectionAction.OpenWebview -> openExternalUrl(action.url)
+            // 13. track_event
+            is SectionAction.Track -> {
+                ai.appdna.sdk.AppDNA.track(action.event, action.properties ?: emptyMap())
+            }
+            // 14. set_user_property
+            is SectionAction.SetUserProperty -> {
+                action.value?.let {
+                    val current = ai.appdna.sdk.AppDNA.getUserTraits().toMutableMap()
+                    current[action.key] = it
+                    val userId = (current["user_id"] as? String)
+                        ?: (current["userId"] as? String)
+                        ?: ""
+                    if (userId.isNotEmpty()) {
+                        ai.appdna.sdk.AppDNA.identify(userId, current)
+                    }
+                }
+            }
+            // 15. purchase — surface via track; host paywall manager performs the buy.
+            is SectionAction.Purchase -> {
+                ai.appdna.sdk.AppDNA.track("purchase_request", mapOf("product_id" to action.productId))
+            }
+            // 16. restore
+            is SectionAction.Restore -> {
+                ai.appdna.sdk.AppDNA.track("restore_request", emptyMap())
+            }
+            // Existing SDUI verbs that aren't part of the 16-case Flow API
+            // but still useful as direct routes:
             is SectionAction.Navigate -> navigateToScreen(action.screenId)
-            else -> {}
+            is SectionAction.ShowPaywall -> action.id?.let { ai.appdna.sdk.AppDNA.showPaywall(it) }
+            is SectionAction.ShowScreen -> ai.appdna.sdk.AppDNA.showScreen(action.id)
+            is SectionAction.OpenAppSettings -> openAppSettings()
+            is SectionAction.Share, is SectionAction.SubmitForm, is SectionAction.Haptic,
+            is SectionAction.Custom -> { /* host handles */ }
         }
+    }
+
+    private fun restartFlow() {
+        // Re-enter the start screen, preserve responses for re-renders.
+        val startIdx = flowConfig.screens.indexOfFirst { it.screenId == flowConfig.startScreenId }
+        if (startIdx >= 0) {
+            navigationStack.clear()
+            _currentScreenIndex.value = startIdx
+            currentScreenId?.let { screensViewed.add(it) }
+        }
+    }
+
+    private fun openDeepLink(url: String) {
+        try {
+            val ctx = ai.appdna.sdk.AppDNA.appContextForBridges() ?: return
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+        } catch (_: Throwable) { /* best-effort */ }
+    }
+
+    private fun openExternalUrl(url: String) {
+        try {
+            val ctx = ai.appdna.sdk.AppDNA.appContextForBridges() ?: return
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+        } catch (_: Throwable) { /* best-effort */ }
+    }
+
+    private fun openAppSettings() {
+        try {
+            val ctx = ai.appdna.sdk.AppDNA.appContextForBridges() ?: return
+            val intent = android.content.Intent(
+                android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                android.net.Uri.fromParts("package", ctx.packageName, null),
+            )
+            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            ctx.startActivity(intent)
+        } catch (_: Throwable) { /* best-effort */ }
     }
 
     private fun advanceToNextScreen() {

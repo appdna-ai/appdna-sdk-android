@@ -1,11 +1,14 @@
 package ai.appdna.sdk.feedback.views
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.feedback.SurveyAnswer
@@ -44,6 +47,13 @@ fun FreeTextView(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 120.dp),
+            // SPEC-070-A I.5b — text keyboard with `Done` IME action so the
+            // soft keyboard exposes a dismiss key. Mirrors iOS
+            // `submitLabel(.done)` used by SurveyRenderer's free-text view.
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Text,
+                imeAction = ImeAction.Done,
+            ),
             maxLines = 6
         )
 

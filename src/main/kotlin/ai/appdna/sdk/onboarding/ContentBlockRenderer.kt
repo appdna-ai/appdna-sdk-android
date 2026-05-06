@@ -340,6 +340,10 @@ data class ContentBlock(
     val horizontal_align: String? = null,
     val vertical_offset: Double? = null,
     val horizontal_offset: Double? = null,
+    // SPEC-070-A I.17 — explicit "top" / "center" / "bottom" zone for the
+    // ThreeZoneLayout step variant. Falls back to vertical_align when unset
+    // so legacy authored content lands in the right zone without re-saving.
+    val zone: String? = null,
     // SPEC-089d: page_indicator fields
     val dot_count: Int? = null,
     val active_index: Int? = null,

@@ -634,6 +634,8 @@ internal object OnboardingConfigParser {
                     horizontal_align = bm["horizontal_align"] as? String,
                     vertical_offset = (bm["vertical_offset"] as? Number)?.toDouble(),
                     horizontal_offset = (bm["horizontal_offset"] as? Number)?.toDouble(),
+                    // SPEC-070-A I.17 — three-zone layout opt-in.
+                    zone = bm["zone"] as? String,
                     // SPEC-089d: page_indicator fields
                     dot_count = (bm["dot_count"] as? Number)?.toInt(),
                     active_index = (bm["active_index"] as? Number)?.toInt(),

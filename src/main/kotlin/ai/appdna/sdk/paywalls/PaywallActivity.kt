@@ -64,6 +64,10 @@ class PaywallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // SPEC-070-A I.16 — edge-to-edge: Compose owns insets via
+        // `imePadding()`/`safeDrawingPadding()` modifiers in the renderer.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
         val paywallId = intent.getStringExtra(EXTRA_PAYWALL_ID) ?: run {
             finish()
             return
@@ -122,6 +126,14 @@ class PaywallActivity : ComponentActivity() {
     }
 
     override fun onBackPressed() {
+        // SPEC-070-A I.4 — force-choice paywalls: when `dismiss.allowed == false`,
+        // intercept the system back so the user can't dismiss without selecting
+        // a plan or restoring. Mirrors iOS `Paywalls/PaywallRenderer.swift` which
+        // wraps the paywall in `.interactiveDismissDisabled(!allowed)`.
+        val allowed = pendingConfig?.dismiss?.allowed ?: true
+        if (!allowed) {
+            return
+        }
         @Suppress("DEPRECATION")
         super.onBackPressed()
         pendingOnDismiss?.invoke(DismissReason.DISMISSED)
@@ -2085,7 +2097,10 @@ private fun CountdownTimer(seconds: Int, valueTextStyle: ai.appdna.sdk.core.Text
                     .padding(horizontal = 12.dp, vertical = 6.dp),
             ) {
                 Text(
-                    text = String.format("%02d", value),
+                    // SPEC-070-A I.10 — `Locale.US` keeps the countdown digits
+                    // ASCII (`05` not `۰۵`) so the paywall countdown reads the
+                    // same in every locale. Mirrors iOS NumberFormatter.
+                    text = String.format(java.util.Locale.US, "%02d", value),
                     style = digitStyle,
                 )
                 Text(text = label, fontSize = 10.sp, color = Color.White.copy(alpha = 0.6f))

@@ -18,10 +18,22 @@ internal class ExperimentManager(
     private val exposedExperiments = mutableMapOf<String, String>()
 
     /**
-     * Get the variant for an experiment. Returns null if not eligible.
-     * Auto-tracks exposure event on first call per session.
+     * SPEC-070-A I.14 — Get the variant id for an experiment, or `null` if
+     * the user is not eligible. Auto-tracks an exposure event on first call
+     * per session. Return type matches iOS `getVariant(experimentId:) -> String?`.
+     *
+     * Use [getVariantPayload] when callers need the full [ExperimentVariant]
+     * object (config payload).
      */
-    fun getVariant(experimentId: String): ExperimentVariant? {
+    fun getVariant(experimentId: String): String? {
+        return getVariantPayload(experimentId)?.id
+    }
+
+    /**
+     * Internal: returns the assigned [ExperimentVariant] (id + weight + payload).
+     * Auto-tracks exposure on first call per session.
+     */
+    fun getVariantPayload(experimentId: String): ExperimentVariant? {
         val config = resolveConfig(experimentId) ?: return null
 
         val identity = identityManager.currentIdentity
@@ -30,8 +42,6 @@ internal class ExperimentManager(
         // SPEC-070-A A.22 — fall back to experimentId when salt is blank, so a
         // missing/empty salt produces identical bucketing to iOS
         // (Config/ExperimentManager.swift:33-38 uses `config.salt ?? experimentId`).
-        // Without this, blank-salt experiments hashed an empty seed on Android
-        // vs the experimentId on iOS → cross-platform variant divergence.
         val effectiveSalt = config.salt.ifBlank { experimentId }
         val variant = assignVariant(
             experimentId = experimentId,
@@ -40,9 +50,7 @@ internal class ExperimentManager(
             variants = config.variants
         ) ?: return null
 
-        // Track exposure once per session
         trackExposure(experimentId, variant.id)
-
         return variant
     }
 
@@ -50,14 +58,14 @@ internal class ExperimentManager(
      * Check if the user is assigned to a specific variant.
      */
     fun isInVariant(experimentId: String, variantId: String): Boolean {
-        return getVariant(experimentId)?.id == variantId
+        return getVariant(experimentId) == variantId
     }
 
     /**
      * Get a specific config value from the assigned variant.
      */
     fun getExperimentConfig(experimentId: String, key: String): Any? {
-        val variant = getVariant(experimentId) ?: return null
+        val variant = getVariantPayload(experimentId) ?: return null
         return variant.config[key]
     }
 
@@ -115,11 +123,30 @@ internal class ExperimentManager(
     }
 
     /**
-     * Get all recorded exposures as (experimentId, variantId) pairs.
+     * SPEC-070-A I.15 — Get all recorded exposures.
+     *
+     * Each entry is a named [ExposureEntry] (experimentId, variant) — the
+     * Kotlin equivalent of iOS's named-tuple shape
+     * `[(experimentId: String, variant: String)]`. Pair-form callers must
+     * migrate to property access; the legacy [getExposurePairs] helper
+     * remains for one release as a transition aid.
      */
-    fun getExposures(): List<Pair<String, String>> {
+    fun getExposures(): List<ExposureEntry> {
         synchronized(exposedExperiments) {
-            return exposedExperiments.map { (experimentId, variantId) -> experimentId to variantId }
+            return exposedExperiments.map { (experimentId, variantId) ->
+                ExposureEntry(experimentId = experimentId, variant = variantId)
+            }
+        }
+    }
+
+    /**
+     * Legacy `Pair<String,String>` shape for callers that haven't migrated to
+     * [ExposureEntry] yet. Kept tightly internal — the public API is
+     * [getExposures]. Will be removed in a follow-up release.
+     */
+    internal fun getExposurePairs(): List<Pair<String, String>> {
+        synchronized(exposedExperiments) {
+            return exposedExperiments.map { (k, v) -> k to v }
         }
     }
 
@@ -136,6 +163,17 @@ internal class ExperimentManager(
         }
     }
 }
+
+/**
+ * SPEC-070-A I.15 — single (experiment, variant) tuple for [ExperimentManager.getExposures].
+ * Named-property access mirrors iOS's `[(experimentId: String, variant: String)]` shape;
+ * Kotlin can't express named tuples in the type system so a dedicated data class is the
+ * canonical equivalent.
+ */
+data class ExposureEntry(
+    val experimentId: String,
+    val variant: String,
+)
 
 /**
  * MurmurHash3 32-bit implementation — MUST produce identical output to iOS Swift version.

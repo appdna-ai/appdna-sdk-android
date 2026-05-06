@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,9 +55,33 @@ class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // SPEC-070-A I.16 — edge-to-edge so Compose `imePadding()`/`safeDrawingPadding()`
+        // modifiers in the renderer roots resolve correctly and keyboards don't
+        // crop content. The manifest declares `windowSoftInputMode="adjustResize"`
+        // so Compose receives IME inset changes.
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+
         val flow = pendingFlow ?: run {
             finish()
             return
+        }
+
+        // SPEC-070-A I.7 — restore (currentStepIndex, responses) from
+        // `savedInstanceState` so process-death / config-change rotations
+        // re-enter the flow on the same step with prior answers intact.
+        // Mirrors iOS `OnboardingRenderer` `@SceneStorage` round-trip.
+        if (savedInstanceState != null) {
+            val savedIndex = savedInstanceState.getInt(KEY_CURRENT_STEP_INDEX, 0)
+            val savedResponsesJson = savedInstanceState.getString(KEY_RESPONSES)
+            restoredStepIndex = savedIndex.coerceAtLeast(0)
+            restoredResponses = savedResponsesJson?.let { json ->
+                try {
+                    val obj = org.json.JSONObject(json)
+                    val map = mutableMapOf<String, Any>()
+                    obj.keys().forEach { k -> obj.opt(k)?.let { map[k] = it } }
+                    map
+                } catch (_: Throwable) { null }
+            }
         }
 
         val delegate = pendingDelegate
@@ -112,15 +137,51 @@ class OnboardingActivity : ComponentActivity() {
     }
 
     override fun onBackPressed() {
+        // SPEC-070-A I.4 — respect `flow.settings.dismiss_allowed` (canDismiss)
+        // when handling the system back button. When dismissal is disallowed
+        // the flow intercepts back, mirroring iOS force-flow behavior.
+        // (allow_back gates step-back navigation, not the global dismiss.)
+        val flow = pendingFlow
+        val canDismiss = flow?.settings?.dismiss_allowed ?: true
+        if (!canDismiss) {
+            // Force-flow: ignore system back to prevent accidental abandonment.
+            return
+        }
         @Suppress("DEPRECATION")
         super.onBackPressed()
-        pendingFlow?.let { flow ->
-            pendingOnFlowDismissed?.invoke(flow.steps.firstOrNull()?.id ?: "", 0)
+        flow?.let { f ->
+            pendingOnFlowDismissed?.invoke(f.steps.firstOrNull()?.id ?: "", 0)
         }
         cleanup()
     }
 
+    /**
+     * SPEC-070-A I.7 — persist current step + responses across config
+     * changes / process death so the flow re-enters on the same step.
+     */
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt(KEY_CURRENT_STEP_INDEX, savedStepIndex)
+        try {
+            val obj = org.json.JSONObject()
+            for ((k, v) in savedResponses) {
+                obj.put(k, when (v) {
+                    is Map<*, *> -> org.json.JSONObject(v as Map<String, Any?>)
+                    is List<*> -> org.json.JSONArray(v)
+                    else -> v
+                })
+            }
+            outState.putString(KEY_RESPONSES, obj.toString())
+        } catch (_: Throwable) { /* best-effort */ }
+    }
+
     companion object {
+        private const val KEY_CURRENT_STEP_INDEX = "appdna_onboarding_current_step_index"
+        private const val KEY_RESPONSES = "appdna_onboarding_responses"
+        @Volatile internal var restoredStepIndex: Int? = null
+        @Volatile internal var restoredResponses: Map<String, Any>? = null
+        @Volatile internal var savedStepIndex: Int = 0
+        @Volatile internal var savedResponses: Map<String, Any> = emptyMap()
         private var pendingFlow: OnboardingFlowConfig? = null
         private var pendingDelegate: AppDNAOnboardingDelegate? = null
         private var pendingEventTracker: EventTracker? = null
@@ -172,8 +233,16 @@ internal fun OnboardingFlowHost(
     // overrides from the console are picked correctly.
     @Suppress("UNUSED_PARAMETER") isDark: Boolean = false,
 ) {
-    var currentIndex by remember { mutableIntStateOf(0) }
-    val responses = remember { mutableStateMapOf<String, Any>() }
+    // SPEC-070-A I.7 — initial state seeds from Activity-restored values when
+    // available (config-change / process-death rotation), otherwise default.
+    val initialIndex = OnboardingActivity.restoredStepIndex ?: 0
+    val initialResponses = OnboardingActivity.restoredResponses ?: emptyMap()
+    var currentIndex by rememberSaveable { mutableIntStateOf(initialIndex) }
+    val responses = remember { mutableStateMapOf<String, Any>().apply { putAll(initialResponses) } }
+    // Mirror current state back to the Activity companion so onSaveInstanceState
+    // can write the latest values when the system asks to persist.
+    LaunchedEffect(currentIndex) { OnboardingActivity.savedStepIndex = currentIndex }
+    LaunchedEffect(responses.size) { OnboardingActivity.savedResponses = responses.toMap() }
     val coroutineScope = rememberCoroutineScope()
 
     // SPEC-083: Hook state
@@ -417,6 +486,10 @@ internal fun OnboardingFlowHost(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // SPEC-070-A I.16 — edge-to-edge IME + system-bar insets so the
+            // keyboard pushes content up + status/nav bars don't overlap.
+            .imePadding()
+            .safeDrawingPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -483,7 +556,7 @@ internal fun OnboardingFlowHost(
 
             // Step content with animated transitions
             if (currentIndex < flow.steps.size) {
-                AnimatedContent(
+                AnimatedContent<Int>(
                     targetState = currentIndex,
                     transitionSpec = {
                         (slideInHorizontally { it } + fadeIn()) togetherWith

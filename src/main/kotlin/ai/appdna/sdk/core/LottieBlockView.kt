@@ -10,8 +10,36 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-// In production: import com.airbnb.lottie.compose.*
+import com.airbnb.lottie.compose.LottieAnimation
+import com.airbnb.lottie.compose.LottieClipSpec
+import com.airbnb.lottie.compose.LottieCompositionSpec
+import com.airbnb.lottie.compose.LottieConstants
+import com.airbnb.lottie.compose.animateLottieCompositionAsState
+import com.airbnb.lottie.compose.rememberLottieComposition
 
+/**
+ * Server-driven Lottie animation block.
+ *
+ * SPEC-070-A E.2 — replaces the stub placeholder with the real
+ * `lottie-compose` `LottieAnimation` Composable so onboarding /
+ * messages / surveys / paywalls can render the same Lottie URLs the
+ * console publishes today on iOS.
+ *
+ * iOS parity:
+ * `packages/appdna-sdk-ios/Sources/AppDNASDK/Core/LottieBlockView.swift`
+ * intends to use `LottieView(animation: .init(url:))` from `lottie-ios`
+ * with `playbackMode(.playing(.toProgress(1, loopMode: .loop)))`. This
+ * port matches that surface — `loop` flips between
+ * [LottieConstants.IterateForever] and a single play, `speed` is
+ * passed through, and clip-spec defaults to the full animation range.
+ *
+ * Recomposition safety: the underlying composition + animation state
+ * are scoped to this Composable instance via `remember*` helpers so
+ * Compose recycles them deterministically when the view leaves the
+ * composition (no manual `DisposableEffect` is required for Lottie —
+ * see SPEC-070-A E.4 note re: Rive/ExoPlayer needing explicit
+ * disposal).
+ */
 data class LottieBlock(
     val lottie_url: String? = null,
     val lottie_json: Map<String, Any>? = null,
@@ -34,15 +62,6 @@ fun LottieBlockView(block: LottieBlock) {
         else -> Alignment.CenterHorizontally
     }
 
-    // Placeholder -- in production, use com.airbnb.lottie.compose:
-    // val composition by rememberLottieComposition(LottieCompositionSpec.Url(block.lottie_url ?: ""))
-    // val progress by animateLottieCompositionAsState(
-    //     composition,
-    //     iterations = if (block.loop) LottieConstants.IterateForever else 1,
-    //     speed = block.speed,
-    // )
-    // LottieAnimation(composition = composition, progress = { progress }, modifier = ...)
-
     Column(
         modifier = Modifier
             .let { mod ->
@@ -57,18 +76,40 @@ fun LottieBlockView(block: LottieBlock) {
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center,
         ) {
-            // Placeholder UI
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("\u25B6", fontSize = 32.sp, color = Color(0xFF9333EA))
-                Text("Lottie Animation", fontSize = 10.sp, color = Color.Gray)
-                block.lottie_url?.let { url ->
-                    Text(
-                        url.substringAfterLast("/"),
-                        fontSize = 9.sp,
-                        color = Color.Gray,
-                        maxLines = 1,
-                    )
+            val url = block.lottie_url
+            if (url.isNullOrBlank()) {
+                // Defensive: keep a tiny visible placeholder so authoring
+                // tools that drop a Lottie block without a URL don't
+                // render an empty void on device.
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("▶", fontSize = 32.sp, color = Color(0xFF9333EA))
+                    Text("Lottie", fontSize = 10.sp, color = Color.Gray)
                 }
+            } else {
+                // Both http(s) and `file:///android_asset/...` URLs are
+                // accepted by `LottieCompositionSpec.Url` — Lottie's
+                // network fetcher delegates to OkHttp under the hood,
+                // and asset URLs are resolved via AssetManager.
+                val composition by rememberLottieComposition(
+                    LottieCompositionSpec.Url(url),
+                )
+                val iterations =
+                    if (block.loop) LottieConstants.IterateForever else 1
+                val progress by animateLottieCompositionAsState(
+                    composition = composition,
+                    iterations = iterations,
+                    speed = block.speed,
+                    isPlaying = block.autoplay,
+                    // Default clip-spec — full animation length; if the
+                    // server later supplies start/end markers, this is
+                    // where they would be wired through.
+                    clipSpec = LottieClipSpec.Progress(0f, 1f),
+                )
+                LottieAnimation(
+                    composition = composition,
+                    progress = { progress },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
         }
     }

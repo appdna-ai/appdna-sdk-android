@@ -45,4 +45,20 @@ sealed class SectionAction {
     data class Track(val event: String, val properties: Map<String, Any>? = null) : SectionAction()
     data class Haptic(val type: String) : SectionAction()
     data class Custom(val type: String, val value: String? = null) : SectionAction()
+
+    // SPEC-070-A I.2 — extended cases for FlowManager.handleAction parity
+    // with iOS Screens/FlowManager.swift handleAction(_:). The SDUI layer
+    // already produces the existing 16 verbs above; these duplicate-named
+    // verbs cover the FlowManager-specific routing surface (restart,
+    // complete, set_response, present/dismiss paywall, show message,
+    // set_user_property, purchase, restore).
+    data object Restart : SectionAction()
+    data object Complete : SectionAction()
+    data class SetResponse(val key: String, val value: Any?) : SectionAction()
+    data class PresentPaywall(val id: String?) : SectionAction()
+    data object DismissPaywall : SectionAction()
+    data class ShowMessage(val id: String?) : SectionAction()
+    data class SetUserProperty(val key: String, val value: Any?) : SectionAction()
+    data class Purchase(val productId: String) : SectionAction()
+    data object Restore : SectionAction()
 }
