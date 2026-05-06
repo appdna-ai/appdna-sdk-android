@@ -85,6 +85,28 @@ class ScreenManager private constructor() {
         else -> value
     }
 
+    /**
+     * SPEC-070-A audit attempt 5 F2 helper — lenient ISO8601 → epoch millis.
+     * Tries `OffsetDateTime` (with offset), then `Instant.parse` (Z-suffixed),
+     * then a `SimpleDateFormat` fallback shape used by AutoTriggerEngine.
+     * Returns `null` on any failure so callers fall through (treat unparsable
+     * dates as "no scheduling constraint" rather than "always blocked").
+     */
+    private fun parseIsoToEpochMs(iso: String): Long? {
+        return try {
+            java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli()
+        } catch (_: Throwable) {
+            try {
+                java.time.Instant.parse(iso).toEpochMilli()
+            } catch (_: Throwable) {
+                try {
+                    val sdf = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US)
+                    sdf.parse(iso)?.time
+                } catch (_: Throwable) { null }
+            }
+        }
+    }
+
     fun showScreen(screenId: String, callback: ((ScreenResult) -> Unit)? = null) {
         // Acquire lock once for the entire nesting check + config lookup + decrement
         val config: ScreenConfig?
@@ -115,33 +137,114 @@ class ScreenManager private constructor() {
                 fireOnScreenDismissed(screenId, errResult)
                 return
             }
-            // In production, launch ScreenActivity with config
-            AppDNA.track("screen_presented", mapOf("screen_id" to screenId, "screen_name" to config.name, "presentation" to config.presentation))
-            // SPEC-070-A B.6 — fire onScreenPresented to host delegate.
-            // Mirrors iOS Screens/ScreenManager.swift:185.
-            fireOnScreenPresented(screenId)
+            // SPEC-070-A audit attempt 5 F2: validate empty sections (mirrors
+            // iOS ScreenManager.swift:118-123 AC-088/089).
+            if (config.sections.isEmpty()) {
+                val errResult = ScreenResult(screenId = screenId, dismissed = true, error = ScreenError.CONFIG_INVALID)
+                callback?.invoke(errResult)
+                AppDNA.track("screen_dismissed", mapOf(
+                    "screen_id" to screenId,
+                    "duration_ms" to 0,
+                    "error" to "config_invalid",
+                ))
+                fireOnScreenDismissed(screenId, errResult)
+                return
+            }
+            // SPEC-070-A audit attempt 5 F2: honor `start_date`/`end_date`
+            // scheduling on the manual API path (AC-098/099). Mirrors iOS
+            // ScreenManager.swift:125-135 ISO8601 comparisons.
+            val nowMs = System.currentTimeMillis()
+            val startMs = config.startDate?.let { parseIsoToEpochMs(it) }
+            if (startMs != null && startMs > nowMs) {
+                val r = ScreenResult(screenId = screenId, dismissed = true)
+                callback?.invoke(r)
+                fireOnScreenDismissed(screenId, r)
+                return
+            }
+            val endMs = config.endDate?.let { parseIsoToEpochMs(it) }
+            if (endMs != null && endMs < nowMs) {
+                val r = ScreenResult(screenId = screenId, dismissed = true)
+                callback?.invoke(r)
+                fireOnScreenDismissed(screenId, r)
+                return
+            }
 
-            val result = ScreenResult(screenId = screenId)
-            callback?.invoke(result)
+            // SPEC-070-A audit attempt 5 F1: resolve experiment variant +
+            // apply variant overrides + tag track props with `experiment_id`
+            // and `variant_key` (AC-093/094/095). Mirrors iOS
+            // ScreenManager.swift:137-181.
+            var resolvedConfig = config
+            var variantKey: String? = null
+            val expId = config.experimentId
+            val variantsMap = config.variants
+            if (!expId.isNullOrBlank() && variantsMap != null) {
+                val bucket = AppDNA.getExperimentVariant(expId)
+                if (bucket != null) {
+                    variantKey = bucket
+                    val override = variantsMap[bucket]
+                    if (override != null) {
+                        @Suppress("UNCHECKED_CAST")
+                        val overrideSections = override["sections"] as? List<Map<String, Any?>>
+                        val overridePresentation = override["presentation"] as? String
+                        @Suppress("UNCHECKED_CAST")
+                        val overrideBackground = (override["background"] as? Map<String, Any?>)?.let {
+                            BackgroundConfig.fromMap(it)
+                        }
+                        if (overrideSections != null) {
+                            resolvedConfig = config.copy(
+                                sections = overrideSections.map { ScreenSection.fromMap(it) },
+                                presentation = overridePresentation ?: config.presentation,
+                                background = overrideBackground ?: config.background,
+                            )
+                        }
+                    }
+                }
+            }
 
-            // SPEC-070-A G.8 — `screen_dismissed` matches iOS
-            // ScreenManager.swift:192 emitted on the dismiss completion
-            // path. Even though Android's current implementation completes
-            // synchronously without a real Activity launch, we emit the
-            // event so downstream analytics + delegate fan-out has full
-            // parity. When ScreenActivity ships (later phase), this can
-            // be moved to the actual dismiss callback.
-            val durationMs = (System.currentTimeMillis() - startTime).toInt()
-            AppDNA.track("screen_dismissed", mapOf(
+            // SPEC-070-A audit attempt 5 F3: route every manual-API
+            // presentation through PresentationCoordinator so concurrent
+            // surface conflicts are arbitrated centrally (mirrors iOS
+            // ScreenManager.swift:189). Without this, a direct
+            // `AppDNA.showScreen(id)` could race with an in-flight
+            // paywall/survey and clobber it.
+            val trackProps = mutableMapOf<String, Any>(
                 "screen_id" to screenId,
-                "screen_name" to config.name,
-                "duration_ms" to durationMs,
-            ))
-            // SPEC-070-A B.6 — fire onScreenDismissed delegate.
-            fireOnScreenDismissed(
-                screenId,
-                ScreenResult(screenId = screenId, dismissed = true, durationMs = durationMs),
+                "screen_name" to resolvedConfig.name,
+                "presentation" to resolvedConfig.presentation,
             )
+            if (!expId.isNullOrBlank()) trackProps["experiment_id"] = expId
+            if (variantKey != null) trackProps["variant_key"] = variantKey
+
+            val capturedConfig = resolvedConfig
+            ai.appdna.sdk.core.PresentationCoordinator.shared.requestPresentation(
+                type = ai.appdna.sdk.core.PresentationCoordinator.PresentationType.SCREEN,
+                isAutoTriggered = false,
+            ) {
+                AppDNA.track("screen_presented", trackProps)
+                // SPEC-070-A B.6 — fire onScreenPresented to host delegate.
+                fireOnScreenPresented(screenId)
+
+                val result = ScreenResult(screenId = screenId)
+                callback?.invoke(result)
+
+                // SPEC-070-A G.8 — `screen_dismissed` matches iOS
+                // ScreenManager.swift:192 emitted on the dismiss completion
+                // path. Even though Android's current implementation
+                // completes synchronously without a real Activity launch, we
+                // emit the event so downstream analytics + delegate fan-out
+                // has full parity.
+                val durationMs = (System.currentTimeMillis() - startTime).toInt()
+                AppDNA.track("screen_dismissed", mapOf(
+                    "screen_id" to screenId,
+                    "screen_name" to capturedConfig.name,
+                    "duration_ms" to durationMs,
+                ))
+                fireOnScreenDismissed(
+                    screenId,
+                    ScreenResult(screenId = screenId, dismissed = true, durationMs = durationMs),
+                )
+                ai.appdna.sdk.core.PresentationCoordinator.shared.onDismissed()
+            }
         } finally {
             lock.lock()
             try { nestingDepth-- } finally { lock.unlock() }
