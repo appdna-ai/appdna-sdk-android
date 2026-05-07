@@ -309,6 +309,7 @@ fun SurveyScreen(
                 val brush = backgroundBrush
                 if (brush != null) mod.background(brush) else mod.background(bgColor)
             }
+            .applyBlurBackdrop(theme?.blurBackdrop)
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -459,6 +460,13 @@ fun SurveyScreen(
                             config.appearance.haptic,
                         )
                         showCompletion = true
+                        if (config.appearance.thankyouParticleEffect != null) {
+                            HapticEngine.triggerIfEnabled(
+                                currentView,
+                                "success",
+                                config.appearance.haptic,
+                            )
+                        }
                         val allAnswers = visibleQuestions.mapNotNull { answers[it.id] }
                         // SPEC-070-A finalization P0 audit-10 — defer
                         // onComplete by 2.5s when a thank-you Lottie or

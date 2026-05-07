@@ -109,6 +109,24 @@ internal class AdaptyBridge {
     }
 
     /**
+     * SPEC-070-A finalization B3#P2 — forward a host-driven Adapty
+     * purchase START into AppDNA analytics. Mirrors iOS
+     * AdaptyBridge.swift:37-40 which fires `purchase_started` before
+     * invoking `Adapty.makePurchase`. Hosts must call this just before
+     * `Adapty.makePurchase(...)` so cross-platform funnels filtering on
+     * `purchase_started` aren't undercount on Android.
+     */
+    fun forwardPurchaseStarted(productId: String) {
+        AppDNA.track(
+            "purchase_started",
+            mapOf(
+                "product_id" to productId,
+                "provider" to "adapty",
+            ),
+        )
+    }
+
+    /**
      * Forward a successful host-driven Adapty purchase into the AppDNA
      * billing delegate. Mirrors iOS auto-fire on `Adapty.makePurchase`
      * (AdaptyBridge.swift:42-69).

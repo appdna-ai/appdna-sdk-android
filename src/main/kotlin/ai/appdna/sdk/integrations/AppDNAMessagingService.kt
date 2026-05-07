@@ -191,10 +191,13 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
                     this, action.id.hashCode(), actionIntent,
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-                // SPEC-085: Resolve action button icon from drawable resources
-                val iconResId = action.icon?.let { iconName ->
-                    resources.getIdentifier(iconName, "drawable", packageName)
-                } ?: 0
+                // SPEC-085 + SPEC-070-A finalization B3#P1: Resolve action button
+                // icon. Accept BOTH schemas iOS supports:
+                //   1. Flat string "ic_email" → R.drawable lookup
+                //   2. JSON dict {library:"lucide"|"material", name:"mail"} →
+                //      look up via library-specific name then fall back to
+                //      drawable lookup on the resolved name.
+                val iconResId = action.icon?.let { NotificationIconResolver.resolvePushActionIconRes(this, it) } ?: 0
                 val interpolatedLabel = ai.appdna.sdk.core.TemplateEngine.interpolate(action.label, pushCtx)
                 builder.addAction(iconResId, interpolatedLabel, pendingIntent)
             }
@@ -459,6 +462,50 @@ internal object NotificationIconResolver {
         // 3. Last resort — application icon (NotificationCompat will reject 0).
         val fallback = context.applicationInfo.icon
         return if (fallback != 0) fallback else android.R.drawable.ic_dialog_info
+    }
+
+    /**
+     * SPEC-070-A finalization B3#P1 — resolve a push action button icon ref
+     * to an Android drawable resource id, given a host context. Accepts:
+     *   1. Flat string `"ic_email"` → host R.drawable lookup.
+     *   2. JSON dict `{library:"lucide"|"material"|"sf-symbols"|"emoji", name:"mail"}`
+     *      → try host R.drawable named after `name`, then fall back to a
+     *      small map of common Lucide/Material names → `android.R.drawable.*`.
+     * Mirrors iOS `IconMapping.lucideToSFSymbol` at
+     * Push/PushNotificationHandler.swift:62-95.
+     */
+    fun resolvePushActionIconRes(context: Context, raw: String): Int {
+        val (library, name) = try {
+            val obj = org.json.JSONObject(raw)
+            (obj.optString("library").takeIf { it.isNotEmpty() } ?: "lucide") to obj.optString("name", "")
+        } catch (_: Throwable) {
+            "" to raw
+        }
+        if (name.isEmpty()) return 0
+
+        val hostId = context.resources.getIdentifier(name, "drawable", context.packageName)
+        if (hostId != 0) return hostId
+
+        val lower = name.lowercase().replace('-', '_')
+        return when (library.lowercase()) {
+            "lucide", "material", "sf-symbols", "" -> when (lower) {
+                "mail", "envelope", "email" -> android.R.drawable.ic_dialog_email
+                "phone", "call" -> android.R.drawable.ic_menu_call
+                "share", "share_2" -> android.R.drawable.ic_menu_share
+                "delete", "trash", "trash_2", "x", "close" -> android.R.drawable.ic_menu_delete
+                "edit", "edit_3", "pencil" -> android.R.drawable.ic_menu_edit
+                "info" -> android.R.drawable.ic_dialog_info
+                "alert_triangle", "warning" -> android.R.drawable.ic_dialog_alert
+                "check", "check_circle" -> android.R.drawable.checkbox_on_background
+                "search" -> android.R.drawable.ic_menu_search
+                "settings", "cog", "gear" -> android.R.drawable.ic_menu_preferences
+                "calendar" -> android.R.drawable.ic_menu_my_calendar
+                "map_pin", "map", "location" -> android.R.drawable.ic_menu_mylocation
+                "external_link", "link" -> android.R.drawable.ic_menu_view
+                else -> 0
+            }
+            else -> 0
+        }
     }
 }
 

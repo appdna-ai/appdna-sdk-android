@@ -118,7 +118,6 @@ object ReviewPromptManager {
             .create()
 
         dialog.show()
-        recordPromptShown(activity)
         AppDNA.track("review_prompt_shown", mapOf("prompt_type" to "two_step"))
     }
 }
