@@ -391,10 +391,24 @@ class ScreenManager private constructor() {
     }
 
     fun evaluateTriggers(event: String, properties: Map<String, Any>?) {
+        // SPEC-070-A finalization spec audit-2 P1 — consent gate. Mirrors
+        // iOS ScreenManager.swift:362 — `read path` (screenForSlot,
+        // NavigationInterceptor) already checks consent; the trigger path
+        // was missing it. Without this, screens fire from analytics
+        // events even when the user revoked consent.
+        if (!AppDNA.isConsentGranted()) return
         val index = screenIndex ?: return
         val entries = index.screens ?: return
         val traits = AppDNA.getUserTraits()
-        val screenId = autoTriggerEngine.evaluate(entries, event, properties, traits, sessionCount = 1, daysSinceInstall = 0, currentScreenName = null)
+        // SPEC-070-A finalization spec audit-2 P1 — wire SessionManager
+        // into AutoTriggerEngine instead of the previous hardcoded
+        // sessionCount=1 / daysSinceInstall=0. Audience rules using
+        // `sessionCount.min: 5` previously NEVER matched on Android.
+        // daysSinceInstall stays 0 because Android does not yet
+        // persist an install epoch (parity with iOS — both platforms
+        // share this gap; tracked under future SPEC).
+        val sessionCount = AppDNA.sessionManager?.sessionsThisInstall()?.toInt() ?: 1
+        val screenId = autoTriggerEngine.evaluate(entries, event, properties, traits, sessionCount = sessionCount, daysSinceInstall = 0, currentScreenName = null)
         if (screenId != null) {
             if (!ai.appdna.sdk.core.PresentationCoordinator.shared.canPresent(
                 ai.appdna.sdk.core.PresentationCoordinator.PresentationType.SCREEN, isAutoTriggered = true)) return
