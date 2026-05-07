@@ -31,7 +31,11 @@ fun CsatQuestionView(
     // SPEC-084: Gap #20 — question text style token
     questionTextStyle: TextStyle = TextStyle.Default
 ) {
-    val maxRating = question.csatConfig?.maxRating ?: 5
+    // SPEC-070-A finalization S-35 — prefer Firestore-canonical `scale`
+    // over legacy `max_rating`. `resolvedMax` already does this resolution;
+    // reading `maxRating` directly ignored `scale: 7` and rendered 5 stars
+    // regardless of console config.
+    val maxRating = question.csatConfig?.resolvedMax ?: 5
     val style = question.csatConfig?.style ?: "star"
     val selectedRating = answer?.answer as? Int ?: 0
 

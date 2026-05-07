@@ -3,6 +3,9 @@ package ai.appdna.sdk.feedback
 // SPEC-070-A J.22 — re-wrap interpolated options as ImmutableList for Compose stability.
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
+import ai.appdna.sdk.core.NetworkImage
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -231,6 +234,42 @@ fun SurveyScreen(
     val buttonColor = theme?.buttonColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
     val fontFamily = theme?.fontFamily?.let { FontResolver.resolve(it) }
     val containerRadius = (config.appearance.cornerRadius ?: 0).dp
+    // SPEC-070-A finalization S-4 — gradient + button_gradient. Mirrors
+    // iOS SurveyRenderer.swift:84-100 StyleEngine.linearGradient. Two
+    // brushes consumed by host background and Submit button.
+    val backgroundBrush: androidx.compose.ui.graphics.Brush? = remember(theme?.gradient) {
+        theme?.gradient?.takeIf { (it.stops?.size ?: 0) >= 2 }?.let { g ->
+            val cols = g.stops!!.map { parseColor(it.color) }
+            val angle = g.angle ?: 180.0
+            val rads = Math.toRadians(angle)
+            val dx = kotlin.math.sin(rads).toFloat()
+            val dy = -kotlin.math.cos(rads).toFloat()
+            androidx.compose.ui.graphics.Brush.linearGradient(
+                colors = cols,
+                start = androidx.compose.ui.geometry.Offset((0.5f - dx / 2f) * 1000f, (0.5f - dy / 2f) * 1000f),
+                end = androidx.compose.ui.geometry.Offset((0.5f + dx / 2f) * 1000f, (0.5f + dy / 2f) * 1000f),
+            )
+        }
+    }
+    // SPEC-070-A finalization S-5 — `theme.text_align` for question text.
+    val themeTextAlign: TextAlign = when (theme?.textAlign?.lowercase()) {
+        "left", "leading", "start" -> TextAlign.Start
+        "right", "trailing", "end" -> TextAlign.End
+        "center" -> TextAlign.Center
+        else -> TextAlign.Center
+    }
+    // SPEC-070-A finalization S-6 — theme.questionFontSize.
+    val themeQuestionFontSize: androidx.compose.ui.unit.TextUnit =
+        theme?.questionFontSize?.sp ?: 18.sp
+    // SPEC-070-A finalization S-7 — theme.fontWeight string → FontWeight.
+    val themeFontWeight: FontWeight = when (theme?.fontWeight?.lowercase()) {
+        "regular", "normal" -> FontWeight.Normal
+        "medium" -> FontWeight.Medium
+        "semibold" -> FontWeight.SemiBold
+        "bold" -> FontWeight.Bold
+        "black", "extrabold" -> FontWeight.ExtraBold
+        else -> FontWeight.SemiBold
+    }
 
     val canAdvance = if (currentIndex < visibleQuestions.size) {
         val q = visibleQuestions[currentIndex]
@@ -264,7 +303,12 @@ fun SurveyScreen(
             .imePadding()
             .safeDrawingPadding()
             .clip(RoundedCornerShape(topStart = containerRadius, topEnd = containerRadius))
-            .background(bgColor)
+            // SPEC-070-A finalization S-4 — prefer gradient brush when
+            // theme.gradient is configured; falls back to bgColor.
+            .let { mod ->
+                val brush = backgroundBrush
+                if (brush != null) mod.background(brush) else mod.background(bgColor)
+            }
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -309,10 +353,30 @@ fun SurveyScreen(
             }
 
             // SPEC-084: Gap #20 — resolve question text style from appearance token
+            // SPEC-070-A finalization S-5/S-6/S-7 — apply theme-level text
+            // align + question font size + font weight on top of the
+            // appearance-token-resolved style. Mirrors iOS SurveyRenderer.swift
+            // theme.text_align / questionFontSize / fontWeight.
             val questionTextStyle = StyleEngine.applyTextStyle(
                 MaterialTheme.typography.titleMedium,
                 config.appearance.questionTextStyle
+            ).copy(
+                textAlign = themeTextAlign,
+                fontSize = themeQuestionFontSize,
+                fontWeight = themeFontWeight,
             )
+
+            // SPEC-070-A finalization S-19 — render question.imageUrl
+            // (iOS SurveyRenderer.swift:193-197 MediaImageView maxHeight 140).
+            if (!question.imageUrl.isNullOrBlank()) {
+                NetworkImage(
+                    url = question.imageUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .heightIn(max = 140.dp)
+                        .padding(bottom = 12.dp),
+                )
+            }
 
             // SPEC-088: Interpolate question text, option text, NPS labels
             val tCtx = ai.appdna.sdk.core.TemplateEngine.buildContext()

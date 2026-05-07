@@ -32,7 +32,9 @@ fun RatingQuestionView(
     // SPEC-084: Gap #20 — question text style token
     questionTextStyle: TextStyle = TextStyle.Default
 ) {
-    val maxRating = question.ratingConfig?.maxRating ?: 5
+    // SPEC-070-A finalization S-35 — prefer Firestore-canonical `max`
+    // over legacy `max_rating`. `resolvedMax` already does this resolution.
+    val maxRating = question.ratingConfig?.resolvedMax ?: 5
     val style = question.ratingConfig?.style ?: "star"
     val selectedRating = answer?.answer as? Int ?: 0
 
