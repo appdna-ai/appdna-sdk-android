@@ -96,7 +96,11 @@ internal class IdentityManager(private val storage: LocalStorage) {
         synchronized(lock) {
             _userId = null
             _traits = null
-            sessionId = UUID.randomUUID().toString()
+            // SPEC-070-A finalization §3.2 G.21 — DO NOT rotate sessionId on
+            // reset. iOS canonical reset() preserves the in-flight session
+            // so post-logout events still attribute to the same session
+            // until newSession() / app foreground triggers natural rotation.
+            // Cross-platform attribution divergence on logout removed.
         }
         storage.remove("user_id")
         storage.remove("user_traits")

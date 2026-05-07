@@ -557,7 +557,10 @@ data class OnboardingContext(
  */
 interface AppDNABillingDelegate {
     fun onPurchaseCompleted(productId: String, transaction: TransactionInfo) {}
-    fun onPurchaseFailed(productId: String, error: Exception) {}
+    // SPEC-070-A finalization §3.2 — widen `error` to `Throwable` so hosts
+    // can catch the new typed BillingError sealed class (also Throwable)
+    // and Kotlin Errors. Mirrors iOS `error: Error` parity.
+    fun onPurchaseFailed(productId: String, error: Throwable) {}
     fun onEntitlementsChanged(entitlements: List<Entitlement>) {}
     fun onRestoreCompleted(restoredProducts: List<String>) {}
     /**

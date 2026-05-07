@@ -512,9 +512,12 @@ class NativeBillingManager internal constructor(
         options: PurchaseOptions? = null,
     ): PurchaseResult {
         Log.info("Starting purchase for product: $productId")
+        // SPEC-070-A finalization parity — match iOS NativeBillingManager.swift:73-77
+        // (product_id + paywall_id + experiment_id).
         AppDNA.track("purchase_started", mapOf(
             "product_id" to productId,
-            "paywall_id" to (currentPaywallId ?: "")
+            "paywall_id" to (currentPaywallId ?: ""),
+            "experiment_id" to (currentExperimentId ?: ""),
         ))
 
         val client = connectionManager.awaitConnectedClient()

@@ -254,7 +254,9 @@ internal class PaywallManager(
                 )
             } catch (e: PurchaseCancelledException) {
                 eventTracker.track(
-                    "purchase_cancelled",
+                    // SPEC-070-A finalization: matches iOS canonical
+                    // `purchase_canceled` (single 'l'). NativeBillingManager.swift:166.
+                    "purchase_canceled",
                     mapOf(
                         "paywall_id" to paywallId,
                         "product_id" to plan.product_id,

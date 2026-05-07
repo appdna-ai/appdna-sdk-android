@@ -533,7 +533,9 @@ interface AppDNAPaywallDelegate {
     fun onPaywallAction(paywallId: String, action: PaywallAction) {}
     fun onPaywallPurchaseStarted(paywallId: String, productId: String) {}
     fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: ai.appdna.sdk.TransactionInfo) {}
-    fun onPaywallPurchaseFailed(paywallId: String, error: Exception) {}
+    // SPEC-070-A finalization §3.2 — widen `error` to `Throwable` (mirrors
+    // onPaywallRestoreFailed widening + iOS `error: Error` parity).
+    fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {}
     fun onPaywallDismissed(paywallId: String) {}
     // AC-037: Validate a promo code entered by the user. Call the completion handler with `true` if valid, `false` otherwise.
     fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) { completion(false) }

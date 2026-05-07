@@ -892,7 +892,11 @@ internal object OnboardingConfigParser {
                     element_height = bm["element_height"] as? String,
                     overflow = bm["overflow"] as? String,
                     // Row / stack container fields
-                    children = parseChildBlocks(bm["children"]),
+                    // SPEC-070-A finalization §3.2 — coalesce `children` and
+                    // legacy `stack_children`. iOS ContentBlockTypes.swift:1068
+                    // accepts both keys; Android previously read only `children`,
+                    // so console-saved stack containers rendered blank.
+                    children = parseChildBlocks(bm["children"] ?: bm["stack_children"]),
                     row_direction = bm["row_direction"] as? String,
                     row_distribution = bm["row_distribution"] as? String,
                     row_child_fill = bm["row_child_fill"] as? Boolean,

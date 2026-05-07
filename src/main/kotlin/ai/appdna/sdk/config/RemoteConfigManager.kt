@@ -541,6 +541,17 @@ internal class RemoteConfigManager(
                 parseOnboarding(data)
             } catch (_: Exception) {}
         }
+        // SPEC-070-A finalization — restore in-app messages from disk on cold
+        // start. Without this branch, hosts that opened cached without network
+        // saw messages disappear after process death.
+        storage.getString("cache_messages")?.let { json ->
+            try {
+                val obj = JSONObject(json)
+                @Suppress("UNCHECKED_CAST")
+                val data = obj.keys().asSequence().associateWith { obj.get(it) as Any }
+                messages = ai.appdna.sdk.messages.MessageConfigParser.parseMessages(data)
+            } catch (_: Exception) {}
+        }
     }
 
     /**

@@ -75,7 +75,7 @@ internal class OnboardingPaywallBridge(
         didPurchase = true
     }
 
-    override fun onPaywallPurchaseFailed(paywallId: String, error: Exception) {
+    override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {
         forwardOnMain { it.onPaywallPurchaseFailed(paywallId, error) }
         // iOS convention: paywall stays on screen after a failure (error
         // toast + retry allowed). Mark the intent so the host's

@@ -7,6 +7,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -114,9 +116,13 @@ private fun BannerMessageView(
 ) {
     val isTop = content.banner_position != "bottom"
     var isVisible by remember { mutableStateOf(false) }
+    val currentView = LocalView.current
 
     LaunchedEffect(Unit) {
         isVisible = true
+        // SPEC-070-A finalization parity (Lens B P1) — haptic on appear,
+        // matches iOS BannerView.swift:29.
+        HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
         content.auto_dismiss_seconds?.let { seconds ->
             if (seconds > 0) {
                 delay(seconds * 1000L)
@@ -467,6 +473,9 @@ private fun FullscreenMessageView(
     var showConfetti by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
+        // SPEC-070-A finalization parity (Lens B P1) — haptic on appear,
+        // matches iOS FullscreenView.swift:145.
+        HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
         if (content.particle_effect?.trigger == "on_appear") {
             showConfetti = true
         }
@@ -653,18 +662,39 @@ private fun TooltipMessageView(
     // mode picks up the seeded scheme color rather than hard-coded white.
     val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
     val cornerRadius = content.corner_radius ?: 12
+    val currentView = LocalView.current
+    var isDismissed by remember { mutableStateOf(false) }
 
-    // Overlay with semi-transparent backdrop
+    // SPEC-070-A finalization parity (Lens B P1):
+    // - haptic on appear (iOS TooltipView.swift:23)
+    // - auto_dismiss_seconds timer (iOS TooltipView.swift:28-33)
+    LaunchedEffect(Unit) {
+        HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+        content.auto_dismiss_seconds?.let { seconds ->
+            if (seconds > 0) {
+                delay(seconds * 1000L)
+                if (!isDismissed) {
+                    isDismissed = true
+                    onDismiss()
+                }
+            }
+        }
+    }
+
+    // Overlay with semi-transparent backdrop. Tooltip pinned to BOTTOM —
+    // matches iOS TooltipView.swift:12-19 `VStack { Spacer(); content }`.
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black.copy(alpha = 0.3f))
             .clickable(onClick = onDismiss),
-        contentAlignment = Alignment.Center,
+        contentAlignment = Alignment.BottomCenter,
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.clickable(enabled = false, onClick = {}),
+            modifier = Modifier
+                .padding(bottom = 32.dp)
+                .clickable(enabled = false, onClick = {}),
         ) {
             Card(
                 modifier = Modifier
@@ -677,20 +707,42 @@ private fun TooltipMessageView(
                     modifier = Modifier.padding(16.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // Title
+                    // Title row with xmark close button — matches iOS
+                    // TooltipView.swift:56-63 `HStack { Text(title); xmark }`.
                     content.title?.let {
-                        Text(
-                            text = it,
-                            // SPEC-070-A finalization P0 audit-11 M-35
-                            fontSize = (content.title_font_size ?: 14.0).sp,
-                            fontFamily = FontResolver.resolve(content.font_family),
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
-                            color = textColor,
-                            // SPEC-070-A J.11 — tooltip title acts as the
-                            // heading for the tooltip content.
-                            modifier = Modifier.semantics { heading() },
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(
+                                text = it,
+                                // SPEC-070-A finalization P0 audit-11 M-35
+                                fontSize = (content.title_font_size ?: 14.0).sp,
+                                fontFamily = FontResolver.resolve(content.font_family),
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Start,
+                                color = textColor,
+                                // SPEC-070-A J.11 — tooltip title acts as the
+                                // heading for the tooltip content.
+                                modifier = Modifier.weight(1f).semantics { heading() },
+                            )
+                            // SPEC-070-A finalization parity (Lens B P1) —
+                            // inline xmark close button mirrors iOS
+                            // TooltipView.swift:56-63 so the user has a
+                            // visible affordance even if backdrop tap is
+                            // blocked or unclear.
+                            IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                                androidx.compose.material3.Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Close",
+                                    tint = if (textColor != Color.Unspecified)
+                                        textColor.copy(alpha = 0.6f)
+                                    else Color.Gray,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
