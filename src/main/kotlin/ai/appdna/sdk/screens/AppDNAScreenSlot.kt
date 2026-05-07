@@ -15,6 +15,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import ai.appdna.sdk.core.entryAnimation
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 /**
  * A Composable that renders a server-driven screen's sections inline.
@@ -136,25 +138,63 @@ fun AppDNAScreenSlot(name: String) {
                 } else mod
             }
 
-            Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy((config.layout.spacing ?: 12.0).dp)) {
-                for (section in config.sections) {
-                    // SPEC-070-A finalization B6 P1 — per-section
-                    // visibility_condition + entrance_animation. Mirrors iOS
-                    // ScreenRenderer which evaluates each section's
-                    // visibility_condition and wraps in
-                    // EntranceAnimationWrapper. Android previously rendered
-                    // every section unconditionally with no animation.
-                    if (!evaluateScreenSectionVisibility(section.visibilityCondition)) continue
-                    val animType = section.entranceAnimation?.type
-                    val animDur = section.entranceAnimation?.durationMs
-                    if (animType != null && animType != "none") {
-                        androidx.compose.foundation.layout.Box(
-                            modifier = androidx.compose.ui.Modifier.entryAnimation(animType, animDur),
-                        ) {
+            // SPEC-070-A finalization B6 P2 — split sticky_footer sections
+            // out so they pin to the bottom of the slot. iOS ScreenRenderer
+            // separates `sticky_footer` / `paywall_sticky_footer` from main
+            // content and renders pinned at bottom inset. Android previously
+            // rendered them inline.
+            val mainSections = config.sections.filter {
+                it.type != "sticky_footer" && it.type != "paywall_sticky_footer"
+            }
+            val stickyFooters = config.sections.filter {
+                it.type == "sticky_footer" || it.type == "paywall_sticky_footer"
+            }
+            val spacing = (config.layout.spacing ?: 12.0).dp
+            // SPEC-070-A finalization B6 P2 — honor ScreenLayout.type.
+            // iOS supports `scroll` (default), `fixed` (no scroll), and
+            // `pager` (HorizontalPager). Android collapsed everything to
+            // a non-scrolling Column. `pager` falls through to scroll on
+            // Android until an accompanist-compose dependency lands.
+            val layoutType = config.layout.type
+            androidx.compose.foundation.layout.Box(modifier = modifier) {
+                Column(
+                    modifier = androidx.compose.ui.Modifier
+                        .fillMaxWidth()
+                        .let { mod ->
+                            if (layoutType == "fixed") mod
+                            else mod.verticalScroll(rememberScrollState())
+                        },
+                    verticalArrangement = Arrangement.spacedBy(spacing),
+                ) {
+                    for (section in mainSections) {
+                        // SPEC-070-A finalization B6 P1 — per-section
+                        // visibility_condition + entrance_animation. Mirrors iOS
+                        // ScreenRenderer.
+                        if (!evaluateScreenSectionVisibility(section.visibilityCondition)) continue
+                        val animType = section.entranceAnimation?.type
+                        val animDur = section.entranceAnimation?.durationMs
+                        if (animType != null && animType != "none") {
+                            androidx.compose.foundation.layout.Box(
+                                modifier = androidx.compose.ui.Modifier.entryAnimation(animType, animDur),
+                            ) {
+                                SectionRegistry.Render(section, context)
+                            }
+                        } else {
                             SectionRegistry.Render(section, context)
                         }
-                    } else {
-                        SectionRegistry.Render(section, context)
+                    }
+                }
+                if (stickyFooters.isNotEmpty()) {
+                    Column(
+                        modifier = androidx.compose.ui.Modifier
+                            .fillMaxWidth()
+                            .align(androidx.compose.ui.Alignment.BottomCenter),
+                        verticalArrangement = Arrangement.spacedBy(spacing),
+                    ) {
+                        for (section in stickyFooters) {
+                            if (!evaluateScreenSectionVisibility(section.visibilityCondition)) continue
+                            SectionRegistry.Render(section, context)
+                        }
                     }
                 }
             }
