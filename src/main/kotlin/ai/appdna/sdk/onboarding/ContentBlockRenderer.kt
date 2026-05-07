@@ -3107,7 +3107,11 @@ private fun FormInputTextBlock(
     keyboardType: Int,
 ) {
     val fieldId = block.field_id ?: block.id
-    var text by remember { mutableStateOf("") }
+    // SPEC-070-A finalization OB-6 — restore saved value on back nav.
+    // iOS pre-populates `_inputValues = State(initialValue: savedResponses ?? [:])`
+    // (`OnboardingRenderer.swift:1326`); Android previously initialized to ""
+    // so every back-press wiped typed answers. Read from inputValues map.
+    var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
     val cornerRadius = (block.field_style?.corner_radius ?: 8.0).dp
 
@@ -3152,7 +3156,11 @@ private fun FormInputTextAreaBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    var text by remember { mutableStateOf("") }
+    // SPEC-070-A finalization OB-6 — restore saved value on back nav.
+    // iOS pre-populates `_inputValues = State(initialValue: savedResponses ?? [:])`
+    // (`OnboardingRenderer.swift:1326`); Android previously initialized to ""
+    // so every back-press wiped typed answers. Read from inputValues map.
+    var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     val minLines = (block.field_config?.get("min_lines") as? Number)?.toInt() ?: 3
 
     Column(
@@ -3183,7 +3191,11 @@ private fun FormInputPasswordBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    var text by remember { mutableStateOf("") }
+    // SPEC-070-A finalization OB-6 — restore saved value on back nav.
+    // iOS pre-populates `_inputValues = State(initialValue: savedResponses ?? [:])`
+    // (`OnboardingRenderer.swift:1326`); Android previously initialized to ""
+    // so every back-press wiped typed answers. Read from inputValues map.
+    var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     var passwordVisible by remember { mutableStateOf(false) }
 
     Column(
@@ -3228,7 +3240,8 @@ private fun FormInputDateBlock(
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     // For datetime mode: track which sub-picker is active
-    var pendingDate by remember { mutableStateOf("") }
+    // SPEC-070-A finalization OB-6 — restore saved date value on back nav.
+    var pendingDate by remember { mutableStateOf((inputValues[block.field_id ?: block.id] as? String) ?: "") }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3960,7 +3973,11 @@ private fun FormInputLocationPlaceholder(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    var text by remember { mutableStateOf("") }
+    // SPEC-070-A finalization OB-6 — restore saved value on back nav.
+    // iOS pre-populates `_inputValues = State(initialValue: savedResponses ?? [:])`
+    // (`OnboardingRenderer.swift:1326`); Android previously initialized to ""
+    // so every back-press wiped typed answers. Read from inputValues map.
+    var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     var suggestions by remember { mutableStateOf<List<LocationSuggestion>>(emptyList()) }
     var showSuggestions by remember { mutableStateOf(false) }
     var isSearching by remember { mutableStateOf(false) }
