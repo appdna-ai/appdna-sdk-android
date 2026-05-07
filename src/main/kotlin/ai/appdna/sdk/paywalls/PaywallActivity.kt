@@ -831,13 +831,16 @@ private fun PaywallBackground(background: PaywallBackground?) {
                         pos to parseHexColor(c)
                     }.toTypedArray()
                     if (colorStopList.size >= 2) {
-                        // Compute unit-points from angle. iOS:
-                        // start.x = 0.5 - sin(rads)/2, etc.
+                        // SPEC-070-A finalization B5#P0 — match iOS PaywallRenderer.swift:394-395:
+                        //   start = (0.5 - cos·0.5, 0.5 - sin·0.5)
+                        //   end   = (0.5 + cos·0.5, 0.5 + sin·0.5)
+                        // Previous Android impl used (sin, cos) which rotated every
+                        // gradient by 90° vs iOS for the same `gradient.angle` value.
                         val rads = angle * Math.PI / 180.0
-                        val sx = (0.5 - kotlin.math.sin(rads) / 2).toFloat()
-                        val sy = (0.5 + kotlin.math.cos(rads) / 2).toFloat()
-                        val ex = (0.5 + kotlin.math.sin(rads) / 2).toFloat()
-                        val ey = (0.5 - kotlin.math.cos(rads) / 2).toFloat()
+                        val sx = (0.5 - kotlin.math.cos(rads) * 0.5).toFloat()
+                        val sy = (0.5 - kotlin.math.sin(rads) * 0.5).toFloat()
+                        val ex = (0.5 + kotlin.math.cos(rads) * 0.5).toFloat()
+                        val ey = (0.5 + kotlin.math.sin(rads) * 0.5).toFloat()
                         Brush.linearGradient(
                             colorStops = colorStopList,
                             start = androidx.compose.ui.geometry.Offset(sx, sy),
@@ -1663,19 +1666,12 @@ private fun PaywallSectionView(
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
-                val restoreCd = stringResource(R.string.appdna_a11y_paywall_restore)
-                TextButton(
-                    onClick = onRestore,
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        // SPEC-070-A J.11 — restore button a11y label so
-                        // screen readers announce purpose, not just visible
-                        // text (which may be localized in future).
-                        .semantics { contentDescription = restoreCd },
-                ) {
-                    Text(loc("restore.text", "Restore Purchases"), color = Color.White.copy(alpha = 0.6f), fontSize = 13.sp)
-                }
+                // SPEC-070-A finalization B5#P1 — restore button moved to the
+                // CTA section under `cta.show_restore` (PW-10). Previously this
+                // hardcoded button rendered unconditionally below `plans`, so
+                // restore appeared TWICE when CTA show_restore was true and
+                // appeared even when authors disabled it. Now the CTA section
+                // is the single source of truth, matching iOS.
             }
         }
         "cta" -> {

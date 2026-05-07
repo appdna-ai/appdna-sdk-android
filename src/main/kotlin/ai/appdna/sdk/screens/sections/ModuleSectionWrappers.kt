@@ -862,6 +862,11 @@ internal fun OnboardingSectionWrapper(section: ScreenSection, context: SectionCo
     }
 }
 
+// SPEC-070-A finalization B6#P0-1 — non-extension wrapper called from
+// AppDNA.configure() so callers don't need to import the extension form
+// or use a `with(receiver) { ... }` block.
+internal fun registerAllModuleSections() = SectionRegistry.registerModuleSections()
+
 // Extension to register all module sections
 internal fun SectionRegistry.registerModuleSections() {
     val paywallTypes = listOf(

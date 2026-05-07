@@ -477,6 +477,19 @@ object AppDNA {
             navigationInterceptorCallbacks = navCallbacks
             (appContext as? android.app.Application)?.registerActivityLifecycleCallbacks(navCallbacks)
 
+            // SPEC-070-A finalization parity audit B6#P0-1 — initialise the
+            // SectionRegistry. Mirrors iOS `SectionRegistry.shared.registerBuiltInSections()`
+            // call at AppDNA.configure(). Without this every SDUI screen renders
+            // NOTHING because AppDNAScreenSlot dispatches through an empty
+            // registry. Module wrappers (paywall/onboarding/survey/messages)
+            // are registered via the registerModuleSections() extension.
+            try {
+                ai.appdna.sdk.screens.SectionRegistry.registerBuiltInSections()
+                ai.appdna.sdk.screens.sections.registerAllModuleSections()
+            } catch (e: Throwable) {
+                Log.warning("SectionRegistry init failed: ${e.message}")
+            }
+
             // SPEC-070-A H.3: schedule periodic 15-minute remote-config refresh
             // via WorkManager. Idempotent — safe across configure() races.
             try {

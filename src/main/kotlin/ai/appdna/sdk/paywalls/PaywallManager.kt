@@ -201,8 +201,25 @@ internal class PaywallManager(
                     "product_id" to tx.productId,
                     "transaction_id" to tx.transactionId,
                 )
-                purchaseProps["price"]?.let { completedProps["price"] = it }
-                purchaseProps["currency"]?.let { completedProps["currency"] = it }
+                // SPEC-070-A finalization B5#P1 — fan out the FULL purchaseProps
+                // metadata into purchase_completed, mirroring iOS PaywallManager.swift:208
+                // which copies the entire dict. Previously only price+currency
+                // were copied through, dropping provider and any plan-card-injected
+                // metadata. Now `provider`, `price`, `currency`, plus any future
+                // metadata key reaches the funnel.
+                purchaseProps.forEach { (k, v) ->
+                    if (k != "paywall_id" && k != "product_id") {
+                        completedProps[k] = v
+                    }
+                }
+                // Ensure provider is set even when caller didn't inject it.
+                // BillingModule.purchase always routes through native Play
+                // Billing on Android (RC/Adapty bridges fire purchase_completed
+                // themselves with their own provider tag), so the native path
+                // can default to "google_play".
+                if (!completedProps.containsKey("provider")) {
+                    completedProps["provider"] = "google_play"
+                }
                 eventTracker.track("purchase_completed", completedProps)
 
                 listener?.onPaywallPurchaseCompleted(
