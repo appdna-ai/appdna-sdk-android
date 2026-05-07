@@ -141,6 +141,26 @@ object AppDNA {
     var screenDelegate: ai.appdna.sdk.screens.AppDNAScreenDelegate?
         get() = _screenDelegate
         set(value) { _screenDelegate = value; ai.appdna.sdk.screens.ScreenManager.shared.setDelegate(value) }
+
+    // SPEC-070-A finalization B6 P1 — top-level config-update broadcast.
+    // Mirrors iOS `AppDNA.configUpdated = Notification.Name(...)`. RN/Flutter
+    // wrappers + RemoteConfigModule observers collect on this Flow to react
+    // to remote config refreshes. Replay=0 + extraBufferCapacity=1 so a
+    // burst of refreshes coalesces without backpressure on the emitter.
+    private val _configUpdated = kotlinx.coroutines.flow.MutableSharedFlow<Unit>(
+        replay = 0,
+        extraBufferCapacity = 1,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+    )
+    /** Hot Flow that emits Unit on every successful remote-config refresh. */
+    @JvmStatic
+    val configUpdated: kotlinx.coroutines.flow.SharedFlow<Unit> = _configUpdated
+
+    /** Internal — invoked by [ai.appdna.sdk.config.RemoteConfigManager.notifyChangeListeners]. */
+    internal fun notifyConfigUpdated() {
+        _configUpdated.tryEmit(Unit)
+    }
+
     /** Onboarding module. */
     @JvmStatic val onboarding = ai.appdna.sdk.OnboardingModule()
     /** Paywall module. */

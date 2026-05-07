@@ -598,6 +598,12 @@ internal class RemoteConfigManager(
         for (listener in changeListeners) {
             listener(flags)
         }
+        // SPEC-070-A finalization B6 P1 — fan out top-level configUpdated
+        // broadcast so RN/Flutter wrappers + ad-hoc collectors react to
+        // refreshes without each registering through every module.
+        try {
+            ai.appdna.sdk.AppDNA.notifyConfigUpdated()
+        } catch (_: Throwable) { /* best-effort — pre-configure() emit drops */ }
     }
 }
 

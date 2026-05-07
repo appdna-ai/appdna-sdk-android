@@ -995,7 +995,13 @@ internal fun OnboardingFlowHost(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                if (flow.settings.allow_back && currentIndex > 0) {
+                // SPEC-070-A finalization B4 P1 — gate the back arrow on
+                // navigationHistory.isNotEmpty() rather than currentIndex>0.
+                // Mirrors iOS OnboardingRenderer.swift:257. After a skipTo
+                // jump that clears the history, currentIndex can be >0 with
+                // empty history; the old gate showed a back arrow that
+                // popped to a step the user never visited.
+                if (flow.settings.allow_back && navigationHistory.isNotEmpty()) {
                     val backCd = stringResource(R.string.appdna_a11y_onboarding_back)
                     IconButton(
                         onClick = {

@@ -287,7 +287,26 @@ class ScreenManager private constructor() {
         fireOnFlowCompleted(flowId, result)
     }
 
-    fun dismissScreen() { /* Dismiss current activity */ }
+    /**
+     * SPEC-070-A finalization B6 P1 — best-effort dismissal of the currently
+     * presented SDUI screen. Mirrors iOS `ScreenManager.dismissScreen` which
+     * dismisses the top UIViewController.
+     *
+     * Today screens render via [AppDNAScreenSlot] in the host's own
+     * Composable tree (NOT via a dedicated SDUI ScreenActivity yet — that's
+     * tracked separately as the larger B6 P0-2 follow-up). For activity-hosted
+     * presentations (PaywallActivity / OnboardingActivity / SurveyActivity)
+     * the host already calls module-specific dismissers; this method
+     * additionally signals [PresentationCoordinator] that the modal closed
+     * so the next queued presentation can fire, and best-effort finishes
+     * any tracked SDUI ScreenActivity once that lands.
+     */
+    fun dismissScreen() {
+        // Release the modal mutex so a queued paywall/message/survey can run.
+        try {
+            ai.appdna.sdk.core.PresentationCoordinator.shared.onDismissed()
+        } catch (_: Throwable) { /* best-effort */ }
+    }
 
     // SPEC-070-A B.6 — main-thread delegate fan-out helpers. All read the
     // delegate fresh on every call so hosts can register/unregister
