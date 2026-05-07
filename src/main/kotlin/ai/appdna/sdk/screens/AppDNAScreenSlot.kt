@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import ai.appdna.sdk.core.entryAnimation
 
 /**
  * A Composable that renders a server-driven screen's sections inline.
@@ -137,12 +138,76 @@ fun AppDNAScreenSlot(name: String) {
 
             Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy((config.layout.spacing ?: 12.0).dp)) {
                 for (section in config.sections) {
-                    SectionRegistry.Render(section, context)
+                    // SPEC-070-A finalization B6 P1 — per-section
+                    // visibility_condition + entrance_animation. Mirrors iOS
+                    // ScreenRenderer which evaluates each section's
+                    // visibility_condition and wraps in
+                    // EntranceAnimationWrapper. Android previously rendered
+                    // every section unconditionally with no animation.
+                    if (!evaluateScreenSectionVisibility(section.visibilityCondition)) continue
+                    val animType = section.entranceAnimation?.type
+                    val animDur = section.entranceAnimation?.durationMs
+                    if (animType != null && animType != "none") {
+                        androidx.compose.foundation.layout.Box(
+                            modifier = androidx.compose.ui.Modifier.entryAnimation(animType, animDur),
+                        ) {
+                            SectionRegistry.Render(section, context)
+                        }
+                    } else {
+                        SectionRegistry.Render(section, context)
+                    }
                 }
             }
         }
         isEmpty -> {
             // Empty slot renders nothing (AC-040c)
         }
+    }
+}
+
+/**
+ * SPEC-070-A finalization B6 P1 — pure evaluator for section-level
+ * `visibility_condition`. Mirrors iOS ScreenRenderer's per-section
+ * filtering. Returns true (section is visible) for `null` and `"always"`,
+ * false-by-default for unknown types so authors can't accidentally
+ * leak a hidden section by misspelling the rule.
+ *
+ * Reads only static SDK state (user traits + session data); the
+ * onboarding `responses[step.id]` map is not in scope here since SDUI
+ * screens render outside of an onboarding flow.
+ */
+private fun evaluateScreenSectionVisibility(condition: VisibilityConditionConfig?): Boolean {
+    if (condition == null) return true
+    val traits = AppDNA.getUserTraits()
+    val session = ai.appdna.sdk.core.SessionDataStore.instance?.sessionData ?: emptyMap()
+    fun resolve(path: String?): Any? {
+        if (path.isNullOrBlank()) return null
+        val keys = path.split(".")
+        var cur: Any? = if (keys.first() == "user_traits") traits else session
+        for (k in keys.drop(if (keys.first() == "user_traits") 1 else 0)) {
+            cur = (cur as? Map<*, *>)?.get(k) ?: return null
+        }
+        return cur
+    }
+    return when (condition.type) {
+        "always" -> true
+        "when_equals" -> resolve(condition.variable)?.toString() == condition.value?.toString()
+        "when_not_equals" -> resolve(condition.variable)?.toString() != condition.value?.toString()
+        "when_not_empty" -> resolve(condition.variable)?.toString()?.isNotEmpty() == true
+        "when_empty" -> {
+            val v = resolve(condition.variable)?.toString()
+            v.isNullOrEmpty()
+        }
+        "when_gt" -> {
+            val a = resolve(condition.variable)?.toString()?.toDoubleOrNull() ?: return false
+            val b = condition.value?.toString()?.toDoubleOrNull() ?: return false
+            a > b
+        }
+        "when_lt" -> {
+            val a = resolve(condition.variable)?.toString()?.toDoubleOrNull() ?: return false
+            val b = condition.value?.toString()?.toDoubleOrNull() ?: return false
+            a < b
+        }
+        else -> false
     }
 }
