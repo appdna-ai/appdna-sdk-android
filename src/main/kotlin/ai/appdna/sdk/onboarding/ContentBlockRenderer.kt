@@ -1567,26 +1567,35 @@ private fun SocialLoginBlock(
                     onAction("social_login:${provider.type}")
                 }
             }
+            // SPEC-070-A finalization OB-2 audit follow-up — apply per-provider
+            // colors + provider-level corner/border-width across ALL three
+            // button styles (filled, outlined, minimal). Audit round 1 caught
+            // that only the filled branch read the overrides; outlined+minimal
+            // ignored authored colors entirely.
             when (buttonStyle) {
                 "outlined" -> {
                     OutlinedButton(
                         onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
-                        shape = RoundedCornerShape(cornerRadius),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, borderColor),
+                        shape = RoundedCornerShape(providerCorner),
+                        border = androidx.compose.foundation.BorderStroke(providerBorderWidth, borderColor),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = textColor,
+                        ),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
-                        Text(displayLabel, fontWeight = FontWeight.SemiBold)
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = textColor)
+                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
                 "minimal" -> {
                     TextButton(
                         onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
-                        shape = RoundedCornerShape(cornerRadius),
+                        shape = RoundedCornerShape(providerCorner),
+                        colors = ButtonDefaults.textButtonColors(contentColor = textColor),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
-                        Text(displayLabel, fontWeight = FontWeight.SemiBold)
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = textColor)
+                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
                 else -> { // filled
@@ -3542,7 +3551,13 @@ private fun FormInputSliderBlock(
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
-    var value by remember { mutableStateOf((block.default_picker_value ?: minVal.toDouble()).toFloat()) }
+    // OB-6 audit follow-up — restore saved value on back nav.
+    var value by remember {
+        mutableStateOf(
+            (inputValues[fieldId] as? Number)?.toFloat()
+                ?: (block.default_picker_value ?: minVal.toDouble()).toFloat()
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3590,7 +3605,10 @@ private fun FormInputToggleBlock(
     val fieldId = block.field_id ?: block.id
     val onColor = StyleEngine.parseColor(block.field_style?.toggle_on_color ?: "#6366F1")
     val label = block.field_label ?: block.toggle_label ?: ""
-    var checked by remember { mutableStateOf(block.toggle_default ?: false) }
+    // OB-6 audit follow-up — restore saved value on back nav.
+    var checked by remember {
+        mutableStateOf((inputValues[fieldId] as? Boolean) ?: (block.toggle_default ?: false))
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -3623,7 +3641,13 @@ private fun FormInputStepperBlock(
     val maxVal = (block.max_value_picker ?: 100.0).toInt()
     val stepVal = (block.step_value ?: 1.0).toInt()
     val unitStr = block.unit ?: ""
-    var value by remember { mutableStateOf((block.default_picker_value ?: minVal.toDouble()).toInt()) }
+    // OB-6 audit follow-up — restore saved value on back nav.
+    var value by remember {
+        mutableStateOf(
+            (inputValues[fieldId] as? Number)?.toInt()
+                ?: (block.default_picker_value ?: minVal.toDouble()).toInt()
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3675,7 +3699,12 @@ private fun FormInputSegmentedBlock(
 ) {
     val fieldId = block.field_id ?: block.id
     val options = block.field_options ?: emptyList()
-    var selectedValue by remember { mutableStateOf(options.firstOrNull()?.value ?: "") }
+    // OB-6 audit follow-up — restore saved value on back nav.
+    var selectedValue by remember {
+        mutableStateOf(
+            (inputValues[fieldId] as? String) ?: (options.firstOrNull()?.value ?: "")
+        )
+    }
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
 
     Column(
@@ -3730,7 +3759,12 @@ private fun FormInputRatingBlock(
     val starSize = (block.star_size ?: 32.0).sp
     val filledCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_rating_color ?: "#FBBF24")
     val emptyCol = StyleEngine.parseColor(block.inactive_rating_color ?: "#D1D5DB")
-    var selectedRating by remember { mutableStateOf((block.default_value ?: 0.0).toInt()) }
+    // OB-6 audit follow-up — restore saved value on back nav.
+    var selectedRating by remember {
+        mutableStateOf(
+            (inputValues[fieldId] as? Number)?.toInt() ?: (block.default_value ?: 0.0).toInt()
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3768,8 +3802,16 @@ private fun FormInputRangeSliderBlock(
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
-    var lowValue by remember { mutableStateOf(minVal) }
-    var highValue by remember { mutableStateOf(maxVal) }
+    // OB-6 audit follow-up — restore saved range on back nav.
+    // Saved range is stored as Map<"min","max"> under fieldId per the
+    // write sites below (Slider onValueChange + LaunchedEffect).
+    val savedMap = inputValues[fieldId] as? Map<*, *>
+    var lowValue by remember {
+        mutableStateOf((savedMap?.get("min") as? Number)?.toFloat() ?: minVal)
+    }
+    var highValue by remember {
+        mutableStateOf((savedMap?.get("max") as? Number)?.toFloat() ?: maxVal)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3835,7 +3877,14 @@ private fun FormInputChipsBlock(
     val options = block.field_options ?: emptyList()
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
     val maxSelections = (block.field_config?.get("max_selections") as? Number)?.toInt()
-    var selectedValues by remember { mutableStateOf(setOf<String>()) }
+    // OB-6 audit follow-up — restore saved chips selection on back nav.
+    var selectedValues by remember {
+        mutableStateOf(
+            (inputValues[fieldId] as? List<*>)?.filterIsInstance<String>()?.toSet()
+                ?: (inputValues[fieldId] as? Set<*>)?.filterIsInstance<String>()?.toSet()
+                ?: setOf()
+        )
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -3895,7 +3944,10 @@ private fun FormInputColorBlock(
     @Suppress("UNCHECKED_CAST")
     val presetColors: List<String> = (block.field_config?.get("preset_colors") as? List<String>)
         ?: listOf("#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6", "#6366F1", "#A855F7", "#EC4899", "#000000", "#6B7280")
-    var selectedColor by remember { mutableStateOf("") }
+    // OB-6 audit follow-up — restore saved color on back nav.
+    var selectedColor by remember {
+        mutableStateOf((inputValues[fieldId] as? String) ?: "")
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
