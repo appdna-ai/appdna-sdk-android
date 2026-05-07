@@ -373,6 +373,30 @@ internal fun OnboardingFlowHost(
         eventTracker?.track(event, props)
     }
 
+    // SPEC-070-A finalization OB-7 — image preload at flow init.
+    // iOS `OnboardingRenderer.swift:130-139` walks every step's content_blocks
+    // recursively, collects every image_url referenced, and pre-warms
+    // NSURLCache + UIImage decode so the first paint of each step doesn't
+    // do a synchronous network fetch. Without this, every step renders
+    // blank-image placeholders that snap to loaded mid-scroll.
+    //
+    // The Android `ImagePreloader` (core/ImagePreloader.kt) was already
+    // shipped at SPEC-070-A G.13 but never CALLED. Wire it here once at
+    // flow start; Coil dedupes its own work so a second call (e.g. from
+    // a hook-driven config refresh) is safe.
+    val preloaderContext = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(flow.id) {
+        try {
+            val urls = collectFlowImageURLs(flow)
+            if (urls.isNotEmpty()) {
+                ai.appdna.sdk.core.ImagePreloader(preloaderContext).prefetch(urls)
+            }
+        } catch (e: Throwable) {
+            // Non-fatal — image preload is purely a UX speedup.
+            ai.appdna.sdk.Log.warning { "Image preload failed: ${e.message}" }
+        }
+    }
+
     // SPEC-083: Before-render hook + step viewed tracking
     LaunchedEffect(currentIndex) {
         if (currentIndex < flow.steps.size) {
@@ -1194,6 +1218,40 @@ private fun emitAuthAction(
         }
     }
     onNext(data)
+}
+
+// SPEC-070-A finalization OB-7 — collect every image URL referenced by a
+// flow so [ImagePreloader.prefetch] can warm Coil's cache before the first
+// paint. Mirrors iOS `OnboardingRenderer.swift:866-916` `collectImageURLs`
+// recursive walk over content_blocks, step.config fields, and per-block
+// option lists. Returns trimmed, non-empty URLs.
+private fun collectFlowImageURLs(flow: OnboardingFlowConfig): List<String> {
+    val urls = mutableListOf<String>()
+    fun pushIfPresent(s: String?) {
+        val t = s?.trim()
+        if (!t.isNullOrEmpty()) urls += t
+    }
+    fun walkBlocks(blocks: List<ContentBlock>?) {
+        if (blocks.isNullOrEmpty()) return
+        for (b in blocks) {
+            pushIfPresent(b.image_url)
+            pushIfPresent(b.video_thumbnail_url)
+            pushIfPresent(b.lottie_url) // pre-warm Lottie too (Coil renders the JSON URL as a network resource)
+            pushIfPresent(b.rive_url)
+            // Nested blocks: card.children, row.children, stack.children.
+            walkBlocks(b.children)
+            // InputOption-shaped images for select/chips/segmented blocks.
+            b.field_options?.forEach { opt ->
+                pushIfPresent(opt.image_url)
+            }
+        }
+    }
+    for (step in flow.steps) {
+        pushIfPresent(step.config.image_url)
+        pushIfPresent(step.config.background?.image_url)
+        walkBlocks(step.config.content_blocks)
+    }
+    return urls.distinct()
 }
 
 // SPEC-070-A finalization OB-1 — auth-class actions that ALSO require
