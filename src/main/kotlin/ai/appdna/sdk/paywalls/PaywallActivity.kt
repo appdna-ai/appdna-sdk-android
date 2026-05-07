@@ -101,8 +101,16 @@ class PaywallActivity : ComponentActivity() {
         // SPEC-070-A finalization P0 audit-3 — read THIS Activity's
         // launch slot via the per-call UUID extra. Concurrent launches
         // each get their own slot; no clobber.
+        //
+        // SPEC-070-A finalization P0 audit-4 — PEEK (not remove) so the
+        // slot survives Activity recreation (rotation, dark-mode toggle,
+        // font-scale, locale, multi-window resize). Removal happens in
+        // onDestroy only when `isFinishing && !isChangingConfigurations`
+        // — i.e. real dismissal, not config-change recreate. Without
+        // this, a rotation mid-paywall would call onCreate again, find
+        // no slot, finish(), and the user's purchase context vanishes.
         val token = intent.getStringExtra(EXTRA_LAUNCH_TOKEN)
-        val slots = token?.let { activeLaunches.remove(it) } ?: run {
+        val slots = token?.let { activeLaunches[it] } ?: run {
             finish()
             return
         }
@@ -191,6 +199,16 @@ class PaywallActivity : ComponentActivity() {
             snapshotOnDismiss = null
             cb?.invoke(DismissReason.DISMISSED)
         }
+        // SPEC-070-A finalization P0 audit-4 — GC the launch slot ONLY
+        // on real dismissal (`isFinishing && !isChangingConfigurations`).
+        // Config-change recreates (rotation, dark-mode, locale, font
+        // scale) MUST keep the slot so the recreated Activity's
+        // onCreate can read it. Without this guard, rotating the device
+        // during a paywall would lose all pending callbacks +
+        // PaywallConfig and `finish()` the recreated instance.
+        if (isFinishing && !isChangingConfigurations) {
+            launchToken?.let { activeLaunches.remove(it) }
+        }
         super.onDestroy()
     }
 
@@ -257,7 +275,21 @@ class PaywallActivity : ComponentActivity() {
                 putExtra(EXTRA_LAUNCH_TOKEN, token)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
-            context.startActivity(intent)
+            // SPEC-070-A finalization P0 audit-4 — startActivity can
+            // throw (ActivityNotFoundException, SecurityException, or
+            // background-launch denial on Android 12+). Without
+            // try/catch, the slot would be orphaned forever — leaking
+            // a PaywallConfig + 5 closures per failed launch. On throw,
+            // remove the slot AND fire onDismiss so the host's pending
+            // paywall context (e.g. an onboarding flow waiting for the
+            // paywall outcome) doesn't strand.
+            try {
+                context.startActivity(intent)
+            } catch (t: Throwable) {
+                activeLaunches.remove(token)
+                onDismiss?.invoke(DismissReason.DISMISSED)
+                throw t
+            }
         }
 
         /**
