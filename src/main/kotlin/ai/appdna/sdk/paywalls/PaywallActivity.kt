@@ -504,8 +504,26 @@ fun PaywallScreen(
             // SPEC-070-A audit Round 2 finding 3: filter `sticky_footer`
             // (rendered separately below) so it doesn't render twice.
             // Mirrors iOS PaywallRenderer.swift:38-67,119 partition.
+            //
+            // SPEC-070-A finalization R2 P1 (Lens B) — `legal` sections that
+            // appear AFTER the cta in the sections array are pinned beneath
+            // the CTA inside the safeAreaInset.bottom, NOT scrolled away with
+            // body content. Mirrors iOS PaywallRenderer.swift:54-67 + 213-222
+            // `pinnedFooterLegalSections` partition. Authors who want a
+            // permanently-visible ToS/Privacy footer place a `legal` section
+            // after their `cta` section.
+            val ctaIndex = config.sections.indexOfFirst { it.type == "cta" }
+            val pinnedLegalSections: List<PaywallSection> = if (ctaIndex >= 0) {
+                config.sections
+                    .drop(ctaIndex + 1)
+                    .filter { it.type == "legal" }
+            } else emptyList()
+            // Use referential identity for the pin-out check — section.id is
+            // nullable so id-based filtering would mis-partition unidentified
+            // legal sections.
+            val pinnedLegalSet: Set<PaywallSection> = pinnedLegalSections.toSet()
             val scrollableSections = config.sections.filter {
-                it.type != "sticky_footer"
+                it.type != "sticky_footer" && it !in pinnedLegalSet
             }
             // SPEC-070-A finalization PW-11 — collapse_on_scroll wiring.
             // Mirrors iOS PaywallScrollOffsetPrefKey-driven collapse: as user
@@ -612,6 +630,38 @@ fun PaywallScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
+                }
+            }
+
+            // SPEC-070-A finalization R2 P1 (Lens B) — pinned legal sections
+            // render between the scroll body and the sticky footer (or above
+            // the system inset when no sticky footer). Mirrors iOS
+            // PaywallRenderer.swift:213-222 safeAreaInset.bottom layer where
+            // legals authored AFTER the cta stay permanently visible.
+            if (pinnedLegalSections.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = (config.layout.padding ?: 20f).dp),
+                ) {
+                    for (section in pinnedLegalSections) {
+                        PaywallSectionView(
+                            section = section,
+                            config = config,
+                            selectedPlanId = selectedPlanId,
+                            isPurchasing = isPurchasing,
+                            onPlanSelect = {},
+                            onCTATap = {},
+                            onRestore = onRestore,
+                            loc = ::loc,
+                            toggleStates = toggleStates,
+                            onPromoCodeSubmit = onPromoCodeSubmit,
+                            promoCode = promoCode,
+                            promoState = promoState,
+                            onPromoCodeChange = { promoCode = it },
+                            onPromoStateChange = { promoState = it },
+                        )
+                    }
                 }
             }
 
