@@ -1430,9 +1430,15 @@ private fun ThreeZoneBlockLayout(
     }
     val top = blocks.filter { it.zone?.lowercase() == "top" }
     val bottom = blocks.filter { it.zone?.lowercase() == "bottom" }
+    // SPEC-070-A finalization P0 audit-6 MED-1 — center is the CATCH-ALL,
+    // not an allowlist of {null, blank, "center"}. iOS partition does
+    // `if zone == "top" { topBucket } else if zone == "bottom" { bottomBucket }
+    // else { centerBucket }` — any unknown / future / legacy value
+    // (e.g. "header", "middle", "footer") lands in center on iOS but
+    // would silently vanish on Android with the original allowlist.
     val center = blocks.filter {
         val z = it.zone?.lowercase()
-        z == null || z.isBlank() || z == "center"
+        z != "top" && z != "bottom"
     }
     Column(modifier = modifier.fillMaxSize()) {
         if (top.isNotEmpty()) {
