@@ -35,6 +35,7 @@ internal object NextStepRuleEvaluator {
         stepId: String,
         responses: Map<String, Any?>,
         step: OnboardingStep? = null,
+        previousStepId: String? = null,
     ): Boolean {
         val conditionList: List<Any?> = when {
             !rule.conditions.isNullOrEmpty() -> rule.conditions
@@ -53,7 +54,7 @@ internal object NextStepRuleEvaluator {
                 is String -> cond == "always"
                 is Map<*, *> -> {
                     @Suppress("UNCHECKED_CAST")
-                    evaluateCondition(cond as Map<String, Any?>, stepResponses, step)
+                    evaluateCondition(cond as Map<String, Any?>, stepResponses, step, previousStepId)
                 }
                 null -> true
                 else -> true
@@ -73,13 +74,14 @@ internal object NextStepRuleEvaluator {
      *
      * Matches iOS `evaluateCondition` operator set:
      *   `always`, `answer_equals`, `answer_contains`, `answer_not_equals`,
-     *   `not_empty`, `empty`.
+     *   `not_empty`, `empty`, `previous_step_equals`, `previous_step_in`.
      */
     @Suppress("UNCHECKED_CAST")
     private fun evaluateCondition(
         cond: Map<String, Any?>,
         responses: Map<String, Any?>,
         step: OnboardingStep?,
+        previousStepId: String? = null,
     ): Boolean {
         val type = cond["type"] as? String ?: return true
         // Console writes `answer_key`; SDK also accepts `field` for back-compat.
@@ -150,6 +152,34 @@ internal object NextStepRuleEvaluator {
                     null -> true
                     else -> false
                 }
+            }
+
+            "previous_step_equals" -> {
+                // SPEC-070-A finalization P0 audit-7 — ports iOS
+                // OnboardingRenderer.swift:1065-1070. Match if the step the
+                // user came FROM equals the given step ID. Used for
+                // conditional paywall routing ("if came from 12a → paywall_a").
+                val prevId = previousStepId ?: return false
+                val expected = cond["value"] as? String ?: ""
+                prevId == expected
+            }
+
+            "previous_step_in" -> {
+                // SPEC-070-A finalization P0 audit-7 — ports iOS
+                // OnboardingRenderer.swift:1071-1088. Match if the previous
+                // step ID is one of the listed IDs. Console saves as
+                // `previous_step_ids` array; legacy fallback accepts
+                // comma-separated `value`.
+                val prevId = previousStepId ?: return false
+                (cond["previous_step_ids"] as? List<*>)?.let { list ->
+                    val ids = list.filterIsInstance<String>()
+                    if (ids.contains(prevId)) return true
+                }
+                (cond["value"] as? String)?.let { csv ->
+                    val ids = csv.split(",").map { it.trim() }
+                    if (ids.contains(prevId)) return true
+                }
+                false
             }
 
             else -> true // Unknown operator: be permissive (match iOS default branch)

@@ -353,6 +353,16 @@ internal fun OnboardingFlowHost(
     // topmost; this Composable is rendered inside it.
     val activityCtx = androidx.compose.ui.platform.LocalContext.current
 
+    // SPEC-070-A finalization P0 audit-7 — navigation history stack for
+    // `previous_step_equals` / `previous_step_in` rule operators
+    // (iOS OnboardingRenderer.swift:982-988, 1065-1088). Push the step
+    // id we're LEAVING from before changing currentIndex; rule evaluator
+    // reads `lastOrNull()` as the user's previous step. Mirrors iOS
+    // `navigationHistory: [String]`. `mutableStateListOf` keeps the
+    // composable's reads reactive (and Compose-state-survivable in
+    // SnapshotState scope).
+    val navigationHistory = remember { mutableStateListOf<String>() }
+
     // SPEC-083: Hook state
     var isProcessing by remember { mutableStateOf(false) }
     var loadingText by remember { mutableStateOf("Processing...") }
@@ -625,6 +635,15 @@ internal fun OnboardingFlowHost(
         // next-step rules (mirrors iOS HapticController invocation in
         // OnboardingRenderer.advanceStep()).
         HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
+        // SPEC-070-A finalization P0 audit-7 — push the step we're
+        // leaving onto navigationHistory before any branch mutates
+        // currentIndex below. Mirrors iOS `navigationHistory.append(...)`
+        // at every `navigate(to:)` call site. We push BEFORE the rules
+        // branch decides where to go because every routing path
+        // (target step, paywall_trigger, end, advance, skip) advances
+        // away from the current step. Back navigation (handleAction
+        // "back") POPs instead and is handled at its own call site.
+        flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
         val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
         // SPEC-070-A audit Round 2-restart attempt 2 F1: prefer the
         // layout-level `step.config.next_step_rules` (Logic-panel-authored)
@@ -650,6 +669,9 @@ internal fun OnboardingFlowHost(
                     stepId = step.id,
                     responses = responses.toMap(),
                     step = step,
+                    // SPEC-070-A finalization P0 audit-7 — mirror iOS
+                    // OnboardingRenderer.swift `previousStepId` source.
+                    previousStepId = navigationHistory.lastOrNull(),
                 )
                 if (!matches) continue
 
@@ -841,6 +863,15 @@ internal fun OnboardingFlowHost(
                             // SPEC-070-A J.2 — back navigation reuses
                             // `on_step_advance` haptic style.
                             HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
+                            // SPEC-070-A finalization P0 audit-7 — back nav
+                            // POPs navigationHistory so `previous_step_*`
+                            // rules on the destination step see what the
+                            // user actually came FROM (i.e. the step they
+                            // entered the current step FROM, not the step
+                            // they're now leaving via back).
+                            if (navigationHistory.isNotEmpty()) {
+                                navigationHistory.removeAt(navigationHistory.lastIndex)
+                            }
                             currentIndex--
                         },
                         enabled = !isProcessing,
