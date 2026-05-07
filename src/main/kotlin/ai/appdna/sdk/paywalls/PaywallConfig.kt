@@ -252,6 +252,36 @@ data class PaywallSectionData(
     val badge_bg_color: String? = null,
     val badge_text_color: String? = null,
     val badge_font_size: Float? = null,
+
+    // SPEC-070-A finalization PW-9 — plan-card show-flags + selection styling.
+    // iOS reads these on the section.data to gate per-plan-card rendering of
+    // the plan's optional fields (icon, image, subtitle, features, savings).
+    // Without these, console-authored plan cards always render flat: name +
+    // price + period + badge. iOS source: PaywallConfig.swift:254-258.
+    val show_plan_icons: Boolean? = null,
+    val show_plan_images: Boolean? = null,
+    val show_plan_subtitles: Boolean? = null,
+    val show_plan_features: Boolean? = null,
+    val show_savings: Boolean? = null,
+    /** Where to place plan.description ("above_price" / "below_price"). */
+    val subtitle_position: String? = null,
+    /** Color flip when card is selected (iOS `selected_text_color`). */
+    val selected_text_color: String? = null,
+    /** Border color when card is NOT selected (iOS unselected_border_color). */
+    val unselected_border_color: String? = null,
+    /** Background tint when card is NOT selected (iOS unselected_bg_color). */
+    val unselected_bg_color: String? = null,
+    /** Border color when card IS selected. */
+    val selected_border_color: String? = null,
+    /** Background color when card IS selected. */
+    val selected_bg_color: String? = null,
+    /** Optional divider between plan rows (e.g. radio_list). */
+    val show_divider: Boolean? = null,
+    val divider_color: String? = null,
+    /** Badge border styling (iOS PaywallConfig.swift:266-268). */
+    val badge_border_color: String? = null,
+    val badge_border_width: Float? = null,
+    val badge_icon: String? = null,
 )
 
 // SPEC-089d: Sub-types for new paywall sections
@@ -336,7 +366,17 @@ data class PaywallPlan(
     val cta_text: String? = null,
     val icon: String? = null,
     val image_url: String? = null,
-)
+) {
+    // SPEC-070-A finalization PW-12 — computed accessors mirroring iOS:
+    // `displayName: label ?? name`, `displayPrice: price_display ?? price`,
+    // `trialLabel: trial?.label ?? trial_duration`. Used by PlanCard so the
+    // console's structured `label` / `price_display` / `trial.label` win
+    // over the raw fields when set. iOS source: PaywallConfig.swift via
+    // computed Codable accessors.
+    val displayName: String get() = label.ifBlank { name }
+    val displayPrice: String get() = price_display.ifBlank { price }
+    val trialLabel: String? get() = trial?.label ?: trial_duration
+}
 
 data class PaywallCTA(
     val text: String = "",
@@ -987,6 +1027,26 @@ internal object PaywallConfigParser {
                 badge_bg_color = d["badge_bg_color"] as? String,
                 badge_text_color = d["badge_text_color"] as? String,
                 badge_font_size = (d["badge_font_size"] as? Number)?.toFloat(),
+                // SPEC-070-A finalization PW-9 — plan-card show-flags +
+                // selection styling. Without these, console-authored
+                // plan cards always render flat (name + price + period
+                // + badge), and selection state can't tint colors.
+                show_plan_icons = d["show_plan_icons"] as? Boolean,
+                show_plan_images = d["show_plan_images"] as? Boolean,
+                show_plan_subtitles = d["show_plan_subtitles"] as? Boolean,
+                show_plan_features = d["show_plan_features"] as? Boolean,
+                show_savings = d["show_savings"] as? Boolean,
+                subtitle_position = d["subtitle_position"] as? String,
+                selected_text_color = d["selected_text_color"] as? String,
+                unselected_border_color = d["unselected_border_color"] as? String,
+                unselected_bg_color = d["unselected_bg_color"] as? String,
+                selected_border_color = d["selected_border_color"] as? String,
+                selected_bg_color = d["selected_bg_color"] as? String,
+                show_divider = d["show_divider"] as? Boolean,
+                divider_color = d["divider_color"] as? String,
+                badge_border_color = d["badge_border_color"] as? String,
+                badge_border_width = (d["badge_border_width"] as? Number)?.toFloat(),
+                badge_icon = d["badge_icon"] as? String,
             )
         }
 

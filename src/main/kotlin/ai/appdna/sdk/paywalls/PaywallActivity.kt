@@ -884,31 +884,163 @@ private fun PaywallSectionView(
                 )
             }
 
+            // SPEC-070-A finalization PW-9 — pull all 5 plan-card show-flags
+            // + selection styling colors from section.data. Mirrors iOS'
+            // PlanCard rendering flags (PaywallConfig.swift:254-258).
+            val showPlanIcons = section.data?.show_plan_icons ?: false
+            val showPlanImages = section.data?.show_plan_images ?: false
+            val showPlanSubtitles = section.data?.show_plan_subtitles ?: false
+            val showPlanFeatures = section.data?.show_plan_features ?: false
+            val showSavings = section.data?.show_savings ?: false
+            val subtitlePosition = section.data?.subtitle_position ?: "below_price"
+            val selectedTextColor = section.data?.selected_text_color?.let { parseHexColor(it) }
+            val unselectedBorderColor = section.data?.unselected_border_color?.let { parseHexColor(it) }
+            val unselectedBgColor = section.data?.unselected_bg_color?.let { parseHexColor(it) }
+            val customSelectedBorder = section.data?.selected_border_color?.let { parseHexColor(it) }
+            val customSelectedBg = section.data?.selected_bg_color?.let { parseHexColor(it) }
+
             @Composable
             fun PlanCard(plan: PaywallPlan, planIdx: Int, modifier: Modifier = Modifier) {
                 val isSelected = selectedPlanId == plan.id
                 val elevation = if (cardShadowEnabled) 4.dp else 0.dp
+                // PW-9: honor authored selected/unselected border + bg colors.
+                val selectedBorderColor = customSelectedBorder ?: Color(0xFF6366F1)
+                val unselectedBorder = unselectedBorderColor
+                val selectedBg = customSelectedBg ?: Color(0xFF6366F1).copy(alpha = 0.1f)
+                val unselectedBg = unselectedBgColor ?: Color.White.copy(alpha = 0.1f)
+                // PW-9: text color flips when selected if author provided one.
+                val resolvedTextColor = if (isSelected) {
+                    selectedTextColor ?: Color.Unspecified
+                } else {
+                    Color.Unspecified
+                }
                 Card(
                     modifier = modifier
                         .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
                         .then(
-                            if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
+                            when {
+                                isSelected -> Modifier.border(2.dp, selectedBorderColor, cardShape)
+                                unselectedBorder != null -> Modifier.border(1.dp, unselectedBorder, cardShape)
+                                else -> Modifier
+                            }
                         )
                         .clickable { onPlanSelect(plan.id) },
                     shape = cardShape,
                     elevation = CardDefaults.cardElevation(defaultElevation = elevation),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
-                    )
+                        containerColor = if (isSelected) selectedBg else unselectedBg,
+                    ),
                 ) {
                     Box {
                         Column(modifier = Modifier.padding(cardPad)) {
-                            Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
-                            Spacer(Modifier.height(4.dp))
-                            Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
-                            plan.period?.let {
-                                Text(text = loc("plan.$planIdx.period", it), style = periodStyle)
+                            // PW-9: optional plan icon (top of card; iOS SF
+                            // Symbol rendered via IconView). Resolved from
+                            // plan.icon when show_plan_icons flag is true.
+                            if (showPlanIcons && !plan.icon.isNullOrBlank()) {
+                                ai.appdna.sdk.core.IconView(
+                                    ref = ai.appdna.sdk.core.IconReference(
+                                        library = "material",
+                                        name = plan.icon,
+                                        size = 24f,
+                                    ),
+                                )
+                                Spacer(Modifier.height(8.dp))
                             }
+
+                            // PW-9: optional plan image (above name; iOS path).
+                            if (showPlanImages && !plan.image_url.isNullOrBlank()) {
+                                ai.appdna.sdk.core.NetworkImage(
+                                    url = plan.image_url,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(80.dp),
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                            }
+
+                            // PW-12 — `plan.displayName` mirrors iOS' computed
+                            // `label ?? name` accessor; respect resolvedTextColor.
+                            Text(
+                                text = loc("plan.$planIdx.name", plan.displayName),
+                                style = planNameStyle,
+                                color = resolvedTextColor,
+                            )
+
+                            // PW-9: subtitle above price if `subtitle_position == "above_price"`.
+                            if (showPlanSubtitles && subtitlePosition == "above_price" && !plan.description.isNullOrBlank()) {
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = loc("plan.$planIdx.description", plan.description),
+                                    fontSize = 12.sp,
+                                    color = resolvedTextColor.takeIf { it != Color.Unspecified } ?: Color.Gray,
+                                )
+                            }
+
+                            Spacer(Modifier.height(4.dp))
+                            // PW-12 — `plan.displayPrice` mirrors `price_display ?? price`.
+                            Text(
+                                text = loc("plan.$planIdx.price", plan.displayPrice),
+                                style = priceStyle,
+                                color = resolvedTextColor,
+                            )
+                            plan.period?.let {
+                                Text(
+                                    text = loc("plan.$planIdx.period", it),
+                                    style = periodStyle,
+                                    color = resolvedTextColor,
+                                )
+                            }
+
+                            // PW-9: subtitle below price (default position).
+                            if (showPlanSubtitles && subtitlePosition != "above_price" && !plan.description.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = loc("plan.$planIdx.description", plan.description),
+                                    fontSize = 12.sp,
+                                    color = resolvedTextColor.takeIf { it != Color.Unspecified } ?: Color.Gray,
+                                )
+                            }
+
+                            // PW-9: per-plan feature checkmark list.
+                            if (showPlanFeatures && !plan.features.isNullOrEmpty()) {
+                                Spacer(Modifier.height(8.dp))
+                                plan.features.forEachIndexed { fIdx, feature ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(text = "✓ ", color = Color(0xFF10B981), fontSize = 13.sp)
+                                        Text(
+                                            text = loc("plan.$planIdx.feature.$fIdx", feature),
+                                            fontSize = 13.sp,
+                                            color = resolvedTextColor,
+                                        )
+                                    }
+                                    Spacer(Modifier.height(2.dp))
+                                }
+                            }
+
+                            // PW-9: per-plan savings text (typically "Save 20%").
+                            if (showSavings && !plan.savings_text.isNullOrBlank()) {
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = loc("plan.$planIdx.savings", plan.savings_text),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF10B981), // green by convention
+                                )
+                            }
+
+                            // PW-12 — `plan.trialLabel` shows trial copy if present
+                            // (computed from `trial?.label ?? trial_duration`).
+                            plan.trialLabel?.takeIf { it.isNotBlank() }?.let { trialText ->
+                                Spacer(Modifier.height(4.dp))
+                                Text(
+                                    text = loc("plan.$planIdx.trial", trialText),
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = resolvedTextColor.takeIf { it != Color.Unspecified } ?: Color(0xFF6366F1),
+                                )
+                            }
+
                             plan.badge?.let {
                                 if (badgePosition == "inline") {
                                     Spacer(Modifier.height(8.dp))
