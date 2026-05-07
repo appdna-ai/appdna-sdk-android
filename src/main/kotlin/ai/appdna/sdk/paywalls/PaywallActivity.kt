@@ -2546,10 +2546,18 @@ private fun PaywallComparisonTableSection(
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        when (value.lowercase()) {
-                            "check" -> Text("\u2713", color = checkColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            "cross" -> Text("\u2715", color = crossColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            "partial" -> Text("\u2014", color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                        // SPEC-070-A finalization B5 P2 \u2014 accept the same
+                        // value aliases iOS does (PaywallRenderer.swift:1437-1445):
+                        //   check / true / yes / y / \u2713
+                        //   cross / false / no / n / - / \u2717
+                        //   partial / ~
+                        when (value.lowercase().trim()) {
+                            "check", "true", "yes", "y", "\u2713" ->
+                                Text("\u2713", color = checkColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            "cross", "false", "no", "n", "-", "\u2715" ->
+                                Text("\u2715", color = crossColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            "partial", "~" ->
+                                Text("\u2014", color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             else -> Text(value, fontSize = 12.sp, color = Color.White, textAlign = TextAlign.Center)
                         }
                     }

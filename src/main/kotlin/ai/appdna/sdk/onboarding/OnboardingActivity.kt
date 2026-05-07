@@ -1736,6 +1736,12 @@ private fun collectFlowImageURLs(flow: OnboardingFlowConfig): List<String> {
         if (blocks.isNullOrEmpty()) return
         for (b in blocks) {
             pushIfPresent(b.image_url)
+            // SPEC-070-A finalization B4 P1 — also preload `placeholder_image_url`.
+            // iOS collectImageURLs walks every block.placeholder_image_url so the
+            // first-frame poster paints immediately while Lottie/video stream.
+            // Android previously skipped it even though the field IS in the DTO,
+            // making lottie blocks flash empty until the network response landed.
+            pushIfPresent(b.placeholder_image_url)
             pushIfPresent(b.video_thumbnail_url)
             pushIfPresent(b.lottie_url) // pre-warm Lottie too (Coil renders the JSON URL as a network resource)
             pushIfPresent(b.rive_url)
@@ -1878,6 +1884,21 @@ private fun BlockBasedStepView(
             // with hosts that switch on `action == "social_login"`. iOS
             // `OnboardingRenderer.swift:1507-1524`.
             "social_login" -> {
+                // SPEC-070-A finalization B4 P1 — delegate gate. Without an
+                // AppDNAOnboardingDelegate to handle social-login, advancing
+                // would silently leak provider info into the responses
+                // payload with no auth performed. Match the gate iOS uses
+                // for `request_otp`/`login`/`register` etc.
+                val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
+                if (!hasDelegate) {
+                    ai.appdna.sdk.Log.warning(
+                        "social_login button tapped but no AppDNAOnboardingDelegate is " +
+                        "registered. Register via AppDNA.onboarding.setDelegate(...) and " +
+                        "implement onBeforeStepAdvance to handle the OAuth flow. Step will " +
+                        "NOT advance until a delegate is provided."
+                    )
+                    return
+                }
                 val data = mutableMapOf<String, Any>(
                     "provider" to (actionValue ?: "unknown"),
                     "action" to "social_login",
