@@ -2789,12 +2789,48 @@ private fun PaywallReviewsCarouselSection(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    review.avatar_url?.let { url ->
-                        ai.appdna.sdk.core.NetworkImage(
-                            url = url,
-                            modifier = Modifier.size(28.dp).clip(CircleShape),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        )
+                    // SPEC-070-A finalization B5 P2 — avatar resolution
+                    // mirrors iOS PaywallHelperViews.swift:316-343,401-414:
+                    //   1. avatar_url → render NetworkImage
+                    //   2. avatar_emoji → render unicode glyph (raw or
+                    //      mapped from a name like "woman"/"rocket"/"fire")
+                    //   3. neither → render initial-letter circle fallback
+                    val avatarUrl = review.avatar_url
+                    val avatarEmojiRaw = review.avatar_emoji
+                    val avatarEmoji = avatarEmojiRaw?.let { ReviewAvatarEmojiMap.resolve(it) }
+                    when {
+                        avatarUrl != null -> {
+                            ai.appdna.sdk.core.NetworkImage(
+                                url = avatarUrl,
+                                modifier = Modifier.size(28.dp).clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            )
+                        }
+                        avatarEmoji != null -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.1f)),
+                                contentAlignment = Alignment.Center,
+                            ) { Text(text = avatarEmoji, fontSize = 16.sp) }
+                        }
+                        review.author.isNotBlank() -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    text = review.author.first().uppercaseChar().toString(),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White,
+                                )
+                            }
+                        }
                     }
                     val authorStyle = if (authorStyleConfig != null) {
                         StyleEngine.applyTextStyle(
@@ -2978,5 +3014,51 @@ private fun parseHexColor(hex: String): Color {
         }
     } catch (_: Exception) {
         Color.Black
+    }
+}
+
+/**
+ * SPEC-070-A finalization B5 P2 — review avatar emoji resolver.
+ * Mirrors iOS PaywallHelperViews.swift `emojiFromName` map. Console
+ * authors can store either:
+ *   - a raw emoji ("👩"), passed through unchanged
+ *   - a descriptive name ("woman", "rocket", "fire"), mapped to the
+ *     corresponding unicode glyph
+ * Returns null when the input is empty or `null`.
+ */
+private object ReviewAvatarEmojiMap {
+    private val byName: Map<String, String> = mapOf(
+        "woman" to "👩",
+        "man" to "👨",
+        "person" to "🧑",
+        "girl" to "👧",
+        "boy" to "👦",
+        "rocket" to "🚀",
+        "fire" to "🔥",
+        "star" to "⭐",
+        "heart" to "❤️",
+        "thumbs_up" to "👍",
+        "muscle" to "💪",
+        "smile" to "😊",
+        "sparkles" to "✨",
+        "tada" to "🎉",
+        "trophy" to "🏆",
+        "crown" to "👑",
+        "diamond" to "💎",
+        "gem" to "💎",
+        "bolt" to "⚡",
+        "lightning" to "⚡",
+        "100" to "💯",
+        "ok_hand" to "👌",
+        "clap" to "👏",
+    )
+
+    fun resolve(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        // If the input already contains non-ASCII (likely a literal emoji),
+        // pass it through.
+        if (s.any { it.code > 127 }) return s
+        return byName[s.lowercase()]
     }
 }
