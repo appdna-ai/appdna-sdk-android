@@ -265,11 +265,17 @@ fun PaywallScreen(
 
     // Select default plan on appear + initialize toggle defaults
     LaunchedEffect(Unit) {
-        val plans = config.sections
+        // SPEC-070-A finalization PW-2 — read effective plans (sections OR
+        // top-level config.plans fallback). Computed inline because
+        // effectivePlans() lives in the @Composable body below; mirror its
+        // logic here at the LaunchedEffect site.
+        val sectionPlans = config.sections
             .firstOrNull { it.type == "plans" }
             ?.data?.plans
-        selectedPlanId = plans?.firstOrNull { it.is_default == true }?.id
-            ?: plans?.firstOrNull()?.id
+            ?: emptyList<PaywallPlan>()
+        val plans = if (sectionPlans.isEmpty()) (config.plans ?: emptyList()) else sectionPlans
+        selectedPlanId = plans.firstOrNull { it.is_default == true }?.id
+            ?: plans.firstOrNull()?.id
 
         // AC-038: Initialize toggle defaults from config
         config.sections.filter { it.type == "toggle" }.forEach { section ->
@@ -329,6 +335,34 @@ fun PaywallScreen(
         // SPEC-089d: Extract sticky_footer section
         val stickyFooterSection = config.sections.firstOrNull { it.type == "sticky_footer" }
 
+        // SPEC-070-A finalization PW-2 — `effectivePlans` helper. Mirrors iOS
+        // `PaywallRenderer.swift:511-512` resolution:
+        //   sectionPlans = config.sections.first(where: { type == "plans" })?.data?.plans
+        //   effectivePlans = sectionPlans.isEmpty ? (config.plans ?? []) : sectionPlans
+        // Without this, any paywall authored at the document root (no plans
+        // section, just top-level `plans: []`) renders with no plans on
+        // Android — even though parser landed top-level `config.plans`
+        // support already. Also resolves selection by id.
+        fun effectivePlans(): List<PaywallPlan> {
+            val sectionPlans = config.sections
+                .firstOrNull { it.type == "plans" }
+                ?.data?.plans
+                ?: emptyList<PaywallPlan>()
+            return if (sectionPlans.isEmpty()) (config.plans ?: emptyList()) else sectionPlans
+        }
+        // SPEC-070-A finalization PW-3 — `effectiveCtaText` helper.
+        // iOS reads `config.cta?.text ?? section.data?.ctaText ?? section.data?.text ?? "Continue"`
+        // (`PaywallRenderer.swift:146-148, 517-519`). Note also that Firestore
+        // emits flat `cta_text` on the section.data (not nested `cta.text`),
+        // so we read both shapes.
+        fun effectiveCtaText(section: PaywallSection?): String {
+            return config.cta?.text?.takeIf { it.isNotBlank() }
+                ?: section?.data?.cta?.text?.takeIf { it.isNotBlank() }
+                ?: section?.data?.cta_text?.takeIf { it.isNotBlank() }
+                ?: section?.data?.text?.takeIf { it.isNotBlank() }
+                ?: "Continue"
+        }
+
         // Content in a Column with scrollable area + sticky footer
         Column(modifier = Modifier.fillMaxSize()) {
             // SPEC-070-A J.20 — convert eager `Column.verticalScroll` to
@@ -361,32 +395,39 @@ fun PaywallScreen(
                     items = scrollableSections,
                     key = { idx, section -> "${section.type}_${section.id ?: idx}" },
                 ) { index, section ->
-                    // PW-11 — compute collapse alpha for this specific item.
-                    // When the section is at index N and the user has scrolled
-                    // past it (firstVisibleItemIndex > N) OR it's still the
-                    // first visible but partially scrolled (offset > 0), we
-                    // fade it. Range: alpha 0.3..1.0.
-                    val collapseAlpha by androidx.compose.runtime.remember {
+                    // SPEC-070-A finalization PW-11 (audit-driven rewrite) —
+                    // mirror iOS PaywallRenderer.swift:120-128 collapse_on_scroll
+                    // semantics exactly. Audit caught divergence: trigger
+                    // distance was 240px (iOS uses 50px), alpha clamped to 0.3
+                    // (iOS goes fully invisible at 1.0), height never collapsed
+                    // (iOS reduces frame to 0 + clipped), and scroll was per-item
+                    // (iOS uses GLOBAL page scroll offset).
+                    //
+                    // Approximation of "global scroll offset" in Compose:
+                    //   - first visible item index 0 + offset → offset px scrolled
+                    //   - first visible item index > 0 → user scrolled past at
+                    //     least one section; treat as fully past trigger (50px+).
+                    val collapseRatio by androidx.compose.runtime.remember {
                         androidx.compose.runtime.derivedStateOf {
                             if (section.collapse_on_scroll != true) {
-                                1f
+                                0f
                             } else {
                                 val first = lazyListState.firstVisibleItemIndex
                                 val offset = lazyListState.firstVisibleItemScrollOffset
-                                when {
-                                    first > index -> 0.3f
-                                    first == index -> {
-                                        // 0 offset = full opacity; 240px+ scrolled = min alpha.
-                                        val ratio = (offset.toFloat() / 240f).coerceIn(0f, 1f)
-                                        1f - ratio * 0.7f
-                                    }
-                                    else -> 1f
+                                val pxScrolled: Float = when {
+                                    first > index -> Float.POSITIVE_INFINITY // past it; fully collapsed
+                                    first == index -> offset.toFloat()
+                                    else -> 0f // still above the section
                                 }
+                                (pxScrolled / 50f).coerceIn(0f, 1f) // matches iOS' 50px hard collapse distance
                             }
                         }
                     }
+                    val collapseAlpha = 1f - collapseRatio
+                    val collapseHeight = if (collapseRatio >= 1f) 0.dp else androidx.compose.ui.unit.Dp.Unspecified
                     Box(
                         modifier = Modifier
+                            .then(if (collapseHeight == 0.dp) Modifier.height(0.dp) else Modifier)
                             .alpha(collapseAlpha)
                             .sectionStagger(
                                 config.animation?.section_stagger,
@@ -408,10 +449,9 @@ fun PaywallScreen(
                                 )
                             },
                             onCTATap = {
-                                val plans = config.sections
-                                    .firstOrNull { s -> s.type == "plans" }
-                                    ?.data?.plans
-                                val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
+                                // PW-2 — top-level plans fallback.
+                                val plans = effectivePlans()
+                                val plan = plans.firstOrNull { p -> p.id == selectedPlanId }
                                 if (plan != null) {
                                     isPurchasing = true
                                     // SPEC-085: Haptic on CTA tap
@@ -454,10 +494,9 @@ fun PaywallScreen(
                     section = stickyFooterSection,
                     isPurchasing = isPurchasing,
                     onCTATap = {
-                        val plans = config.sections
-                            .firstOrNull { s -> s.type == "plans" }
-                            ?.data?.plans
-                        val plan = plans?.firstOrNull { p -> p.id == selectedPlanId }
+                        // PW-2 — top-level plans fallback (sticky footer path).
+                        val plans = effectivePlans()
+                        val plan = plans.firstOrNull { p -> p.id == selectedPlanId }
                         if (plan != null) {
                             isPurchasing = true
                             HapticEngine.triggerIfEnabled(
@@ -722,7 +761,17 @@ private fun PaywallBackground(background: PaywallBackground?) {
         }
         "color" -> {
             // PW-6 fix already in parser: `value` now folds in `bg.color`.
-            val color = background.value?.let { parseHexColor(it) } ?: Color.Black
+            // SPEC-070-A finalization audit follow-up — iOS treats the literal
+            // strings "transparent" / "clear" as Color.clear
+            // (PaywallRenderer.swift:427-431). Android parseHexColor("transparent")
+            // falls through to Color.Black, so console-authored
+            // bg.color="transparent" rendered BLACK on Android and CLEAR on iOS.
+            // Special-case those literals here before parseHexColor is called.
+            val color = when (background.value?.lowercase()?.trim()) {
+                null, "" -> Color.Black
+                "transparent", "clear" -> Color.Transparent
+                else -> background.value?.let { parseHexColor(it) } ?: Color.Black
+            }
             Box(modifier = Modifier.fillMaxSize().background(color))
         }
         "transparent", "clear", "none" -> {
@@ -871,7 +920,11 @@ private fun PaywallSectionView(
         "plans" -> {
             // Gap 10-11: Read plan_display_style from section data, fallback to layout.type
             val displayStyle = section.data?.plan_display_style ?: config.layout.type
-            val plans = section.data?.plans ?: emptyList()
+            // SPEC-070-A finalization PW-2 — fall back to top-level
+            // `config.plans` when section has no plans (matches iOS
+            // PaywallRenderer.swift:511-512 effectivePlans logic).
+            val sectionPlansRaw = section.data?.plans ?: emptyList()
+            val plans = if (sectionPlansRaw.isEmpty()) (config.plans ?: emptyList()) else sectionPlansRaw
 
             // Card styling from config
             val cardRadius = (section.data?.card_corner_radius ?: 12f).dp
@@ -1145,12 +1198,12 @@ private fun PaywallSectionView(
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(
-                                            text = loc("plan.$planIdx.name", plan.name),
+                                            text = loc("plan.$planIdx.name", plan.displayName),
                                             style = planNameStyle.copy(fontSize = 14.sp),
                                             textAlign = TextAlign.Center,
                                         )
                                         Text(
-                                            text = loc("plan.$planIdx.price", plan.price),
+                                            text = loc("plan.$planIdx.price", plan.displayPrice),
                                             style = priceStyle.copy(fontSize = 14.sp),
                                             textAlign = TextAlign.Center,
                                         )
@@ -1195,11 +1248,11 @@ private fun PaywallSectionView(
                                 )
                                 Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                                    Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle)
                                     plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
                                 }
                                 Column(horizontalAlignment = Alignment.End) {
-                                    Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                    Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle)
                                     plan.badge?.let {
                                         Spacer(Modifier.height(4.dp))
                                         BadgeView(loc("plan.$planIdx.badge", it))
@@ -1232,8 +1285,8 @@ private fun PaywallSectionView(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
-                                        Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                        Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle)
+                                        Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle)
                                     }
                                     if (isSelected) {
                                         Spacer(Modifier.height(8.dp))
@@ -1242,7 +1295,7 @@ private fun PaywallSectionView(
                                             Spacer(Modifier.height(4.dp))
                                             BadgeView(loc("plan.$planIdx.badge", it))
                                         }
-                                        plan.trial_duration?.let {
+                                        plan.trialLabel?.let {
                                             Spacer(Modifier.height(4.dp))
                                             Text(text = it, style = periodStyle)
                                         }
@@ -1301,11 +1354,11 @@ private fun PaywallSectionView(
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Column {
-                                            Text(text = loc("plan.$planIdx.name", plan.name), style = planNameStyle)
+                                            Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle)
                                             plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
                                         }
                                         Column(horizontalAlignment = Alignment.End) {
-                                            Text(text = loc("plan.$planIdx.price", plan.price), style = priceStyle)
+                                            Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle)
                                             plan.badge?.let {
                                                 if (badgePosition == "inline") {
                                                     BadgeView(loc("plan.$planIdx.badge", it))
@@ -1436,7 +1489,19 @@ private fun PaywallSectionView(
                         )
                     } else {
                         Text(
-                            text = loc("cta.text", section.data?.cta?.text ?: "Continue"),
+                            // SPEC-070-A finalization PW-3 — iOS resolution chain.
+                            // `config.cta?.text ?? section.data?.cta?.text ??
+                            // section.data?.cta_text ?? section.data?.text ?? "Continue"`.
+                            // Inlined here (not via helper) because PaywallSectionView
+                            // is a separate @Composable scope from PaywallScreen.
+                            text = loc(
+                                "cta.text",
+                                config.cta?.text?.takeIf { it.isNotBlank() }
+                                    ?: section.data?.cta?.text?.takeIf { it.isNotBlank() }
+                                    ?: section.data?.cta_text?.takeIf { it.isNotBlank() }
+                                    ?: section.data?.text?.takeIf { it.isNotBlank() }
+                                    ?: "Continue",
+                            ),
                             style = buttonTextStyle.copy(color = Color.White),
                         )
                     }
