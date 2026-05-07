@@ -39,6 +39,17 @@ data class PaywallConfig(
     val post_purchase: PostPurchaseConfig? = null,
     /** Raw audience targeting rules (list or object). Mirrors iOS `audience_rules: AnyCodable?`. */
     val audience_rules: Any? = null,
+    // SPEC-070-A finalization PW-2 — top-level `plans` array. iOS resolves plans
+    // via `config.sections.first(where: { $0.type == "plans" })?.data?.plans
+    // ?? config.plans ?? []` (`PaywallRenderer.swift:325-329`). Without this
+    // field the Android renderer can't find plans authored at the document
+    // root (some console layouts emit plans alongside `sections` rather than
+    // inside a `plans` section).
+    val plans: ImmutableList<PaywallPlan>? = null,
+    // SPEC-070-A finalization PW-3 — top-level `cta` object. iOS reads
+    // `config.cta?.text` before falling back to section-data CTA
+    // (`PaywallRenderer.swift:146`).
+    val cta: PaywallCTA? = null,
 )
 
 @Immutable
@@ -49,6 +60,21 @@ data class PaywallLayout(
     // SPEC-070-A F.8: footer/CTA zone padding + plan display style hint at layout root
     val footer_padding: Float? = null,
     val plan_display_style: String? = null,
+    // SPEC-070-A finalization PW-1 — Firestore writes `sections` and
+    // `background` INSIDE the `layout` object (per validator
+    // `paywall.schema.ts:165-173` + entity `Paywall.ts:37-42` + sync service
+    // `PaywallConfigSyncService.ts:180`). iOS resolves them via
+    // `_sections ?? layout?.sections ?? []` (`PaywallConfig.swift:8-41`).
+    // Android only read `map["sections"]` at the top-level, getting an empty
+    // list for every real Firestore-authored paywall — which manifested as a
+    // FULLY WHITE SCREEN at runtime (LazyColumn over empty list +
+    // MaterialTheme.colorScheme.background = white).
+    val sections: ImmutableList<PaywallSection>? = null,
+    val background: PaywallBackground? = null,
+    // SPEC-070-A finalization — match iOS' `global_style` passthrough at
+    // layout root (`PaywallConfig.swift:255`). Stored raw; consumers may
+    // read individual keys for cross-section style tokens.
+    val global_style: Map<String, Any>? = null,
 )
 
 @Immutable
@@ -494,6 +520,26 @@ internal object PaywallConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun parsePaywallConfig(id: String, map: Map<String, Any>): PaywallConfig {
         val layoutMap = map["layout"] as? Map<String, Any> ?: emptyMap()
+
+        // SPEC-070-A finalization PW-1 — sections live at `layout.sections`
+        // (Firestore canonical) per the server validator + sync service. Top-
+        // level `sections` is iOS' legacy fallback. Resolve in iOS' priority:
+        // top-level wins, layout.sections fills in.
+        val sectionsRaw = (map["sections"] as? List<Map<String, Any>>)
+            ?: (layoutMap["sections"] as? List<Map<String, Any>>)
+            ?: emptyList()
+        // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
+        val sections = sectionsRaw.map { parseSectionFromMap(it) }.toImmutableList()
+
+        // SPEC-070-A finalization PW-1 — same fallback chain for `background`.
+        // The PaywallBackground branch below now resolves either map.
+        val bgMap = (map["background"] as? Map<String, Any>)
+            ?: (layoutMap["background"] as? Map<String, Any>)
+
+        // SPEC-070-A finalization — parse layout-level sections + background +
+        // global_style passthrough. Section parsing already happened above so
+        // the layout's `sections` field carries the SAME ImmutableList for any
+        // consumer that walks `config.layout.sections` directly.
         val layout = PaywallLayout(
             type = layoutMap["type"] as? String ?: "stack",
             spacing = (layoutMap["spacing"] as? Number)?.toFloat(),
@@ -501,24 +547,31 @@ internal object PaywallConfigParser {
             // SPEC-070-A F.8
             footer_padding = (layoutMap["footer_padding"] as? Number)?.toFloat(),
             plan_display_style = layoutMap["plan_display_style"] as? String,
+            sections = sections,
+            // background built below — re-assigned via copy() after we have it
+            background = null,
+            global_style = layoutMap["global_style"] as? Map<String, Any>,
         )
-
-        val sectionsList = map["sections"] as? List<Map<String, Any>> ?: emptyList()
-        // SPEC-070-A J.22 — wrap as ImmutableList for Compose stability.
-        val sections = sectionsList.map { parseSectionFromMap(it) }.toImmutableList()
 
         val dismissMap = map["dismiss"] as? Map<String, Any>
         val dismiss = dismissMap?.let {
+            // SPEC-070-A finalization PW-5 — iOS Codable keys read `style` first
+            // and fall back to `type` (`PaywallConfig.swift:567-573`). Server
+            // writes `style` per validator (`paywall.schema.ts:206`). Android
+            // previously read only `type` so EVERY paywall rendered `x_button`
+            // regardless of the console choice (text_link / swipe_down).
+            val rawStyle = it["style"] as? String
+            val rawType = it["type"] as? String
+            val resolved = rawStyle ?: rawType ?: "x_button"
             PaywallDismiss(
-                type = it["type"] as? String ?: "x_button",
-                style = it["style"] as? String,
+                type = resolved,
+                style = rawStyle,
                 allowed = it["allowed"] as? Boolean ?: true,
                 delay_seconds = (it["delay_seconds"] as? Number)?.toInt(),
                 text = it["text"] as? String
             )
         }
 
-        val bgMap = map["background"] as? Map<String, Any>
         val background = bgMap?.let {
             // SPEC-070-A F.8: full PaywallBackground parity (color/gradient/image/overlay/video)
             @Suppress("UNCHECKED_CAST")
@@ -540,7 +593,12 @@ internal object PaywallConfigParser {
             }
             PaywallBackground(
                 type = it["type"] as? String ?: "color",
-                value = it["value"] as? String,
+                // SPEC-070-A finalization PW-6 — iOS reads `bg.color` first,
+                // falls back to `bg.value` (`PaywallRenderer.swift` color
+                // resolution). Android previously read only `value` so
+                // type=color backgrounds with a `color` field rendered as
+                // theme-default (often white).
+                value = (it["color"] as? String) ?: (it["value"] as? String),
                 colors = (it["colors"] as? List<*>)?.filterIsInstance<String>(),
                 color = it["color"] as? String,
                 gradient = gradient,
@@ -554,8 +612,14 @@ internal object PaywallConfigParser {
             )
         }
 
-        // SPEC-084: Parse animation config
-        val animMap = map["animation"] as? Map<String, Any>
+        // SPEC-070-A finalization PW-4 — iOS Codable key is `animation_config`
+        // (`PaywallConfig.swift:31` `case animation = "animation_config"`).
+        // Android previously read `map["animation"]` only, so EVERY paywall's
+        // entry/dismiss/section_stagger/CTA/plan_selection animation was
+        // silently no-op. Accept both keys: prefer canonical, fall back to
+        // legacy short key for back-compat with any older client payloads.
+        val animMap = (map["animation_config"] as? Map<String, Any>)
+            ?: (map["animation"] as? Map<String, Any>)
         val animation = animMap?.let {
             ai.appdna.sdk.core.AnimationConfig(
                 entry_animation = it["entry_animation"] as? String,
@@ -640,10 +704,48 @@ internal object PaywallConfigParser {
             PostPurchaseConfig(on_success = onSuccess, on_failure = onFailure)
         }
 
+        // SPEC-070-A finalization PW-2 — parse top-level `plans` (iOS fallback
+        // path when no `plans`-type section exists). Reuse `parsePlanFromMap`.
+        val topLevelPlans = (map["plans"] as? List<*>)
+            ?.mapNotNull { p ->
+                @Suppress("UNCHECKED_CAST")
+                (p as? Map<String, Any>)?.let { parsePlanFromMap(it) }
+            }
+            ?.toImmutableList()
+
+        // SPEC-070-A finalization PW-3 — parse top-level `cta`. Reuses the
+        // same shape iOS reads via `config.cta?.text`.
+        val topLevelCtaMap = map["cta"] as? Map<String, Any>
+        val topLevelCta = topLevelCtaMap?.let { ctaMap ->
+            val rawStyle = ctaMap["style"]
+            val styleMap = rawStyle as? Map<*, *>
+            PaywallCTA(
+                text = ctaMap["text"] as? String ?: "",
+                style = rawStyle,
+                bg_color = ctaMap["bg_color"] as? String
+                    ?: (styleMap?.get("bg_color") as? String),
+                text_color = ctaMap["text_color"] as? String
+                    ?: (styleMap?.get("text_color") as? String),
+                corner_radius = (ctaMap["corner_radius"] as? Number)?.toDouble()
+                    ?: (styleMap?.get("corner_radius") as? Number)?.toDouble(),
+                height = (ctaMap["height"] as? Number)?.toDouble()
+                    ?: (styleMap?.get("height") as? Number)?.toDouble(),
+                font_size = (ctaMap["font_size"] as? Number)?.toDouble()
+                    ?: (styleMap?.get("font_size") as? Number)?.toDouble(),
+                padding_vertical = (ctaMap["padding_vertical"] as? Number)?.toDouble()
+                    ?: (styleMap?.get("padding_vertical") as? Number)?.toDouble(),
+            )
+        }
+
+        // SPEC-070-A finalization PW-1 — fold the resolved background into the
+        // PaywallLayout so any consumer reading `config.layout.background`
+        // sees the same value as `config.background` (both are populated).
+        val layoutWithBackground = layout.copy(background = background)
+
         return PaywallConfig(
             id = map["id"] as? String ?: id,
             name = map["name"] as? String ?: "",
-            layout = layout,
+            layout = layoutWithBackground,
             sections = sections,
             dismiss = dismiss,
             background = background,
@@ -659,6 +761,9 @@ internal object PaywallConfigParser {
             version = (map["version"] as? Number)?.toInt(),
             post_purchase = postPurchase,
             audience_rules = map["audience_rules"],
+            // SPEC-070-A finalization PW-2 / PW-3 — top-level plans + cta.
+            plans = topLevelPlans,
+            cta = topLevelCta,
         )
     }
 

@@ -21,12 +21,13 @@ plugins {
 
 android {
     namespace = "ai.appdna.sample"
-    compileSdk = 34
+    // SPEC-070-A finalization Phase 1 — compileSdk/targetSdk 34 → 35 (Play 2025 policy).
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "ai.appdna.sample"
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
         versionCode = 1
         versionName = "1.0"
     }

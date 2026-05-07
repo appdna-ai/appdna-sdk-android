@@ -14,11 +14,14 @@ plugins {
 
 android {
     namespace = "ai.appdna.sdk"
-    compileSdk = 34
+    // SPEC-070-A finalization Phase 1 — compileSdk/targetSdk 34 → 35 to align with
+    // Google Play 2025 policy: new app submissions must target API 35 (Android 15)
+    // since Aug 2025; existing apps must reach 35 by Aug 2026.
+    compileSdk = 35
 
     defaultConfig {
         minSdk = 24
-        targetSdk = 34
+        targetSdk = 35
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
