@@ -213,7 +213,15 @@ data class StepConfig(
 data class QuestionOption(
     val id: String,
     val label: String,
-    val icon: String? = null
+    val icon: String? = null,
+    /**
+     * SPEC-070-A finalization parity audit R2 — per-option caption text
+     * shown below the label. Mirrors iOS `QuestionOption.subtitle`
+     * (OnboardingConfig.swift:340-345) and the QuestionStepView
+     * renderer at `QuestionStepView.swift:136-142` which renders this
+     * as a smaller caption when non-empty.
+     */
+    val subtitle: String? = null,
 )
 
 enum class SelectionMode(val value: String) {
@@ -538,7 +546,9 @@ internal object OnboardingConfigParser {
                 QuestionOption(
                     id = optMap["id"] as? String ?: "",
                     label = optMap["label"] as? String ?: "",
-                    icon = optMap["icon"] as? String
+                    icon = optMap["icon"] as? String,
+                    // SPEC-070-A finalization parity audit R2 — per-option subtitle.
+                    subtitle = optMap["subtitle"] as? String,
                 )
             } else null
         }?.toImmutableList()

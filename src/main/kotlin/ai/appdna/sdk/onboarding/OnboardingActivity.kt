@@ -2086,7 +2086,20 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             ) {
                 Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
-                    Text(text = option.label.interpolated(), fontSize = 16.sp)
+                    // SPEC-070-A finalization parity audit R2 — render
+                    // option.subtitle below the label when non-empty.
+                    // Mirrors iOS QuestionStepView.swift:136-142 caption
+                    // text style (smaller font, muted color).
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(text = option.label.interpolated(), fontSize = 16.sp)
+                        option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
+                            Text(
+                                text = sub.interpolated(),
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                            )
+                        }
+                    }
                 }
             }
         }
