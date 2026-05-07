@@ -198,7 +198,13 @@ internal class PushTokenManager(
                     put("device_id", deviceId ?: "")
                     put("app_version", appVersion)
                     put("sdk_version", AppDNA.sdkVersion)
-                    put("os_version", Build.VERSION.RELEASE)
+                    // SPEC-070-A finalization parity audit R5 — normalize to
+                    // 3-part dotted form so cross-platform OS-version cohort
+                    // dashboards bucket Android same as iOS. EventSchema
+                    // already does this for events.os and template
+                    // device.os_version; push-token registration was the
+                    // outlier emitting bare "14" instead of "14.0.1".
+                    put("os_version", ai.appdna.sdk.events.EventSchema.normalizeOsVersion(Build.VERSION.RELEASE))
                 }
                 apiClient?.post("/api/v1/push/token", body.toString())
                 Log.info("Push token registered with backend")

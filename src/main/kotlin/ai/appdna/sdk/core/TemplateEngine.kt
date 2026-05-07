@@ -107,6 +107,21 @@ object TemplateEngine {
                 context.deviceInfo[parts[1]]
             }
 
+            "input" -> {
+                // SPEC-070-A finalization parity audit R5 — `{{input.fieldId}}`
+                // shorthand. Mirrors iOS TemplateEngine.swift:107-116:
+                // searches all onboardingResponses step dicts for the
+                // first matching fieldId; first match wins. Used for
+                // cross-step references in console copy
+                // (e.g. `Welcome, {{input.first_name}}!`).
+                if (parts.size < 2) return null
+                val fieldId = parts[1]
+                for ((_, stepData) in context.onboardingResponses) {
+                    stepData[fieldId]?.let { return stringify(it) }
+                }
+                null
+            }
+
             else -> {
                 // Legacy: bare variable name → remote config (backward compat)
                 context.remoteConfig(path)
