@@ -269,6 +269,16 @@ class PaywallActivity : ComponentActivity() {
         internal fun slotsForToken(token: String?): LaunchSlots? =
             token?.let { activeLaunches[it] }
 
+        /**
+         * SPEC-070-A finalization R3 P0 (Lens D) — clear all in-flight slot
+         * captures. Called from `AppDNA.shutdown()`.
+         */
+        @JvmStatic
+        internal fun clearActiveLaunches() {
+            activeLaunches.clear()
+        }
+
+        @JvmStatic
         fun launch(
             context: Context,
             paywallId: String,
@@ -820,7 +830,11 @@ fun PaywallScreen(
 
         // Dismiss control
         if (showDismiss) {
-            val dismissType = config.dismiss?.type ?: "x_button"
+            // SPEC-070-A finalization R3 P0 (Lens A PW-5) — prefer `dismiss.style`
+            // over `dismiss.type`. iOS PaywallRenderer.swift:567-573 reads `_style`
+            // first and falls back to `_type` for backward compat with older
+            // configs that still use `type`. Both fields parse to PaywallDismiss.
+            val dismissType = config.dismiss?.style ?: config.dismiss?.type ?: "x_button"
             when (dismissType) {
                 "text_link" -> {
                     val dismissCd = stringResource(R.string.appdna_a11y_paywall_dismiss)

@@ -1702,6 +1702,19 @@ object AppDNA {
                 }
             } catch (_: Throwable) {}
             navigationInterceptorCallbacks = null
+
+            // SPEC-070-A finalization R3 P0 (Lens D) — drop pending Activity
+            // launch slots so SDK shutdown doesn't leak ScreenConfig /
+            // PaywallConfig / SurveyConfig + closure captures forever.
+            try { ai.appdna.sdk.screens.ScreenHostActivity.clearActiveLaunches() } catch (_: Throwable) {}
+            try { ai.appdna.sdk.paywalls.PaywallActivity.clearActiveLaunches() } catch (_: Throwable) {}
+            try { ai.appdna.sdk.feedback.SurveyActivity.clearActiveLaunches() } catch (_: Throwable) {}
+
+            // SPEC-070-A finalization R3 P0 (Lens D) — drop the pre-configure
+            // FCM token buffer too so a re-configure() doesn't replay a stale
+            // token that the host already discarded.
+            pendingPushTokenBeforeConfigure = null
+
             appContext = null
 
             // SPEC-070-A final audit pass H F2 — reassign `scope` so a

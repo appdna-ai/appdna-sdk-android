@@ -194,6 +194,8 @@ class ScreenManager private constructor() {
                         resolvedConfig = config.copy(
                             sections = override.sections,
                             presentation = override.presentation ?: config.presentation,
+                            // SPEC-070-A finalization R3 P2 — variant transition merge.
+                            transition = override.transition ?: config.transition,
                             background = override.background ?: config.background,
                             triggerRules = override.triggerRules ?: config.triggerRules,
                         )

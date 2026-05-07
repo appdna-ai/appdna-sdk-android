@@ -177,6 +177,20 @@ class SurveyActivity : ComponentActivity() {
          */
         @Volatile internal var surveyBackHandler: (() -> Boolean)? = null
 
+        /**
+         * SPEC-070-A finalization R3 P0 (Lens D) — drop pending captures
+         * on SDK shutdown so SurveyConfig + callback closures don't leak.
+         * Called from `AppDNA.shutdown()`.
+         */
+        @JvmStatic
+        internal fun clearActiveLaunches() {
+            pendingSurveyConfig = null
+            pendingCallback = null
+            questionAnsweredCallback = null
+            surveyBackHandler = null
+        }
+
+        @JvmStatic
         fun launch(context: Context, surveyId: String, config: SurveyConfig, callback: (SurveyResult) -> Unit) {
             pendingSurveyConfig = config
             pendingCallback = callback

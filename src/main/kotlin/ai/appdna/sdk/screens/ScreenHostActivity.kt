@@ -95,6 +95,29 @@ class ScreenHostActivity : ComponentActivity() {
         snapshotScreenId = screenId
         val config = slot.config
 
+        // SPEC-070-A finalization R3 P1 (Lens D) — honor `config.transition`
+        // via overridePendingTransition. iOS uses UIModalTransitionStyle on
+        // ScreenPresenter; Android equivalent is the per-Activity enter/exit
+        // anim pair applied immediately after the Intent fires. Falls back to
+        // platform default ("none") when the value is unknown or missing.
+        @Suppress("DEPRECATION")
+        when (config.transition) {
+            "slide_up" -> overridePendingTransition(
+                android.R.anim.slide_in_left, // Android lacks slide-up bottom; closest stock anim
+                android.R.anim.fade_out,
+            )
+            "slide_left" -> overridePendingTransition(
+                android.R.anim.slide_in_left,
+                android.R.anim.slide_out_right,
+            )
+            "fade" -> overridePendingTransition(
+                android.R.anim.fade_in,
+                android.R.anim.fade_out,
+            )
+            "none" -> overridePendingTransition(0, 0)
+            else -> { /* platform default */ }
+        }
+
         setContent {
             val isDark = isSystemInDarkTheme()
             MaterialTheme {
@@ -168,6 +191,18 @@ class ScreenHostActivity : ComponentActivity() {
 
         private val activeLaunches = java.util.concurrent.ConcurrentHashMap<String, ScreenLaunchSlot>()
 
+        /**
+         * SPEC-070-A finalization R3 P0 (Lens D) — clear all in-flight slot
+         * captures so SDK shutdown doesn't leak ScreenConfig + onDismiss
+         * closures. Called from `AppDNA.shutdown()`. Mirrors the same call
+         * shape as PaywallActivity / SurveyActivity static-map cleanup.
+         */
+        @JvmStatic
+        internal fun clearActiveLaunches() {
+            activeLaunches.clear()
+        }
+
+        @JvmStatic
         fun launch(
             context: Context,
             screenId: String,

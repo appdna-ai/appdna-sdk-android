@@ -112,6 +112,10 @@ data class ScreenConfig(
 data class ScreenVariantOverride(
     val sections: kotlinx.collections.immutable.ImmutableList<ScreenSection>? = null,
     val presentation: String? = null,
+    // SPEC-070-A finalization R3 P2 — `transition` parsed at variant level so
+    // experiment-driven A/B variants can change just the present-animation
+    // (e.g. control = slide_up, treatment = fade) without redefining the rest.
+    val transition: String? = null,
     val background: BackgroundConfig? = null,
     val triggerRules: UnifiedTriggerRules? = null,
 ) {
@@ -123,6 +127,7 @@ data class ScreenVariantOverride(
                     ?.map { ScreenSection.fromMap(it) }
                     ?.toImmutableList(),
                 presentation = data["presentation"] as? String,
+                transition = data["transition"] as? String,
                 background = (data["background"] as? Map<String, Any?>)?.let { BackgroundConfig.fromMap(it) },
                 triggerRules = (data["trigger_rules"] as? Map<String, Any?>)?.let { UnifiedTriggerRules.fromMap(it) },
             )
