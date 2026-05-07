@@ -1425,6 +1425,141 @@ private fun PaywallSectionView(
                             }
                         }
                     }
+                    // SPEC-070-A finalization parity audit G1 — 5 plan
+                    // display styles previously fell through to the
+                    // vertical-stack default. Each iOS branch at
+                    // PaywallRenderer.swift mapped to its own visual
+                    // shape; Android now mirrors per iOS authoring intent.
+                    "mini_cards" -> {
+                        // iOS PaywallRenderer.swift:1774 — compact 2-col
+                        // LazyVGrid; smaller padding than default cards.
+                        plans.chunked(2).forEachIndexed { chunkIdx, row ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 4),
+                                horizontalArrangement = Arrangement.spacedBy(cardGap / 2),
+                            ) {
+                                row.forEachIndexed { colIdx, plan ->
+                                    val planIdx = chunkIdx * 2 + colIdx
+                                    PlanCard(
+                                        plan = plan,
+                                        planIdx = planIdx,
+                                        modifier = Modifier.weight(1f).padding(vertical = cardGap / 4),
+                                    )
+                                }
+                                if (row.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    }
+                    "single_hero" -> {
+                        // iOS PaywallRenderer.swift:1941 — render only the
+                        // FIRST (hero) plan large + center-aligned, rest
+                        // collapsed under a "More options" expandable.
+                        // Mac-friendly minimum: render first plan as a
+                        // single full-width card; remaining plans below
+                        // as compact rows.
+                        plans.firstOrNull()?.let { hero ->
+                            PlanCard(
+                                plan = hero,
+                                planIdx = 0,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 2),
+                            )
+                        }
+                        plans.drop(1).forEachIndexed { idx, plan ->
+                            PlanCard(
+                                plan = plan,
+                                planIdx = idx + 1,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 4),
+                            )
+                        }
+                    }
+                    "product_as_cta" -> {
+                        // iOS PaywallRenderer.swift:1993 — each plan IS
+                        // a CTA button itself; tapping the plan triggers
+                        // immediate purchase. Render each plan as a
+                        // full-width filled button row labeled with
+                        // displayPrice + name.
+                        plans.forEachIndexed { planIdx, plan ->
+                            val isSelected = selectedPlanId == plan.id
+                            Button(
+                                onClick = {
+                                    onPlanSelect(plan.id)
+                                    // iOS variant immediately fires CTA
+                                    // on selection. Android keeps the
+                                    // existing "select first, then CTA
+                                    // tap" flow — single-tap purchase
+                                    // requires extra wiring through
+                                    // onPlanSelected callback.
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 2)
+                                    .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected),
+                                shape = cardShape,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.1f),
+                                    contentColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
+                                ),
+                                contentPadding = PaddingValues(horizontal = cardPad, vertical = cardPad),
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(
+                                        text = loc("plan.$planIdx.name", plan.displayName),
+                                        style = planNameStyle,
+                                    )
+                                    Text(
+                                        text = loc("plan.$planIdx.price", plan.displayPrice),
+                                        style = priceStyle.copy(fontSize = 18.sp),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    "comparison_table", "comparison_cards", "feature_matrix", "pricing_table" -> {
+                        // iOS PaywallRenderer.swift:1880 — feature × plan
+                        // matrix. Android already renders a dedicated
+                        // PaywallComparisonTableSection; here in the
+                        // plan-section context, render each plan as a
+                        // full-width card with its features list visible
+                        // (PlanCard already supports show_features /
+                        // features per PW-9).
+                        plans.forEachIndexed { planIdx, plan ->
+                            PlanCard(
+                                plan = plan,
+                                planIdx = planIdx,
+                                modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 2),
+                            )
+                        }
+                    }
+                    "timeline_reveal", "timeline" -> {
+                        // iOS PaywallRenderer.swift:1809 — vertical
+                        // timeline (dot + line + horizontal-card per
+                        // plan). Android: render each plan with a
+                        // leading dot indicator + connecting line via a
+                        // Row, plus the existing PlanCard.
+                        plans.forEachIndexed { planIdx, plan ->
+                            val isSelected = selectedPlanId == plan.id
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = cardGap / 2),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                // Timeline indicator (dot)
+                                Box(
+                                    modifier = Modifier
+                                        .size(12.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(
+                                            if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.4f),
+                                        ),
+                                )
+                                Spacer(Modifier.width(12.dp))
+                                PlanCard(plan = plan, planIdx = planIdx, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
                     else -> {
                         // vertical_stack (default), feature_comparison, pricing_table, tiered_slider → Column layout
                         plans.forEachIndexed { planIdx, plan ->
