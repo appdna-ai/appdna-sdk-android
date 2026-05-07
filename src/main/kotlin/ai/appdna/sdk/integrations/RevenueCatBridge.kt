@@ -204,22 +204,50 @@ internal class RevenueCatBridge {
             purchaseDate = System.currentTimeMillis().toString(),
             environment = "production",
         )
-        AppDNA.track("purchase_completed", mapOf(
-            "product_id" to productId,
-            "provider" to "revenuecat",
-        ))
+        // SPEC-070-A finalization R2 P1 (Lens C) — enrich with paywall_id /
+        // experiment_id / price / currency via the shared helper so the
+        // direct-purchase path matches the native Play Billing path shape.
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "revenuecat")
+            ?: mapOf("product_id" to productId, "provider" to "revenuecat")
+        AppDNA.track("purchase_completed", props)
         delegate?.onPurchaseCompleted(productId, txInfo)
+    }
+
+    /**
+     * SPEC-070-A finalization R2 P1 (Lens C) — `purchase_started` symmetry
+     * with AdaptyBridge.forwardPurchaseStarted. Hosts call this just before
+     * `Purchases.shared.purchase(...)` so funnel dashboards see the started
+     * event from the direct-purchase path too. Mirrors iOS RevenueCatBridge.
+     */
+    fun forwardPurchaseStarted(productId: String) {
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "revenuecat")
+            ?: mapOf("product_id" to productId, "provider" to "revenuecat")
+        AppDNA.track("purchase_started", props)
+    }
+
+    /**
+     * SPEC-070-A finalization R2 P1 (Lens C) — `purchase_canceled` symmetry
+     * matches the native Play Billing path (NativeBillingManager.kt:153).
+     * Hosts call this when the RC purchase flow surfaces a user-cancel.
+     */
+    fun forwardPurchaseCanceled(productId: String) {
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "revenuecat")
+            ?: mapOf("product_id" to productId, "provider" to "revenuecat")
+        AppDNA.track("purchase_canceled", props)
     }
 
     /** Forward a host-driven RevenueCat purchase failure. */
     fun forwardPurchaseFailure(productId: String, error: Throwable) {
-        AppDNA.track("purchase_failed", mapOf(
-            "product_id" to productId,
+        val base = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "revenuecat")
+            ?: mapOf("product_id" to productId, "provider" to "revenuecat")
+        AppDNA.track("purchase_failed", base + mapOf(
             "error" to (error.message ?: "unknown"),
-            "provider" to "revenuecat",
         ))
-        val ex = if (error is Exception) error else RuntimeException(error)
-        delegate?.onPurchaseFailed(productId, ex)
+        delegate?.onPurchaseFailed(productId, error)
     }
 
     /**

@@ -117,13 +117,24 @@ internal class AdaptyBridge {
      * `purchase_started` aren't undercount on Android.
      */
     fun forwardPurchaseStarted(productId: String) {
-        AppDNA.track(
-            "purchase_started",
-            mapOf(
-                "product_id" to productId,
-                "provider" to "adapty",
-            ),
-        )
+        // SPEC-070-A finalization R2 P1 (Lens C) — enrich with
+        // paywall_id/experiment_id/price/currency via shared helper.
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "adapty")
+            ?: mapOf("product_id" to productId, "provider" to "adapty")
+        AppDNA.track("purchase_started", props)
+    }
+
+    /**
+     * SPEC-070-A finalization R2 P1 (Lens C) — `purchase_canceled` symmetry
+     * with the native path. Hosts call this when Adapty.makePurchase surfaces
+     * a user-cancel.
+     */
+    fun forwardPurchaseCanceled(productId: String) {
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "adapty")
+            ?: mapOf("product_id" to productId, "provider" to "adapty")
+        AppDNA.track("purchase_canceled", props)
     }
 
     /**
@@ -138,28 +149,22 @@ internal class AdaptyBridge {
             purchaseDate = System.currentTimeMillis().toString(),
             environment = "production",
         )
-        AppDNA.track(
-            "purchase_completed",
-            mapOf(
-                "product_id" to productId,
-                "provider" to "adapty",
-            ),
-        )
+        val props = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "adapty")
+            ?: mapOf("product_id" to productId, "provider" to "adapty")
+        AppDNA.track("purchase_completed", props)
         delegate?.onPurchaseCompleted(productId, txInfo)
     }
 
     /** Forward a host-driven Adapty purchase failure. */
     fun forwardPurchaseFailure(productId: String, error: Throwable) {
-        AppDNA.track(
-            "purchase_failed",
-            mapOf(
-                "product_id" to productId,
-                "error" to (error.message ?: "unknown"),
-                "provider" to "adapty",
-            ),
-        )
-        val ex = if (error is Exception) error else RuntimeException(error)
-        delegate?.onPurchaseFailed(productId, ex)
+        val base = AppDNA.billing.manager
+            ?.purchaseEventProps(productId, "adapty")
+            ?: mapOf("product_id" to productId, "provider" to "adapty")
+        AppDNA.track("purchase_failed", base + mapOf(
+            "error" to (error.message ?: "unknown"),
+        ))
+        delegate?.onPurchaseFailed(productId, error)
     }
 
     /**

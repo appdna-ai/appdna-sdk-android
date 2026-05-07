@@ -247,6 +247,32 @@ class NativeBillingManager internal constructor(
     }
 
     /**
+     * SPEC-070-A finalization R2 P1 (Lens C) — shared purchase-event property
+     * builder used by RevenueCatBridge + AdaptyBridge so direct-purchase paths
+     * emit the same shape as the native Play Billing path. Populates:
+     * `product_id`, `provider`, `paywall_id`, `experiment_id`, and (when
+     * cached) `price` + `currency` + `is_trial`. Mirrors the iOS pattern
+     * where StoreKit2Bridge / RevenueCatBridge / AdaptyBridge call into
+     * `NativeBillingManager.trackProperties(productId)`.
+     *
+     * Public so bridges in `integrations/` can reach it via
+     * `AppDNA.billing.manager?.purchaseEventProps(...)`.
+     */
+    fun purchaseEventProps(productId: String, provider: String): Map<String, Any> {
+        val props = mutableMapOf<String, Any>(
+            "product_id" to productId,
+            "provider" to provider,
+            "paywall_id" to (currentPaywallId ?: ""),
+            "experiment_id" to (currentExperimentId ?: ""),
+        )
+        priceResolver.cachedPriceInfo(productId)?.let { info ->
+            props["price"] = info.priceMicros / 1_000_000.0
+            props["currency"] = info.currencyCode
+        }
+        return props
+    }
+
+    /**
      * SPEC-070-A finalization B-4 — common helper used by every non-OK
      * response code branch above. Emits a `purchase_failed` analytic with
      * a typed `reason` field so funnel dashboards can split silent-fail
