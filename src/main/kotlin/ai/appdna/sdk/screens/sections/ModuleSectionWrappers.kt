@@ -858,7 +858,29 @@ internal fun OnboardingSectionWrapper(section: ScreenSection, context: SectionCo
                 Button(onClick = { context.onAction(SectionAction.Next) }) { Text(ctaText) }
             }
         }
-        else -> { /* onboarding_step or unknown */ }
+        "onboarding_step" -> {
+            // SPEC-070-A finalization B5#P1 / iOS ModuleSectionWrappers.swift:38-54 —
+            // re-dispatch to ContentBlocksSectionRenderer with `blocks` keyed
+            // off the section's `content_blocks` payload. Lets onboarding
+            // content authors embed an entire content-block step inside an
+            // SDUI screen without rebuilding the renderer.
+            val rawBlocks = section.data["content_blocks"]
+            if (rawBlocks != null) {
+                ContentBlocksSectionRenderer(
+                    section = ScreenSection(
+                        id = section.id,
+                        type = "content_blocks",
+                        data = mapOf("blocks" to rawBlocks),
+                        style = section.style,
+                        visibilityCondition = section.visibilityCondition,
+                        entranceAnimation = section.entranceAnimation,
+                        a11y = section.a11y,
+                    ),
+                    context = context,
+                )
+            }
+        }
+        else -> { /* unknown */ }
     }
 }
 
