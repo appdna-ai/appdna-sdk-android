@@ -65,7 +65,9 @@ internal fun PaywallSectionWrapper(section: ScreenSection, context: SectionConte
         "card" -> PaywallCardSection(section)
         "timeline" -> PaywallTimelineSection(section)
         "image" -> PaywallImageSection(section)
-        "video", "lottie", "rive" -> PaywallMediaPlaceholder(section)
+        "video" -> PaywallVideoSection(section)
+        "lottie" -> PaywallLottieSection(section)
+        "rive" -> PaywallRiveSection(section)
         "spacer" -> Spacer(Modifier.height(((section.data["height"] as? Number)?.toFloat() ?: 24f).dp))
         "divider" -> PaywallDividerSection(section)
         "sticky_footer" -> PaywallStickyFooterSection(section, context)
@@ -537,17 +539,95 @@ private fun PaywallImageSection(section: ScreenSection) {
     }
 }
 
+/**
+ * SPEC-070-A finalization B5 P1 — render real video instead of empty Box.
+ * Wires `paywall_video` section data through the same VideoBlockView used
+ * by onboarding content_blocks. Mirrors iOS PaywallSectionWrapperImpl
+ * which dispatches `video` directly to VideoBlockView.
+ */
 @Composable
-private fun PaywallMediaPlaceholder(section: ScreenSection) {
-    val height = (section.data["height"] as? Number)?.toFloat() ?: 200f
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(height.dp)
-            .padding(horizontal = 20.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(Color.Gray.copy(alpha = 0.05f)),
-    )
+private fun PaywallVideoSection(section: ScreenSection) {
+    val url = section.data["video_url"] as? String ?: section.data["url"] as? String
+    if (url == null) {
+        // Fallback gray box when no URL configured.
+        val h = (section.data["video_height"] as? Number)?.toFloat()
+            ?: (section.data["height"] as? Number)?.toFloat() ?: 200f
+        Box(
+            modifier = Modifier.fillMaxWidth().height(h.dp)
+                .padding(horizontal = 20.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.Gray.copy(alpha = 0.05f)),
+        )
+        return
+    }
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        ai.appdna.sdk.core.VideoBlockView(
+            block = ai.appdna.sdk.core.VideoBlock(
+                video_url = url,
+                video_thumbnail_url = section.data["video_thumbnail_url"] as? String,
+                video_height = (section.data["video_height"] as? Number)?.toFloat()
+                    ?: (section.data["height"] as? Number)?.toFloat() ?: 200f,
+                video_corner_radius = (section.data["video_corner_radius"] as? Number)?.toFloat()
+                    ?: (section.data["corner_radius"] as? Number)?.toFloat(),
+                autoplay = section.data["video_autoplay"] as? Boolean ?: section.data["autoplay"] as? Boolean,
+                loop = section.data["video_loop"] as? Boolean ?: section.data["loop"] as? Boolean,
+                muted = section.data["video_muted"] as? Boolean ?: section.data["muted"] as? Boolean,
+            ),
+        )
+    }
+}
+
+/**
+ * SPEC-070-A finalization B5 P1 — render real Lottie animation instead of
+ * empty Box, matching iOS PaywallSectionWrapperImpl.
+ */
+@Composable
+private fun PaywallLottieSection(section: ScreenSection) {
+    val url = section.data["lottie_url"] as? String ?: section.data["url"] as? String
+    @Suppress("UNCHECKED_CAST")
+    val lottieJson = section.data["lottie_json"] as? Map<String, Any>
+    if (url == null && lottieJson == null) {
+        val h = (section.data["lottie_height"] as? Number)?.toFloat()
+            ?: (section.data["height"] as? Number)?.toFloat() ?: 160f
+        Box(
+            modifier = Modifier.fillMaxWidth().height(h.dp)
+                .padding(horizontal = 20.dp),
+        )
+        return
+    }
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        ai.appdna.sdk.core.LottieBlockView(
+            block = ai.appdna.sdk.core.LottieBlock(
+                lottie_url = url,
+                lottie_json = lottieJson,
+                autoplay = section.data["lottie_autoplay"] as? Boolean ?: section.data["autoplay"] as? Boolean ?: true,
+                loop = section.data["lottie_loop"] as? Boolean ?: section.data["loop"] as? Boolean ?: true,
+                speed = (section.data["lottie_speed"] as? Number)?.toFloat() ?: 1.0f,
+                height = (section.data["lottie_height"] as? Number)?.toFloat()
+                    ?: (section.data["height"] as? Number)?.toFloat() ?: 160f,
+            ),
+        )
+    }
+}
+
+/**
+ * SPEC-070-A finalization B5 P1 — render real Rive animation instead of
+ * empty Box, matching iOS PaywallSectionWrapperImpl.
+ */
+@Composable
+private fun PaywallRiveSection(section: ScreenSection) {
+    val url = section.data["rive_url"] as? String ?: section.data["url"] as? String ?: return
+    Box(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
+        ai.appdna.sdk.core.RiveBlockView(
+            block = ai.appdna.sdk.core.RiveBlock(
+                rive_url = url,
+                artboard = section.data["rive_artboard"] as? String ?: section.data["artboard"] as? String,
+                state_machine = section.data["rive_state_machine"] as? String ?: section.data["state_machine"] as? String,
+                autoplay = section.data["autoplay"] as? Boolean ?: true,
+                height = (section.data["height"] as? Number)?.toFloat() ?: 160f,
+            ),
+        )
+    }
 }
 
 @Composable
