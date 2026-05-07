@@ -174,12 +174,90 @@ class NativeBillingManager internal constructor(
             BillingClient.BillingResponseCode.ITEM_NOT_OWNED -> {
                 Log.warning("Item not owned")
                 resumePurchase(PurchaseResult.Failed("Item not owned"))
+                trackPurchaseFailed("item_not_owned", billingResult.debugMessage)
+            }
+            // SPEC-070-A finalization B-4 — explicit branches for every
+            // BillingResponseCode that previously fell into the `else` ->
+            // PurchaseResult.Unknown swallow path. Each code now surfaces a
+            // typed `PurchaseResult.Failed("$reason")` so the host UI can
+            // show actionable copy ("Network error, try again" vs "Product
+            // not configured" vs "Service unavailable"), and emits a
+            // `purchase_failed` analytic with the same reason for funnel
+            // diagnostics. Mirrors iOS StoreKit 2's typed error throws
+            // (Product.PurchaseError + StoreKitError cases) — without this
+            // branch, a customer could not tell whether their purchase
+            // failed because the network died, the productId was bogus,
+            // or Google Play was unavailable.
+            BillingClient.BillingResponseCode.SERVICE_DISCONNECTED -> {
+                Log.warning("Purchase: service disconnected")
+                resumePurchase(PurchaseResult.Failed("service_disconnected"))
+                trackPurchaseFailed("service_disconnected", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE -> {
+                Log.warning("Purchase: service unavailable (network)")
+                resumePurchase(PurchaseResult.Failed("service_unavailable"))
+                trackPurchaseFailed("service_unavailable", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.SERVICE_TIMEOUT -> {
+                Log.warning("Purchase: service timeout")
+                resumePurchase(PurchaseResult.Failed("service_timeout"))
+                trackPurchaseFailed("service_timeout", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.BILLING_UNAVAILABLE -> {
+                // Device has no Play Store / not signed in / API too old.
+                Log.warning("Purchase: billing unavailable on this device")
+                resumePurchase(PurchaseResult.Failed("billing_unavailable"))
+                trackPurchaseFailed("billing_unavailable", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.ITEM_UNAVAILABLE -> {
+                // Product not configured for this app / region.
+                Log.warning("Purchase: item unavailable")
+                resumePurchase(PurchaseResult.Failed("item_unavailable"))
+                trackPurchaseFailed("item_unavailable", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.DEVELOPER_ERROR -> {
+                // Misconfigured request — productId/offer mismatch, etc.
+                Log.warning("Purchase: developer error: ${billingResult.debugMessage}")
+                resumePurchase(PurchaseResult.Failed("developer_error"))
+                trackPurchaseFailed("developer_error", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.FEATURE_NOT_SUPPORTED -> {
+                Log.warning("Purchase: feature not supported")
+                resumePurchase(PurchaseResult.Failed("feature_not_supported"))
+                trackPurchaseFailed("feature_not_supported", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.NETWORK_ERROR -> {
+                Log.warning("Purchase: network error")
+                resumePurchase(PurchaseResult.Failed("network_error"))
+                trackPurchaseFailed("network_error", billingResult.debugMessage)
+            }
+            BillingClient.BillingResponseCode.ERROR -> {
+                Log.warning("Purchase: generic billing error: ${billingResult.debugMessage}")
+                resumePurchase(PurchaseResult.Failed("billing_error"))
+                trackPurchaseFailed("billing_error", billingResult.debugMessage)
             }
             else -> {
-                Log.warning("Purchase update: code=${billingResult.responseCode}, msg=${billingResult.debugMessage}")
-                resumePurchase(PurchaseResult.Unknown)
+                // Unknown future code — log + report opaque failure rather
+                // than silent Unknown.
+                Log.warning("Purchase update: unknown code=${billingResult.responseCode}, msg=${billingResult.debugMessage}")
+                resumePurchase(PurchaseResult.Failed("unknown_code_${billingResult.responseCode}"))
+                trackPurchaseFailed("unknown_code_${billingResult.responseCode}", billingResult.debugMessage)
             }
         }
+    }
+
+    /**
+     * SPEC-070-A finalization B-4 — common helper used by every non-OK
+     * response code branch above. Emits a `purchase_failed` analytic with
+     * a typed `reason` field so funnel dashboards can split silent-fail
+     * causes (network vs misconfigured product vs disconnected service).
+     */
+    private fun trackPurchaseFailed(reason: String, debugMessage: String?) {
+        AppDNA.track("purchase_failed", buildMap {
+            put("paywall_id", currentPaywallId ?: "")
+            put("reason", reason)
+            if (!debugMessage.isNullOrBlank()) put("debug_message", debugMessage)
+        })
     }
 
     /** Connection manager handling BillingClient lifecycle. */
