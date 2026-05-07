@@ -1001,6 +1001,13 @@ internal fun OnboardingFlowHost(
                 // jump that clears the history, currentIndex can be >0 with
                 // empty history; the old gate showed a back arrow that
                 // popped to a step the user never visited.
+                // SPEC-070-A finalization B4 P1 — wire back_button_style
+                // (icon_size + icon_color) and dismiss_allowed. iOS reads
+                // these from OnboardingRenderer.swift:250-292.
+                val bbStyle = flow.settings.back_button_style
+                val backIconSize = (bbStyle?.icon_size?.toFloat() ?: 20f).sp
+                val backIconColor = bbStyle?.icon_color?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                    ?: MaterialTheme.colorScheme.onBackground
                 if (flow.settings.allow_back && navigationHistory.isNotEmpty()) {
                     val backCd = stringResource(R.string.appdna_a11y_onboarding_back)
                     IconButton(
@@ -1027,15 +1034,22 @@ internal fun OnboardingFlowHost(
                     ) {
                         Text(
                             text = "\u2190",
-                            fontSize = 20.sp,
+                            fontSize = backIconSize,
                             fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onBackground
+                            color = backIconColor,
                         )
                     }
                 } else {
                     Spacer(Modifier.size(48.dp))
                 }
 
+                // SPEC-070-A finalization B4 P1 — gate dismiss X on
+                // `flow.settings.dismiss_allowed`. iOS suppresses dismiss
+                // when set false (e.g. mandatory onboarding flows).
+                val dismissAllowed = flow.settings.dismiss_allowed ?: true
+                if (!dismissAllowed) {
+                    Spacer(Modifier.size(48.dp))
+                } else {
                 val dismissCd = stringResource(R.string.appdna_a11y_onboarding_close)
                 IconButton(
                     onClick = {
@@ -1058,6 +1072,7 @@ internal fun OnboardingFlowHost(
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                     )
                 }
+                } // end dismissAllowed
             }
 
             // Step content with animated transitions

@@ -147,13 +147,28 @@ fun LocationFieldComposable(
                             .clickable {
                                 text = suggestion.address
                                 showSuggestions = false
-                                // Persist structured shape so hosts get
-                                // typed lat/lng — matches iOS LocationData.
-                                values[field.id] = mapOf(
+                                // SPEC-070-A finalization B4 P1 — persist
+                                // full 12-key LocationData payload to match
+                                // iOS LocationFieldView. Fields that the
+                                // backend omits resolve to null and are
+                                // skipped from the map so hosts can
+                                // null-check without seeing empty strings.
+                                val payload = mutableMapOf<String, Any>(
+                                    "formatted_address" to suggestion.address,
                                     "address" to suggestion.address,
                                     "latitude" to suggestion.latitude,
                                     "longitude" to suggestion.longitude,
                                 )
+                                suggestion.city?.let { payload["city"] = it }
+                                suggestion.state?.let { payload["state"] = it }
+                                suggestion.stateCode?.let { payload["state_code"] = it }
+                                suggestion.country?.let { payload["country"] = it }
+                                suggestion.countryCode?.let { payload["country_code"] = it }
+                                suggestion.timezone?.let { payload["timezone"] = it }
+                                suggestion.timezoneOffset?.let { payload["timezone_offset"] = it }
+                                suggestion.postalCode?.let { payload["postal_code"] = it }
+                                suggestion.rawQuery?.let { payload["raw_query"] = it }
+                                values[field.id] = payload
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -170,10 +185,27 @@ fun LocationFieldComposable(
     }
 }
 
+/**
+ * SPEC-070-A finalization B4 P1 — full LocationData payload mirroring
+ * iOS LocationFieldView LocationData struct (12 keys). Previously only
+ * `address` + `latitude` + `longitude` were carried, dropping
+ * city/state/state_code/country/country_code/timezone/timezone_offset/
+ * postal_code/raw_query. Hosts that branch on country (e.g. for tax,
+ * shipping, currency) now have parity with iOS.
+ */
 internal data class LocationSuggestionData(
     val address: String,
     val latitude: Double,
     val longitude: Double,
+    val city: String? = null,
+    val state: String? = null,
+    val stateCode: String? = null,
+    val country: String? = null,
+    val countryCode: String? = null,
+    val timezone: String? = null,
+    val timezoneOffset: Int? = null,
+    val postalCode: String? = null,
+    val rawQuery: String? = null,
 )
 
 /**
@@ -225,6 +257,15 @@ private suspend fun fetchLocationSuggestions(
                 address = item.optString("formatted_address", ""),
                 latitude = item.optDouble("latitude", 0.0),
                 longitude = item.optDouble("longitude", 0.0),
+                city = item.optString("city").takeIf { it.isNotBlank() },
+                state = item.optString("state").takeIf { it.isNotBlank() },
+                stateCode = item.optString("state_code").takeIf { it.isNotBlank() },
+                country = item.optString("country").takeIf { it.isNotBlank() },
+                countryCode = item.optString("country_code").takeIf { it.isNotBlank() },
+                timezone = item.optString("timezone").takeIf { it.isNotBlank() },
+                timezoneOffset = item.optInt("timezone_offset", Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE },
+                postalCode = item.optString("postal_code").takeIf { it.isNotBlank() },
+                rawQuery = query,
             )
         }
     } catch (e: Exception) {
