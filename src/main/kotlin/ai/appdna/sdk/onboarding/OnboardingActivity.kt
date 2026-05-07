@@ -347,6 +347,11 @@ internal fun OnboardingFlowHost(
     val hostView = LocalView.current
     val hapticConfig = flow.settings.haptic
     val coroutineScope = rememberCoroutineScope()
+    // SPEC-070-A finalization OB-5 — hoist Activity context for the
+    // OnboardingPaywallBridge presentation path. AppDNA.paywall.present
+    // requires an Activity, and the OnboardingActivity itself is the
+    // topmost; this Composable is rendered inside it.
+    val activityCtx = androidx.compose.ui.platform.LocalContext.current
 
     // SPEC-083: Hook state
     var isProcessing by remember { mutableStateOf(false) }
@@ -488,10 +493,135 @@ internal fun OnboardingFlowHost(
                 when (val classified = classifyRuleTarget(rule.target_step_id)) {
                     is RuleTarget.Empty -> continue
                     is RuleTarget.PaywallTrigger -> {
-                        val merged = responses.toMutableMap()
-                        merged["__paywall_trigger"] = classified.rawTarget.removePrefix("paywall_trigger_")
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        // SPEC-070-A finalization OB-5 — present the paywall
+                        // in-flow via OnboardingPaywallBridge instead of
+                        // emitting a `__paywall_trigger` marker + ending the
+                        // flow. Mirrors iOS OnboardingRenderer.swift:1186-
+                        // 1272 `presentPaywallTrigger`. The bridge forwards
+                        // every paywall delegate event to AppDNA.paywall.
+                        // listener (so global hosts see the same callbacks
+                        // as standalone paywall presentations) AND captures
+                        // didPurchase/didFail to drive the dismissal-outcome
+                        // routing.
+                        //
+                        // Resolve trigger metadata from graph_nodes — the
+                        // node ID is the rawTarget (e.g. "paywall_trigger_
+                        // 7a8e") and its data carries on_success_target /
+                        // on_fail_target / on_dismiss_target. Fall back to
+                        // sensible defaults that mirror iOS' contracts.
+                        val triggerNodeId = classified.rawTarget
+                        val paywallId = triggerNodeId.removePrefix("paywall_trigger_")
+                        val triggerData = (flow.graph_nodes?.get(triggerNodeId) as? Map<*, *>)
+                        val onSuccessTarget = (triggerData?.get("on_success_target") as? String)?.takeIf { it.isNotBlank() }
+                        val onFailTarget = (triggerData?.get("on_fail_target") as? String)?.takeIf { it.isNotBlank() }
+                        val onDismissTarget = (triggerData?.get("on_dismiss_target") as? String)?.takeIf { it.isNotBlank() }
+                        val legacyDismiss = triggerData?.get("on_dismiss") as? String ?: "continue"
+                        val edgeTarget = triggerData?.get("next_target") as? String
+                        // Outcome router — mirrors iOS routeOutcome closure.
+                        // Captures currentIndex/responses/flow/onFlowCompleted
+                        // via composable closure; the bridge calls this on
+                        // dismissal with the resolved target string.
+                        val routeOutcome: (String?, String, String) -> Unit = { configured, defaultBehavior, reason ->
+                            val chosen = configured ?: defaultBehavior
+                            when (chosen) {
+                                "stay" -> {
+                                    eventTracker?.track(
+                                        "onboarding_paywall_stay",
+                                        mapOf(
+                                            "flow_id" to flow.id,
+                                            "paywall_id" to paywallId,
+                                            "reason" to reason,
+                                        ),
+                                    )
+                                }
+                                "complete_flow", "" -> {
+                                    eventTracker?.track(
+                                        "onboarding_completed",
+                                        mapOf(
+                                            "flow_id" to flow.id,
+                                            "paywall_id" to paywallId,
+                                            "completed_via" to reason,
+                                        ),
+                                    )
+                                    @Suppress("UNCHECKED_CAST")
+                                    onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                }
+                                "continue" -> {
+                                    if (!edgeTarget.isNullOrBlank()) {
+                                        val tIdx = flow.steps.indexOfFirst { it.id == edgeTarget }
+                                        if (tIdx >= 0) currentIndex = tIdx
+                                        else {
+                                            @Suppress("UNCHECKED_CAST")
+                                            onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                        }
+                                    } else {
+                                        eventTracker?.track(
+                                            "onboarding_completed",
+                                            mapOf(
+                                                "flow_id" to flow.id,
+                                                "paywall_id" to paywallId,
+                                                "completed_via" to reason,
+                                            ),
+                                        )
+                                        @Suppress("UNCHECKED_CAST")
+                                        onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                    }
+                                }
+                                else -> {
+                                    // Treat as a step ID — navigate.
+                                    val tIdx = flow.steps.indexOfFirst { it.id == chosen }
+                                    if (tIdx >= 0) {
+                                        currentIndex = tIdx
+                                    } else {
+                                        // Unknown target — complete the flow as the safest fallback.
+                                        @Suppress("UNCHECKED_CAST")
+                                        onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                    }
+                                }
+                            }
+                        }
+                        val legacyDismissDefault: String = when (legacyDismiss) {
+                            "block", "skip_to_end" -> "complete_flow"
+                            "continue" -> "continue"
+                            else -> "continue"
+                        }
+                        val bridge = OnboardingPaywallBridge(
+                            onPurchased = { routeOutcome(onSuccessTarget, "continue", "paywall_purchased") },
+                            onFailed = { routeOutcome(onFailTarget, "stay", "paywall_payment_failed") },
+                            onDismissedWithoutPurchase = {
+                                routeOutcome(onDismissTarget, legacyDismissDefault, "paywall_dismissed")
+                            },
+                        )
+                        // Present the paywall on the host Activity. The
+                        // OnboardingActivity itself is the topmost activity
+                        // so that's safe to use here.
+                        val activity = activityCtx as? android.app.Activity
+                        if (activity != null) {
+                            // Use the static AppDNA.presentPaywall — it
+                            // accepts a per-presentation `listener` parameter
+                            // (the AppDNA.paywall.present instance method
+                            // re-uses the global listener slot only). The
+                            // bridge then forwards every callback to the
+                            // global host delegate via AppDNA.paywall.listener
+                            // (see OnboardingPaywallBridge.forwardOnMain).
+                            AppDNA.presentPaywall(
+                                activity = activity,
+                                id = paywallId,
+                                context = null,
+                                listener = bridge,
+                            )
+                        } else {
+                            // No activity context — fall back to the legacy
+                            // marker + flow-complete path so hosts that
+                            // observe `__paywall_trigger` still get a signal.
+                            ai.appdna.sdk.Log.warning(
+                                "OnboardingPaywallBridge: no Activity context; falling back to legacy __paywall_trigger marker."
+                            )
+                            val merged = responses.toMutableMap()
+                            merged["__paywall_trigger"] = paywallId
+                            @Suppress("UNCHECKED_CAST")
+                            onFlowCompleted(merged.toMap() as Map<String, Any>)
+                        }
                         return
                     }
                     is RuleTarget.EndFlow -> {
