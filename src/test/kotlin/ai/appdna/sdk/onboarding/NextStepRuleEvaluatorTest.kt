@@ -292,4 +292,98 @@ class NextStepRuleEvaluatorTest {
         assertEquals(RuleTarget.SubFlow("retention"), classifyRuleTarget("flow_retention"))
         assertEquals(RuleTarget.Step("step3"), classifyRuleTarget("step3"))
     }
+
+    // -- previous_step_* operators (SPEC-070-A finalization audit-7) ----------
+
+    @Test
+    fun `previous_step_equals matches when prev id matches`() {
+        // SPEC-070-A finalization audit-7 — mirrors iOS
+        // OnboardingRenderer.swift:1065-1070.
+        val cond = mapOf<String, Any?>("type" to "previous_step_equals", "value" to "step_a")
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_a")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = "step_a",
+        )
+        assertTrue(ok)
+    }
+
+    @Test
+    fun `previous_step_equals does not match on mismatch`() {
+        val cond = mapOf<String, Any?>("type" to "previous_step_equals", "value" to "step_a")
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_a")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = "step_b",
+        )
+        assertFalse(ok)
+    }
+
+    @Test
+    fun `previous_step_equals does not match when no prev id`() {
+        val cond = mapOf<String, Any?>("type" to "previous_step_equals", "value" to "step_a")
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_a")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = null,
+        )
+        assertFalse(ok)
+    }
+
+    @Test
+    fun `previous_step_in matches when prev id in array`() {
+        // SPEC-070-A finalization audit-7 — mirrors iOS
+        // OnboardingRenderer.swift:1071-1088.
+        val cond = mapOf<String, Any?>(
+            "type" to "previous_step_in",
+            "previous_step_ids" to listOf("step_a", "step_b", "step_c"),
+        )
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_b")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = "step_b",
+        )
+        assertTrue(ok)
+    }
+
+    @Test
+    fun `previous_step_in matches via legacy CSV value`() {
+        // iOS legacy fallback: comma-separated string in `value`.
+        val cond = mapOf<String, Any?>(
+            "type" to "previous_step_in",
+            "value" to "step_a, step_b , step_c",
+        )
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_c")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = "step_b",
+        )
+        assertTrue(ok)
+    }
+
+    @Test
+    fun `previous_step_in does not match when prev id absent`() {
+        val cond = mapOf<String, Any?>(
+            "type" to "previous_step_in",
+            "previous_step_ids" to listOf("step_a", "step_b"),
+        )
+        val rule = NextStepRule(condition = cond, target_step_id = "paywall_b")
+        val ok = NextStepRuleEvaluator.evaluateRule(
+            rule = rule,
+            stepId = "step1",
+            responses = emptyMap(),
+            previousStepId = "step_z",
+        )
+        assertFalse(ok)
+    }
 }

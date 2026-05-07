@@ -154,6 +154,14 @@ internal class OnboardingViewModel : ViewModel() {
         restoredResponses = null
         responses.clear()
         currentIndex.intValue = 0
+        // SPEC-070-A finalization P0 audit-9 — navigationHistory is
+        // flow-scoped state alongside responses + currentIndex. Reset
+        // must clear it so a re-presented onboarding doesn't see stale
+        // history from a previous flow. Currently masked by Activity
+        // finish always destroying the VM (next launch gets a fresh
+        // instance), but the contract of reset() is "drop every
+        // reference held by this VM" — keeping these aligned.
+        navigationHistory.clear()
         isBound = false
     }
 
