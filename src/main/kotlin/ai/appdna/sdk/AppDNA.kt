@@ -454,7 +454,14 @@ object AppDNA {
             ai.appdna.sdk.core.SessionDataStore.instance?.let { _ ->
                 this.messageManager = ai.appdna.sdk.messages.MessageManager(
                     context = appContext,
-                    configProvider = { activeMessages },
+                    // SPEC-070-A finalization parity audit B1#6 — read live
+                    // from RemoteConfigManager so Firestore-published
+                    // in-app messages reach the manager. Previous
+                    // configProvider returned the dead `activeMessages`
+                    // field which was never written. Now reads
+                    // remoteConfigManager.getActiveMessages() each call
+                    // (also picks up updates after Firestore re-fetch).
+                    configProvider = { remoteConfigManager?.getActiveMessages() ?: activeMessages },
                 )
             }
 

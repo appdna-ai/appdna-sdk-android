@@ -56,6 +56,16 @@ internal class RemoteConfigManager(
     private var paywalls: Map<String, PaywallConfig> = emptyMap()
     private var onboardingFlows: Map<String, OnboardingFlowConfig> = emptyMap()
     private var activeOnboardingFlowId: String? = null
+    /**
+     * SPEC-070-A finalization parity audit B1#6 — Firestore-published
+     * in-app messages map. Mirrors iOS RemoteConfigManager.swift:56
+     * `private var messages: [String: MessageConfig]`. Populated by
+     * the new messages-doc fetch in [fetchConfigs]; consumed by
+     * [getActiveMessages] which is wired into MessageManager via
+     * AppDNA.configure() so push-delivered AND Firestore-broadcast
+     * messages both reach the renderer.
+     */
+    private var messages: Map<String, ai.appdna.sdk.messages.MessageConfig> = emptyMap()
 
     /** Callback when survey configs are updated from Firestore. */
     var surveyUpdateHandler: ((Map<String, Map<String, Any>>) -> Unit)? = null
@@ -130,10 +140,14 @@ internal class RemoteConfigManager(
         }
         val basePath = "$path/config"
 
-        // SPEC-070-A G.4: 6 documents — flags, experiments, paywall_index,
-        // onboarding_index, survey_index, screen_index. Re-init counters
-        // whenever a new fetch begins.
-        val expected = 6
+        // SPEC-070-A G.4: 7 documents — flags, experiments, paywall_index,
+        // onboarding_index, survey_index, screen_index, messages.
+        // SPEC-070-A finalization parity audit B1#6 — added messages doc
+        // fetch (iOS RemoteConfigManager.swift:305 fetches `messages` mega-doc;
+        // Android previously dropped this doc, leaving activeMessages
+        // perpetually empty so Firestore-broadcast in-app messages never
+        // displayed). Re-init counters whenever a new fetch begins.
+        val expected = 7
         fetchCompletionCounter.set(0)
         fetchSuccessCounter.set(0)
         fetchExpectedTotal.set(expected)
@@ -209,8 +223,36 @@ internal class RemoteConfigManager(
             markFetchComplete(success = false)
         }
 
+        // SPEC-070-A finalization parity audit B1#6 — fetch in-app messages
+        // mega-doc. Mirrors iOS RemoteConfigManager.swift:305 which fetches
+        // `$basePath/messages` and parses into a `[String: MessageConfig]`
+        // map exposed via `getActiveMessages()`. Without this fetch the
+        // Android `activeMessages` map stayed empty and Firestore-published
+        // in-app messages never displayed (only push-delivered ones did).
+        db.document("$basePath/messages").get().addOnSuccessListener { snapshot ->
+            snapshot.data?.let { data ->
+                @Suppress("UNCHECKED_CAST")
+                messages = ai.appdna.sdk.messages.MessageConfigParser.parseMessages(data as Map<String, Any>)
+                cacheData("messages", JSONObject(data).toString())
+                notifyChangeListeners()
+            }
+            markFetchComplete(success = true)
+        }.addOnFailureListener { e ->
+            Log.debug("No messages config: ${e.message}")
+            markFetchComplete(success = false)
+        }
+
         Log.info("Fetching remote configs from Firestore")
     }
+
+    /**
+     * SPEC-070-A finalization parity audit B1#6 — public accessor for
+     * Firestore-published in-app messages. Mirrors iOS
+     * RemoteConfigManager.swift:177 `getActiveMessages()`. Wired into
+     * MessageManager.configProvider via AppDNA.configure() so Firestore
+     * broadcasts and push deliveries both render.
+     */
+    fun getActiveMessages(): Map<String, ai.appdna.sdk.messages.MessageConfig> = messages
 
     /**
      * SPEC-070-A G.4: Increment the per-fetch completion counter and emit
