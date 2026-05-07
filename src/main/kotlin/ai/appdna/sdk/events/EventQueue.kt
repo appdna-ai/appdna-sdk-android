@@ -273,6 +273,10 @@ internal class EventQueue(
 
     fun shutdown() {
         flushJob?.cancel()
+        // SPEC-070-A finalization (Lens C P0) — cancel the scope itself so
+        // any other launched coroutines (retry backoff, app-foreground flush)
+        // are torn down too. Without this, SDK shutdown leaks IO threads.
+        try { scope.cancel() } catch (_: Throwable) {}
         // Detach lifecycle observer (must run on main thread).
         val obs = lifecycleObserver
         if (obs != null) {

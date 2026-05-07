@@ -445,6 +445,19 @@ object AppDNA {
                 Log.warning("PushTokenManager.registerToken() failed during configure: ${e.message}")
             }
 
+            // SPEC-070-A finalization Lens D P0 — drain any FCM token buffered
+            // by `onNewPushToken()` calls that fired before `configure()`.
+            val pending = pendingPushTokenBeforeConfigure
+            if (pending != null) {
+                pendingPushTokenBeforeConfigure = null
+                try {
+                    this.pushTokenManager?.onNewToken(pending)
+                    Log.info("Drained pre-configure FCM push token buffer")
+                } catch (e: Throwable) {
+                    Log.warning("Replaying pre-configure FCM token failed: ${e.message}")
+                }
+            }
+
             // 6. Initialize config managers (Firestore)
             val remoteCfg = RemoteConfigManager(
                 firestorePath = null, // Set after bootstrap
@@ -1109,11 +1122,27 @@ object AppDNA {
         return true
     }
 
+    // SPEC-070-A finalization (Lens D P0) — pre-configure FCM token buffer.
+    // FirebaseMessagingService can fire onNewToken before the host calls
+    // `AppDNA.configure(...)`. Mirrors iOS PushTokenManager.pendingTokenBeforeConfigure.
+    @Volatile private var pendingPushTokenBeforeConfigure: String? = null
+
     /**
      * Called when FCM token refreshes. Re-registers with backend.
+     *
+     * SPEC-070-A finalization Lens D P0: when called BEFORE [configure],
+     * buffer the token in [pendingPushTokenBeforeConfigure] and replay it
+     * inside `configure()` once `pushTokenManager` is wired. Without this,
+     * apps that registered FCM at boot dropped tokens silently.
      */
+    @JvmStatic
     fun onNewPushToken(token: String) {
-        pushTokenManager?.onNewToken(token)
+        val mgr = pushTokenManager
+        if (mgr != null) {
+            mgr.onNewToken(token)
+        } else {
+            pendingPushTokenBeforeConfigure = token
+        }
     }
 
     // MARK: - Public API: Session Data (SPEC-088)
