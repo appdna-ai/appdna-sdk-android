@@ -156,7 +156,50 @@ fun AppDNAScreenSlot(name: String) {
             // a non-scrolling Column. `pager` falls through to scroll on
             // Android until an accompanist-compose dependency lands.
             val layoutType = config.layout.type
-            androidx.compose.foundation.layout.Box(modifier = modifier) {
+            // SPEC-070-A finalization B6 P2 — honor `layout.safe_area` by
+            // adding system-status-bar padding when truthy (iOS renders
+            // inside the safeAreaInsets by default). Hosts that embed
+            // a slot with safe_area=false get edge-to-edge content.
+            val safeAreaModifier = if (config.layout.safeArea != false) {
+                androidx.compose.ui.Modifier.windowInsetsPadding(
+                    androidx.compose.foundation.layout.WindowInsets.systemBars
+                )
+            } else androidx.compose.ui.Modifier
+            androidx.compose.foundation.layout.Box(modifier = modifier.then(safeAreaModifier)) {
+                Column(modifier = androidx.compose.ui.Modifier.fillMaxWidth()) {
+                    // SPEC-070-A finalization B6 P2 — render NavBarConfig
+                    // (title + back/close + bg color) when set. iOS
+                    // ScreenRenderer puts this above content; Android slots
+                    // render inline so we put it at the top of the column.
+                    config.navBar?.let { nav ->
+                        val bgClr = nav.backgroundColor?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                            ?: Color.Transparent
+                        Row(
+                            modifier = androidx.compose.ui.Modifier
+                                .fillMaxWidth()
+                                .background(bgClr)
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                        ) {
+                            if (nav.showBack == true) {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    ScreenManager.shared.dismissScreen()
+                                }) { androidx.compose.material3.Text("←") }
+                            } else androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(40.dp))
+                            nav.title?.let { title ->
+                                androidx.compose.material3.Text(
+                                    text = title,
+                                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                                )
+                            }
+                            if (nav.showClose == true || config.dismiss?.enabled == true) {
+                                androidx.compose.material3.TextButton(onClick = {
+                                    ScreenManager.shared.dismissScreen()
+                                }) { androidx.compose.material3.Text("✕") }
+                            } else androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(40.dp))
+                        }
+                    }
                 Column(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
@@ -184,6 +227,9 @@ fun AppDNAScreenSlot(name: String) {
                         }
                     }
                 }
+                } // close outer Column(navBar+content wrapper)
+                // Sticky footers must live in the Box scope (not inside the
+                // wrapper Column) so `Modifier.align(BottomCenter)` resolves.
                 if (stickyFooters.isNotEmpty()) {
                     Column(
                         modifier = androidx.compose.ui.Modifier
