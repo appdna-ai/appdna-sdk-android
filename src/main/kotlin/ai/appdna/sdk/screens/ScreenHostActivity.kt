@@ -200,6 +200,25 @@ private fun ScreenHostBody(
     val bgColor = config.background?.color?.let { StyleEngine.parseColor(it) }
         ?: MaterialTheme.colorScheme.background
 
+    // SPEC-070-A finalization (Lens B P1) — fire haptic + particle effect on
+    // present, mirroring iOS ScreenRenderer.swift:82-90 (ConfettiOverlay) +
+    // 101-106 (HapticEngine.trigger). DTOs were parsed at ScreenConfig.kt:37-38
+    // but no render path consumed them.
+    val currentView = androidx.compose.ui.platform.LocalView.current
+    val showParticlesState = androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    val showParticles = showParticlesState.value
+    androidx.compose.runtime.LaunchedEffect(config.id) {
+        if (config.haptic?.onPresent == true) {
+            val hapticType = ai.appdna.sdk.core.HapticType.fromString(config.haptic.type)
+            if (hapticType != null) {
+                ai.appdna.sdk.core.HapticEngine.trigger(currentView, hapticType)
+            }
+        }
+        if (config.particleEffect?.onPresent == true) {
+            showParticlesState.value = true
+        }
+    }
+
     // Build a SectionContext that routes section actions for the host screen.
     // Mirrors the dispatch in AppDNAScreenSlot but supports `Dismiss` since
     // the host activity owns dismissal. Veto via ScreenManager.handleScreenAction
@@ -307,6 +326,22 @@ private fun ScreenHostBody(
                 for (section in stickyFooters) {
                     SectionRegistry.Render(section, sectionContext)
                 }
+            }
+        }
+        // Confetti / particle overlay drawn last so it renders on top of all
+        // sections + sticky footers. Mirrors iOS ScreenRenderer overlay layer.
+        if (showParticles) {
+            val pe = config.particleEffect
+            if (pe != null) {
+                ai.appdna.sdk.core.ConfettiOverlay(
+                    effect = ai.appdna.sdk.core.ParticleEffect(
+                        type = pe.type ?: "confetti",
+                        trigger = "on_appear",
+                        duration_ms = pe.durationMs ?: 2500,
+                        intensity = pe.intensity ?: "medium",
+                    ),
+                    trigger = true,
+                )
             }
         }
     }
