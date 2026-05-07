@@ -1153,7 +1153,24 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                     contentScale = ContentScale.Fit,
                 )
             }
-            Text(text = displayText, style = effectiveStyle, color = textColor)
+            // SPEC-070-A finalization OB-3 — button text color precedence.
+            // iOS: when `block.style.color` is set, it WINS over `text_color`
+            // (`StyleEngine.swift:148-153` `applyTextStyle` foregroundColor
+            // resolves to `s.color ?? .primary` — `.primary` then falls back
+            // to the parent button's `text_color` via SwiftUI's foregroundColor
+            // inheritance). Compose's contract is the opposite: an explicit
+            // `color` parameter overrides `style.color`, so we previously
+            // forced `text_color` even when console authored a `style.color`
+            // override. Bake the resolved color into `effectiveStyle.color`
+            // (priority: block.style.color → block.text_color), and drop the
+            // explicit `color` param so style wins.
+            val resolvedTextColor = block.style?.color
+                ?.let { StyleEngine.parseColor(it) }
+                ?: textColor
+            Text(
+                text = displayText,
+                style = effectiveStyle.copy(color = resolvedTextColor),
+            )
         }
     }
 

@@ -1149,6 +1149,26 @@ private fun emitAuthAction(
     onNext(data)
 }
 
+// SPEC-070-A finalization OB-1 — auth-class actions that ALSO require
+// required-field validation (you can't login without an email, etc.).
+// Mirrors the validation policy iOS' OnboardingRenderer applies inside
+// `emitAuthAction` (`OnboardingRenderer.swift:1561-1567`): canAdvance
+// runs BEFORE invoking the auth handler.
+private val AUTH_ACTIONS_REQUIRING_VALIDATION = setOf(
+    "login",
+    "register",
+    "reset_password",
+    "magic_link",
+    "verify_email",
+    "email_login",
+    "request_otp",
+    "verify_otp",
+    "change_password",
+    "set_new_password",
+    "update_profile",
+    "social_login", // provider already chosen; submitted profile fields still validated
+)
+
 // SPEC-084: Block-based step view with 5 layout variants
 @Composable
 private fun BlockBasedStepView(
@@ -1171,6 +1191,36 @@ private fun BlockBasedStepView(
         return localized.interpolated()
     }
 
+    // SPEC-070-A finalization OB-1 — required-field validation gate.
+    // Mirrors iOS `OnboardingRenderer.swift:1465-1487` `canAdvance` walk:
+    // enumerate every block where `field_required == true`, check whether
+    // `inputValues[field_id ?: id]` is non-empty, return false (with the
+    // first failing block's id for highlighting / error copy) if any are
+    // empty. iOS shows `showValidationToast`; Android Toast is the
+    // equivalent surface. Without this gate, the BlockBasedStepView's
+    // "next" branch advanced unconditionally — required fields had a red
+    // asterisk in the label but no actual gating.
+    fun canAdvance(): Pair<Boolean, String?> {
+        for (block in blocks) {
+            if (block.field_required != true) continue
+            val fieldId = block.field_id ?: block.id
+            val v = inputValues[fieldId]
+            val empty = when (v) {
+                null -> true
+                is String -> v.isBlank()
+                is Collection<*> -> v.isEmpty()
+                is Map<*, *> -> v.isEmpty()
+                else -> false
+            }
+            if (empty) {
+                return false to (block.field_label ?: block.label ?: fieldId)
+            }
+        }
+        return true to null
+    }
+
+    val activityCtx = androidx.compose.ui.platform.LocalContext.current
+
     fun handleAction(action: String) {
         // SPEC-070-A C.1 — strict-typed auth/account action cases mirror iOS
         // `OnboardingRenderer.swift:1531-1545`. Action strings travel as either
@@ -1187,6 +1237,27 @@ private fun BlockBasedStepView(
             }
             else -> action to null
         }
+
+        // OB-1 — actions that finalize/submit the step must pass validation.
+        // Auth-class actions (login, register, request_otp, email_login, ...)
+        // also gate on required fields because the host can't authenticate
+        // with empty credentials.
+        val requiresValidation = rawAction == "next" || rawAction in AUTH_ACTIONS_REQUIRING_VALIDATION
+        if (requiresValidation) {
+            val (ok, fieldLabel) = canAdvance()
+            if (!ok) {
+                val msg = if (fieldLabel != null) {
+                    "$fieldLabel is required"
+                } else {
+                    "Please complete required fields"
+                }
+                android.widget.Toast
+                    .makeText(activityCtx, msg, android.widget.Toast.LENGTH_SHORT)
+                    .show()
+                return
+            }
+        }
+
         when (rawAction) {
             "next" -> {
                 // Merge toggleValues and inputValues (rating, etc.) into responses
