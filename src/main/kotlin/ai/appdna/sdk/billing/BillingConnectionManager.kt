@@ -49,6 +49,23 @@ internal class BillingConnectionManager(
     @Volatile
     private var unavailableSurfaced = false
 
+    // SPEC-070-A finalization B-1+B-2 — re-entry guard for startConnection.
+    // Without this, four independent paths can each call
+    // `client.startConnection(listener)` while a previous attempt's listener
+    // hasn't fired yet:
+    //   1. initialize()                          — first connect
+    //   2. scheduleRetry().launch.delay → start  — backoff retry
+    //   3. withConnectedClient() if !retryScheduled
+    //   4. awaitConnectedClient() if !retryScheduled
+    // Play Billing rejects re-entry with the exact log spam the user
+    // reported: "Client is already in the process of connecting to billing
+    // service." The `retryScheduled` flag previously only guarded path 2.
+    // AtomicBoolean.compareAndSet ensures only ONE startConnection() call
+    // is in flight at any time, regardless of which path triggered it.
+    // The flag is reset in BOTH listener callbacks (success + disconnect)
+    // because those are the moments a NEW startConnection() becomes safe.
+    private val isConnecting = java.util.concurrent.atomic.AtomicBoolean(false)
+
     @Volatile
     var isConnected = false
         private set
@@ -81,8 +98,22 @@ internal class BillingConnectionManager(
     private fun startConnection() {
         val client = billingClient ?: return
 
+        // SPEC-070-A finalization B-1 — atomic re-entry guard. If a
+        // startConnection() is already in flight, return early. The previous
+        // attempt's listener will eventually fire and either dispatch
+        // pending callbacks or schedule a retry — either way, the work
+        // continues without an extra "already in process" rejection from
+        // Play Billing.
+        if (!isConnecting.compareAndSet(false, true)) {
+            Log.debug("BillingConnectionManager.startConnection: skip; already connecting")
+            return
+        }
+
         client.startConnection(object : BillingClientStateListener {
             override fun onBillingSetupFinished(result: BillingResult) {
+                // B-1 — release guard FIRST so any racing caller after this
+                // point can proceed normally (we're past the in-flight window).
+                isConnecting.set(false)
                 if (result.responseCode == BillingClient.BillingResponseCode.OK) {
                     Log.info("Billing connection established")
                     isConnected = true
@@ -102,6 +133,9 @@ internal class BillingConnectionManager(
             }
 
             override fun onBillingServiceDisconnected() {
+                // B-1 — release guard so scheduleRetry → startConnection can
+                // proceed when the timer fires.
+                isConnecting.set(false)
                 Log.warning("Billing service disconnected")
                 isConnected = false
                 scheduleRetry()
@@ -142,6 +176,13 @@ internal class BillingConnectionManager(
 
         scope.launch {
             delay(delay)
+            // SPEC-070-A finalization B-2 — clear retryScheduled BEFORE
+            // calling startConnection so that the AtomicBoolean isConnecting
+            // is the single source of truth for re-entry. Previously, the
+            // window between `retryScheduled = false` and the listener firing
+            // allowed a racing `withConnectedClient` caller to invoke
+            // startConnection a second time. Now isConnecting.compareAndSet
+            // catches the race in startConnection itself.
             retryScheduled = false
             if (!isConnected) {
                 startConnection()
