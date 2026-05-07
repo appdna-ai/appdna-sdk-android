@@ -203,6 +203,21 @@ fun SurveyScreen(
     var currentIndex by remember { mutableIntStateOf(0) }
     val answers = remember { mutableStateMapOf<String, SurveyAnswer>() }
 
+    // SPEC-070-A finalization (Lens B P1) — survey intro Lottie 2s gating.
+    // iOS SurveyRenderer.swift:157-161 holds an `showIntro` state that flips
+    // to false 2s after the first render, replacing the intro animation with
+    // the first question. Without this gate, Android stacked the intro Lottie
+    // on top of question 1 indefinitely.
+    var showIntro by remember {
+        mutableStateOf(config.appearance.introLottieUrl != null)
+    }
+    LaunchedEffect(Unit) {
+        if (showIntro) {
+            kotlinx.coroutines.delay(2000L)
+            showIntro = false
+        }
+    }
+
     // SPEC-070-A I.9 — register a back-handler so the Activity's
     // OnBackPressedDispatcher can decrement question index instead of
     // dismissing. Cleared on dispose so the handler doesn't survive
@@ -329,17 +344,20 @@ fun SurveyScreen(
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // SPEC-085: Intro Lottie animation
-        if (currentIndex == 0 && config.appearance.introLottieUrl != null) {
+        // SPEC-085 + SPEC-070-A finalization Lens B P1 — intro Lottie shows
+        // ALONE (replaces question UI) for 2s, mirrors iOS showIntro gate.
+        if (showIntro && config.appearance.introLottieUrl != null) {
+            Spacer(Modifier.weight(1f))
             LottieBlockView(
                 block = LottieBlock(
                     lottie_url = config.appearance.introLottieUrl,
                     autoplay = true,
                     loop = false,
-                    height = 120f,
+                    height = 200f,
                 )
             )
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.weight(1f))
+            return@Column
         }
 
         // Progress
