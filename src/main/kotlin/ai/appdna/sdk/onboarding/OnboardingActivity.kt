@@ -1517,12 +1517,62 @@ private val AUTH_ACTIONS_REQUIRING_DELEGATE = setOf(
     "update_profile",
 )
 
+/**
+ * SPEC-070-A finalization B4#P0 — pure resolver for the OTP delivery
+ * channel used by `request_otp` / `verify_otp` buttons. Mirrors iOS
+ * `OtpChannelResolver` at OnboardingRenderer.swift:1625-1674.
+ *
+ * Resolution order:
+ *   1) Explicit `actionValue` from button config — "sms"|"email"|"whatsapp"|"voice"
+ *   2) Auto-detect: exactly one phone-typed block → "sms";
+ *      exactly one email-typed block → "email"
+ *   3) (null, null) — ambiguous. Host must fail explicitly rather than guess.
+ *
+ * Recipient is taken from `inputValues[block.field_id ?: block.id]` for the
+ * matching block.
+ */
+internal object OtpChannelResolver {
+    private val SUPPORTED = setOf("sms", "email", "whatsapp", "voice")
+
+    fun resolve(
+        actionValue: String?,
+        blocks: List<ContentBlock>,
+        inputValues: Map<String, Any>,
+    ): Pair<String?, String?> {
+        val phoneBlocks = blocks.filter { it.type == "input_phone" }
+        val emailBlocks = blocks.filter { it.type == "input_email" }
+
+        val raw = actionValue?.lowercase()
+        if (raw != null && raw in SUPPORTED) {
+            val recipient = when (raw) {
+                "sms", "whatsapp", "voice" ->
+                    phoneBlocks.firstOrNull()?.let { inputValues[it.field_id ?: it.id] as? String }
+                "email" ->
+                    emailBlocks.firstOrNull()?.let { inputValues[it.field_id ?: it.id] as? String }
+                else -> null
+            }
+            return raw to recipient
+        }
+
+        if (phoneBlocks.size == 1 && emailBlocks.isEmpty()) {
+            val b = phoneBlocks[0]
+            return "sms" to (inputValues[b.field_id ?: b.id] as? String)
+        }
+        if (emailBlocks.size == 1 && phoneBlocks.isEmpty()) {
+            val b = emailBlocks[0]
+            return "email" to (inputValues[b.field_id ?: b.id] as? String)
+        }
+        return null to null
+    }
+}
+
 private fun emitAuthAction(
     action: String,
     actionValue: String?,
     toggleValues: Map<String, Boolean>,
     inputValues: Map<String, Any>,
     onNext: (Map<String, Any>?) -> Unit,
+    blocks: List<ContentBlock> = emptyList(),
 ) {
     // SPEC-070-A finalization OB-4 — auth-action delegate gate. If the
     // host has not registered an AppDNAOnboardingDelegate (which is the
@@ -1552,10 +1602,20 @@ private fun emitAuthAction(
         data["toggle_$k"] = v
     }
     data["action"] = action
-    if (actionValue != null) {
-        when (action) {
-            "request_otp", "verify_otp" -> data["recipient"] = actionValue
-            else -> data["action_value"] = actionValue
+    when (action) {
+        "request_otp", "verify_otp" -> {
+            // SPEC-070-A finalization B4#P0 — emit BOTH `channel` (sms|email|whatsapp|voice)
+            // AND `recipient` (resolved from inputValues via OtpChannelResolver),
+            // matching iOS OnboardingRenderer.swift:1559-1594. Previously Android
+            // only emitted `recipient = actionValue` (which is actually the channel
+            // string, not a phone/email) and never emitted `channel` at all,
+            // breaking every host that branches on the OTP delivery method.
+            val (channel, recipient) = OtpChannelResolver.resolve(actionValue, blocks, inputValues)
+            if (channel != null) data["channel"] = channel
+            if (recipient != null) data["recipient"] = recipient
+        }
+        else -> {
+            if (actionValue != null) data["action_value"] = actionValue
         }
     }
     onNext(data)
@@ -1828,13 +1888,13 @@ private fun BlockBasedStepView(
             "login", "register", "reset_password", "magic_link",
             "verify_email", "resend_verification", "enable_biometric",
             "email_login",
-            // OTP actions (channel resolution is host's responsibility on
-            // Android until SPEC-086 lands `OtpChannelResolver` parity):
+            // OTP actions — channel/recipient resolved via OtpChannelResolver
+            // (SPEC-070-A finalization B4#P0 parity with iOS):
             "request_otp", "verify_otp",
             // Account lifecycle:
             "logout", "change_password", "set_new_password",
             "delete_account", "update_profile" -> {
-                emitAuthAction(rawAction, actionValue, toggleValues, inputValues, onNext)
+                emitAuthAction(rawAction, actionValue, toggleValues, inputValues, onNext, blocks)
             }
             // SPEC-070-A C.1 — `permission` is a SPEC-086 hook site. For now
             // advance as safe fallback so existing hosts don't get stuck on
