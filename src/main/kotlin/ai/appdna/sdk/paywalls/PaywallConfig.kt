@@ -125,6 +125,14 @@ data class PaywallSectionData(
     val height: Float? = null,
     val corner_radius: Float? = null,
 
+    // SPEC-070-A finalization B5 P3 — discrete media heights mirroring iOS
+    // PaywallConfig.swift:133,136. Console-authored `lottie_height: 250` /
+    // `video_height: 240` previously fell back to the generic `height`
+    // (default 200), making the same JSON render at different heights
+    // across platforms. Now Android picks the type-specific field first.
+    val lottie_height: Float? = null,
+    val video_height: Float? = null,
+
     // Spacer section
     val spacer_height: Float? = null,
 
@@ -872,6 +880,8 @@ internal object PaywallConfigParser {
                 guarantee_text = d["guarantee_text"] as? String,
                 height = (d["height"] as? Number)?.toFloat(),
                 corner_radius = (d["corner_radius"] as? Number)?.toFloat(),
+                lottie_height = (d["lottie_height"] as? Number)?.toFloat(),
+                video_height = (d["video_height"] as? Number)?.toFloat(),
                 spacer_height = (d["spacer_height"] as? Number)?.toFloat(),
                 quote = d["quote"] as? String,
                 author_name = d["author_name"] as? String,

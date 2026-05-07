@@ -220,6 +220,26 @@ internal class PaywallManager(
                 if (!completedProps.containsKey("provider")) {
                     completedProps["provider"] = "google_play"
                 }
+                // SPEC-070-A finalization B5 P1 — pull real price/currency
+                // from the PriceResolver cache when caller didn't inject
+                // them. NativeBillingManager populates the cache when the
+                // host queries products before purchase; this is the same
+                // resolver path the native handler uses. Mirrors iOS
+                // PaywallManager which reads `result.priceFormatStyle` /
+                // `product.price` directly.
+                if (!completedProps.containsKey("price") || !completedProps.containsKey("currency")) {
+                    val cached = try {
+                        AppDNA.billing.manager?.priceResolver?.cachedPriceInfo(plan.product_id)
+                    } catch (_: Throwable) { null }
+                    if (cached != null) {
+                        if (!completedProps.containsKey("price")) {
+                            completedProps["price"] = cached.priceMicros / 1_000_000.0
+                        }
+                        if (!completedProps.containsKey("currency")) {
+                            completedProps["currency"] = cached.currencyCode
+                        }
+                    }
+                }
                 eventTracker.track("purchase_completed", completedProps)
 
                 listener?.onPaywallPurchaseCompleted(

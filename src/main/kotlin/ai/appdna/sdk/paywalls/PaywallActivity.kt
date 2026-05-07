@@ -1886,7 +1886,10 @@ private fun PaywallSectionView(
                         lottie_url = url,
                         loop = section.data.lottie_loop ?: true,
                         speed = section.data.lottie_speed ?: 1.0f,
-                        height = section.data.height ?: 200f,
+                        // SPEC-070-A finalization B5 P3 — prefer the
+                        // type-specific lottie_height over the generic
+                        // height (mirrors iOS PaywallConfig.swift:133).
+                        height = section.data.lottie_height ?: section.data.height ?: 200f,
                     )
                 )
             }
@@ -1913,7 +1916,10 @@ private fun PaywallSectionView(
                     block = CoreVideoBlock(
                         video_url = url,
                         video_thumbnail_url = section.data.video_thumbnail_url ?: section.data.image_url,
-                        video_height = section.data.height ?: 200f,
+                        // SPEC-070-A finalization B5 P3 — prefer the
+                        // type-specific video_height over the generic
+                        // height (mirrors iOS PaywallConfig.swift:136).
+                        video_height = section.data.video_height ?: section.data.height ?: 200f,
                         video_corner_radius = section.data.corner_radius,
                         autoplay = section.data.video_autoplay,
                         loop = section.data.video_loop,
