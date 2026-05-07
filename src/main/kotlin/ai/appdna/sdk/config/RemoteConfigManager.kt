@@ -569,6 +569,14 @@ internal class RemoteConfigManager(
                 if (data.isNotEmpty()) { parseSurveys(data); Log.debug("Loaded surveys from bundled config") }
             }
         }
+        if (messages.isEmpty()) {
+            (json["messages"] as? Map<String, Any>)?.let { data ->
+                if (data.isNotEmpty()) {
+                    messages = ai.appdna.sdk.messages.MessageConfigParser.parseMessages(data)
+                    Log.debug("Loaded messages from bundled config")
+                }
+            }
+        }
         if (flags.isEmpty()) {
             val flagData = (json["remote_config"] as? Map<String, Any>)
                 ?: (json["feature_flags"] as? Map<String, Any>)
