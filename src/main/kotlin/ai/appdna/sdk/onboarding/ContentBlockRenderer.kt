@@ -1150,13 +1150,22 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
         val action = block.action ?: "next"
         when (action) {
             "link" -> {
+                // SPEC-070-A finalization Phase E — `link` action divergence.
+                // iOS InAppBrowser.present(url) does NOT auto-advance —
+                // user returns to the same step after closing the browser.
+                // Android previously called `onAction("next")` after
+                // launching the browser, double-jumping the user away from
+                // the step. Removed the auto-advance to match iOS behavior.
+                // Browser launch path uses ACTION_VIEW for now (Chrome Custom
+                // Tabs would be a polish followup once androidx.browser dep
+                // is added).
                 block.action_value?.let { url ->
                     try {
                         val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
                         context.startActivity(intent)
                     } catch (_: Exception) {}
                 }
-                onAction("next")
+                // No auto-advance — mirrors iOS InAppBrowser.present semantics.
             }
             "permission" -> onAction("next")
             else -> onAction(action)

@@ -248,6 +248,14 @@ internal sealed class RuleTarget {
     data class Permission(val name: String) : RuleTarget()
     data class Screen(val screenId: String) : RuleTarget()
     data class SubFlow(val flowId: String) : RuleTarget()
+    /**
+     * SPEC-070-A finalization Phase D — `analytics_event_*` graph node.
+     * iOS routes these targets to fire a custom analytics event then
+     * fall through to natural step advancement. Android previously
+     * fell into the Step branch and treated the literal string as a
+     * step id (which never matched).
+     */
+    data class AnalyticsEvent(val eventName: String) : RuleTarget()
     data class Unknown(val rawTarget: String) : RuleTarget()
 }
 
@@ -269,6 +277,8 @@ internal fun classifyRuleTarget(target: String?): RuleTarget {
         target.startsWith("permission_") -> RuleTarget.Permission(target.removePrefix("permission_"))
         target.startsWith("screen_") -> RuleTarget.Screen(target.removePrefix("screen_"))
         target.startsWith("flow_") -> RuleTarget.SubFlow(target.removePrefix("flow_"))
+        // SPEC-070-A finalization Phase D — analytics_event_* graph node.
+        target.startsWith("analytics_event_") -> RuleTarget.AnalyticsEvent(target.removePrefix("analytics_event_"))
         else -> RuleTarget.Step(target)
     }
 }

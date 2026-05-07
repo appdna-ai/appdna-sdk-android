@@ -746,6 +746,24 @@ internal fun OnboardingFlowHost(
                             return
                         }
                     }
+                    is RuleTarget.AnalyticsEvent -> {
+                        // SPEC-070-A finalization Phase D — analytics_event_*
+                        // graph node fires a custom analytics event, then
+                        // falls through to natural step advancement.
+                        // Mirrors iOS analytics_event routing.
+                        eventTracker?.track(
+                            classified.eventName,
+                            mapOf(
+                                "flow_id" to flow.id,
+                                "step_id" to (step.id),
+                                "step_index" to currentIndex,
+                            ),
+                        )
+                        // Continue rule loop in case multiple rules; ultimately
+                        // falls through to natural advancement (currentIndex++)
+                        // below.
+                        continue
+                    }
                     is RuleTarget.Unknown -> continue
                 }
             }
