@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 00c22ea0fc29a0e1d693a294bb51364467a2c298
+// Last codegen commit: 11054dcc57b2e4d4c42fa09501ed5f5141d97a29
 
 package ai.appdna.sdk.generated
 
@@ -76,6 +76,8 @@ interface AppDNABillingDelegate {
     fun onPurchaseFailed(productId: String, error: Throwable) = Unit
 
     fun onEntitlementsChanged(entitlements: List<String>) = Unit
+
+    fun onRestoreCompleted(restoredProductIds: List<String>) = Unit
 }
 
 /** Deep link receiver with optional veto. */
