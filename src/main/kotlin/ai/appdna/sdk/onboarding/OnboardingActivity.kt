@@ -2193,7 +2193,19 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 
         Spacer(Modifier.height(24.dp))
         Button(
-            onClick = { onNext(mapOf("selected" to selectedOptions.toList())) },
+            // SPEC-070-A finalization B4 P2 — include `selection_mode` in the
+            // CTA payload (iOS QuestionStepView.swift:86-90 emits
+            // {"selected": [...], "selection_mode": "single"|"multi"}). Hosts
+            // that branch on the mode (e.g. multi-select rendering vs radio)
+            // were missing this field on Android.
+            onClick = {
+                onNext(
+                    mapOf(
+                        "selected" to selectedOptions.toList(),
+                        "selection_mode" to if (isMulti) "multi" else "single",
+                    )
+                )
+            },
             enabled = selectedOptions.isNotEmpty(),
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp)

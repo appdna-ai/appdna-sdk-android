@@ -55,7 +55,10 @@ fun LocationFieldComposable(
     modifier: Modifier = Modifier,
 ) {
     val config = field.config
-    val minChars = (config?.location_min_chars ?: 3).coerceAtLeast(1)
+    // SPEC-070-A finalization B4 P2 — iOS LocationFieldView.swift:43-44
+    // defaults to 2 keystrokes before triggering autocomplete. Android
+    // was at 3, delaying suggestions on short city names.
+    val minChars = (config?.location_min_chars ?: 2).coerceAtLeast(1)
     val placeholder = config?.location_placeholder
         ?: field.placeholder
         ?: "Search for a location..."
