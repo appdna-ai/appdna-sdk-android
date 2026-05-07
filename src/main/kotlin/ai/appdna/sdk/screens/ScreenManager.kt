@@ -193,11 +193,22 @@ class ScreenManager private constructor() {
                         val overrideBackground = (override["background"] as? Map<String, Any?>)?.let {
                             BackgroundConfig.fromMap(it)
                         }
+                        // SPEC-070-A finalization B6 P1 — preserve trigger_rules
+                        // from the variant override. iOS ScreenVariantOverride
+                        // keeps this field so a variant can ship its own
+                        // audience/segment/event triggers; Android was
+                        // dropping it, leaving variants stuck on the base
+                        // screen's rules.
+                        @Suppress("UNCHECKED_CAST")
+                        val overrideTriggerRules = (override["trigger_rules"] as? Map<String, Any?>)?.let {
+                            ai.appdna.sdk.core.UnifiedTriggerRules.fromMap(it)
+                        }
                         if (overrideSections != null) {
                             resolvedConfig = config.copy(
                                 sections = overrideSections.map { ScreenSection.fromMap(it) }.toImmutableList(),
                                 presentation = overridePresentation ?: config.presentation,
                                 background = overrideBackground ?: config.background,
+                                triggerRules = overrideTriggerRules ?: config.triggerRules,
                             )
                         }
                     }
