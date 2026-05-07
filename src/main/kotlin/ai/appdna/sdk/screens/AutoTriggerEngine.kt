@@ -119,7 +119,23 @@ internal class AutoTriggerEngine {
         return p == s
     }
 
+    /**
+     * SPEC-070-A finalization B6 P2 — ISO-8601 parser that handles `Z`
+     * suffix and offset notation. Mirrors iOS `ISO8601DateFormatter`. The
+     * old SimpleDateFormat path silently returned 0 for "2026-05-07T10:00:00Z"
+     * (no offset support), making `start_date` always pass.
+     */
     private fun parseISODate(iso: String): Long {
-        return try { SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(iso)?.time ?: 0 } catch (_: Exception) { 0 }
+        return try {
+            java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli()
+        } catch (_: Throwable) {
+            try {
+                java.time.Instant.parse(iso).toEpochMilli()
+            } catch (_: Throwable) {
+                try {
+                    SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(iso)?.time ?: 0
+                } catch (_: Exception) { 0 }
+            }
+        }
     }
 }

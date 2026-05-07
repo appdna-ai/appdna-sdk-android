@@ -271,32 +271,103 @@ private fun handleButtonAction(button: Map<String, Any?>, context: SectionContex
     }
 }
 
+/**
+ * SPEC-070-A finalization B6 P2 — image_section now loads `image_url`
+ * via [ai.appdna.sdk.core.NetworkImage] (Coil under the hood) instead
+ * of rendering a gray Box. Mirrors iOS BundledAsyncImage.
+ */
 @Composable
 internal fun ImageSectionRenderer(section: ScreenSection, context: SectionContext) {
     val height = (section.data["height"] as? Number)?.toDouble() ?: 200.0
     val cornerRadius = (section.data["corner_radius"] as? Number)?.toDouble() ?: 0.0
+    val url = section.data["image_url"] as? String ?: section.data["url"] as? String
 
-    Box(
-        modifier = Modifier.fillMaxWidth().height(height.dp)
-            .clip(RoundedCornerShape(cornerRadius.dp))
-            .background(Color.Gray.copy(alpha = 0.1f)),
+    val mod = Modifier.fillMaxWidth().height(height.dp)
+        .let { if (cornerRadius > 0) it.clip(RoundedCornerShape(cornerRadius.dp)) else it }
+    if (url != null) {
+        ai.appdna.sdk.core.NetworkImage(
+            url = url,
+            modifier = mod,
+            contentDescription = section.data["alt"] as? String,
+        )
+    } else {
+        Box(modifier = mod.background(Color.Gray.copy(alpha = 0.1f)))
+    }
+}
+
+/**
+ * SPEC-070-A finalization B6 P2 — video_section uses [VideoBlockView]
+ * with the section data, mirroring iOS.
+ */
+@Composable
+internal fun VideoSectionRenderer(section: ScreenSection, context: SectionContext) {
+    val url = section.data["video_url"] as? String ?: section.data["url"] as? String
+    val height = (section.data["video_height"] as? Number)?.toFloat()
+        ?: (section.data["height"] as? Number)?.toFloat() ?: 200f
+    if (url == null) {
+        Box(modifier = Modifier.fillMaxWidth().height(height.dp).background(Color.Black))
+        return
+    }
+    ai.appdna.sdk.core.VideoBlockView(
+        block = ai.appdna.sdk.core.VideoBlock(
+            video_url = url,
+            video_thumbnail_url = section.data["video_thumbnail_url"] as? String,
+            video_height = height,
+            video_corner_radius = (section.data["video_corner_radius"] as? Number)?.toFloat()
+                ?: (section.data["corner_radius"] as? Number)?.toFloat(),
+            autoplay = section.data["video_autoplay"] as? Boolean ?: section.data["autoplay"] as? Boolean,
+            loop = section.data["video_loop"] as? Boolean ?: section.data["loop"] as? Boolean,
+            muted = section.data["video_muted"] as? Boolean ?: section.data["muted"] as? Boolean,
+        ),
     )
 }
 
-@Composable
-internal fun VideoSectionRenderer(section: ScreenSection, context: SectionContext) {
-    val height = (section.data["height"] as? Number)?.toDouble() ?: 200.0
-    Box(modifier = Modifier.fillMaxWidth().height(height.dp).background(Color.Black))
-}
-
+/**
+ * SPEC-070-A finalization B6 P2 — lottie_section uses [LottieBlockView],
+ * mirroring iOS.
+ */
 @Composable
 internal fun LottieSectionRenderer(section: ScreenSection, context: SectionContext) {
-    val height = (section.data["height"] as? Number)?.toDouble() ?: 200.0
-    Box(modifier = Modifier.fillMaxWidth().height(height.dp).background(Color.Gray.copy(alpha = 0.05f)))
+    val url = section.data["lottie_url"] as? String ?: section.data["url"] as? String
+    @Suppress("UNCHECKED_CAST")
+    val json = section.data["lottie_json"] as? Map<String, Any>
+    val height = (section.data["lottie_height"] as? Number)?.toFloat()
+        ?: (section.data["height"] as? Number)?.toFloat() ?: 200f
+    if (url == null && json == null) {
+        Box(modifier = Modifier.fillMaxWidth().height(height.dp))
+        return
+    }
+    ai.appdna.sdk.core.LottieBlockView(
+        block = ai.appdna.sdk.core.LottieBlock(
+            lottie_url = url,
+            lottie_json = json,
+            autoplay = section.data["lottie_autoplay"] as? Boolean ?: section.data["autoplay"] as? Boolean ?: true,
+            loop = section.data["lottie_loop"] as? Boolean ?: section.data["loop"] as? Boolean ?: true,
+            speed = (section.data["lottie_speed"] as? Number)?.toFloat() ?: 1.0f,
+            height = height,
+        ),
+    )
 }
 
+/**
+ * SPEC-070-A finalization B6 P2 — rive_section uses [RiveBlockView],
+ * mirroring iOS.
+ */
 @Composable
 internal fun RiveSectionRenderer(section: ScreenSection, context: SectionContext) {
-    val height = (section.data["height"] as? Number)?.toDouble() ?: 200.0
-    Box(modifier = Modifier.fillMaxWidth().height(height.dp).background(Color.Gray.copy(alpha = 0.05f)))
+    val url = section.data["rive_url"] as? String ?: section.data["url"] as? String
+    val height = (section.data["height"] as? Number)?.toFloat() ?: 200f
+    if (url == null) {
+        Box(modifier = Modifier.fillMaxWidth().height(height.dp))
+        return
+    }
+    ai.appdna.sdk.core.RiveBlockView(
+        block = ai.appdna.sdk.core.RiveBlock(
+            rive_url = url,
+            artboard = section.data["rive_artboard"] as? String ?: section.data["artboard"] as? String,
+            state_machine = section.data["rive_state_machine"] as? String ?: section.data["state_machine"] as? String,
+            autoplay = section.data["autoplay"] as? Boolean ?: true,
+            height = height,
+        ),
+    )
 }
