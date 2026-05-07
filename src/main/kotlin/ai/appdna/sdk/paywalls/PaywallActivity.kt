@@ -407,9 +407,34 @@ fun PaywallScreen(
             // Mirrors iOS PaywallScrollOffsetPrefKey-driven collapse: as user
             // scrolls, sections marked collapse_on_scroll==true fade their
             // alpha + slightly translate up. We hoist a LazyListState here
-            // and let each section item read the current scroll offset to
-            // derive its alpha when the flag is set.
+            // and derive a SINGLE global scroll offset that all marked
+            // sections share — see globalCollapseRatio below.
             val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+            // SPEC-070-A finalization P0 audit-1 HIGH-1 — collapse_on_scroll
+            // is GLOBAL on iOS, not per-section. iOS PaywallRenderer.swift:
+            // 120-128 derives `collapseProgress = min(max(scrollOffset/50, 0), 1)`
+            // from a single page-level PaywallScrollOffsetPrefKey, then ALL
+            // sections marked collapse_on_scroll==true fade together as soon
+            // as the user scrolls past 50px. Per-section logic (each section
+            // waiting until it's the first visible item before fading) breaks
+            // multi-section collapse layouts: a `collapse_on_scroll` banner
+            // at index 0 + a `collapse_on_scroll` testimonial at index 5
+            // would fade independently on Android instead of together.
+            //
+            // Approximation: any scroll past the first item (i.e.
+            // firstVisibleItemIndex > 0) means user has progressed past 50px.
+            // Otherwise use the offset within the first item. Same 50px
+            // hard-collapse distance as iOS.
+            val globalCollapseRatio by androidx.compose.runtime.remember {
+                androidx.compose.runtime.derivedStateOf {
+                    val first = lazyListState.firstVisibleItemIndex
+                    val offset = lazyListState.firstVisibleItemScrollOffset
+                    val pxScrolled: Float =
+                        if (first > 0) Float.POSITIVE_INFINITY
+                        else offset.toFloat()
+                    (pxScrolled / 50f).coerceIn(0f, 1f)
+                }
+            }
             LazyColumn(
                 state = lazyListState,
                 modifier = Modifier
@@ -420,34 +445,7 @@ fun PaywallScreen(
                     items = scrollableSections,
                     key = { idx, section -> "${section.type}_${section.id ?: idx}" },
                 ) { index, section ->
-                    // SPEC-070-A finalization PW-11 (audit-driven rewrite) —
-                    // mirror iOS PaywallRenderer.swift:120-128 collapse_on_scroll
-                    // semantics exactly. Audit caught divergence: trigger
-                    // distance was 240px (iOS uses 50px), alpha clamped to 0.3
-                    // (iOS goes fully invisible at 1.0), height never collapsed
-                    // (iOS reduces frame to 0 + clipped), and scroll was per-item
-                    // (iOS uses GLOBAL page scroll offset).
-                    //
-                    // Approximation of "global scroll offset" in Compose:
-                    //   - first visible item index 0 + offset → offset px scrolled
-                    //   - first visible item index > 0 → user scrolled past at
-                    //     least one section; treat as fully past trigger (50px+).
-                    val collapseRatio by androidx.compose.runtime.remember {
-                        androidx.compose.runtime.derivedStateOf {
-                            if (section.collapse_on_scroll != true) {
-                                0f
-                            } else {
-                                val first = lazyListState.firstVisibleItemIndex
-                                val offset = lazyListState.firstVisibleItemScrollOffset
-                                val pxScrolled: Float = when {
-                                    first > index -> Float.POSITIVE_INFINITY // past it; fully collapsed
-                                    first == index -> offset.toFloat()
-                                    else -> 0f // still above the section
-                                }
-                                (pxScrolled / 50f).coerceIn(0f, 1f) // matches iOS' 50px hard collapse distance
-                            }
-                        }
-                    }
+                    val collapseRatio = if (section.collapse_on_scroll == true) globalCollapseRatio else 0f
                     val collapseAlpha = 1f - collapseRatio
                     val collapseHeight = if (collapseRatio >= 1f) 0.dp else androidx.compose.ui.unit.Dp.Unspecified
                     Box(

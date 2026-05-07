@@ -1547,6 +1547,15 @@ private fun SocialLoginBlock(
                 "github" -> "\u2B24"
                 else -> ""
             }
+            // SPEC-070-A finalization OB-2 audit-1 CRIT-2 \u2014 icon_style was a
+            // dead field. Mirrors iOS ContentBlockRendererView.swift:778-814:
+            // "monochrome_light" \u2192 force white, "monochrome_dark" \u2192 force
+            // black, default \u2192 use provider-native or button textColor.
+            val providerIconColor = when (provider.icon_style) {
+                "monochrome_light" -> Color.White
+                "monochrome_dark" -> Color.Black
+                else -> textColor
+            }
 
             // SPEC-070-A C.1 — dual-emit for the `email` provider (parity with
             // iOS v1.0.60 `ContentBlockRendererView.swift:743-754`). The email
@@ -1583,7 +1592,7 @@ private fun SocialLoginBlock(
                             contentColor = textColor,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = textColor)
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
@@ -1594,7 +1603,7 @@ private fun SocialLoginBlock(
                         shape = RoundedCornerShape(providerCorner),
                         colors = ButtonDefaults.textButtonColors(contentColor = textColor),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = textColor)
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
@@ -1602,13 +1611,19 @@ private fun SocialLoginBlock(
                     Button(
                         onClick = socialClick,
                         modifier = Modifier.fillMaxWidth().height(buttonHeight),
-                        shape = RoundedCornerShape(cornerRadius),
+                        // SPEC-070-A finalization OB-2 audit-1 CRIT-1 — was
+                        // `RoundedCornerShape(cornerRadius)`, dropping the
+                        // per-provider `corner_radius` override. Filled is
+                        // the default style (block.button_style ?: "filled")
+                        // so this affected every social_login block authored
+                        // without explicit outlined/minimal opt-in.
+                        shape = RoundedCornerShape(providerCorner),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = bgColor,
                             contentColor = textColor,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp))
+                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
