@@ -91,6 +91,21 @@ fun FormStep(
                 .padding(horizontal = 24.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.Start
         ) {
+            // SPEC-070-A finalization B4 P1 — image_url header above the
+            // title, capped at 120dp tall like iOS FormStepView.swift:22-32.
+            // Uses Coil via NetworkImage so SVG / PNG / GIF all render.
+            config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+                ai.appdna.sdk.core.NetworkImage(
+                    url = url,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 120.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    contentDescription = null,
+                )
+                Spacer(Modifier.height(12.dp))
+            }
+
             // Header
             config.title?.let {
                 Text(
