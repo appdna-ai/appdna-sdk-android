@@ -71,6 +71,16 @@ import ai.appdna.sdk.R
  */
 class PaywallActivity : ComponentActivity() {
 
+    // SPEC-070-A finalization OB-5 audit-2 HIGH-3 — instance-level snapshot
+    // of the dismiss callback so `onDestroy` can fire it as a backstop when
+    // the OS / user kills the Activity outside the regular dismissal paths
+    // (task swipe in recents, low-memory kill, finish() from elsewhere).
+    // Without this, an onboarding-presented paywall that's force-killed
+    // never routes its `on_dismiss_target`, leaving the host onboarding
+    // flow stuck in mid-state on next resume.
+    private var snapshotOnDismiss: ((DismissReason) -> Unit)? = null
+    private var dispatchedDismiss: Boolean = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -95,6 +105,11 @@ class PaywallActivity : ComponentActivity() {
         // SPEC-070-A C.3 — restore lifecycle hook (delegate-fired by PaywallManager)
         val onRestoreCb = pendingOnRestore
 
+        // SPEC-070-A finalization OB-5 audit-2 HIGH-3 — capture onDismiss
+        // on the instance so onDestroy can fire it when the regular paths
+        // (Compose onDismiss, onBackPressed) didn't run.
+        snapshotOnDismiss = onDismiss
+
         // Notify appearance
         onAppear?.invoke()
 
@@ -115,6 +130,7 @@ class PaywallActivity : ComponentActivity() {
                         onRestoreCb?.invoke()
                     },
                     onDismiss = { reason ->
+                        dispatchedDismiss = true
                         onDismiss?.invoke(reason)
                         cleanup()
                     },
@@ -144,10 +160,26 @@ class PaywallActivity : ComponentActivity() {
         if (!allowed) {
             return
         }
+        dispatchedDismiss = true
         @Suppress("DEPRECATION")
         super.onBackPressed()
         pendingOnDismiss?.invoke(DismissReason.DISMISSED)
         cleanup()
+    }
+
+    override fun onDestroy() {
+        // SPEC-070-A finalization OB-5 audit-2 HIGH-3 — backstop for
+        // dismissal paths that don't go through `onBackPressed` or the
+        // Compose `onDismiss` callback (OS kill, task-recents swipe,
+        // external `finish()`). Without this an onboarding-presented
+        // paywall force-killed mid-display never routes
+        // `on_dismiss_target`, stranding the onboarding flow.
+        if (isFinishing && !dispatchedDismiss) {
+            val cb = snapshotOnDismiss
+            snapshotOnDismiss = null
+            cb?.invoke(DismissReason.DISMISSED)
+        }
+        super.onDestroy()
     }
 
     companion object {

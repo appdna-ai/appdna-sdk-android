@@ -144,8 +144,14 @@ internal class OnboardingPaywallBridge(
      * which is a non-atomic mutable slot.
      */
     private inline fun forwardOnMain(crossinline block: (AppDNAPaywallDelegate) -> Unit) {
-        val host = try { AppDNA.paywall.listener } catch (_: Throwable) { null } ?: return
+        // iOS reads `AppDNA.paywall.delegate` INSIDE the
+        // `DispatchQueue.main.async` closure (OnboardingRenderer.swift
+        // :1804-1807). Mirror that exactly: read the listener slot at
+        // dispatch time, not at call time. Otherwise a host that
+        // calls `setDelegate(null)` between the off-main capture and
+        // the main-thread execution would still see the stale ref.
         if (Looper.myLooper() == Looper.getMainLooper()) {
+            val host = try { AppDNA.paywall.listener } catch (_: Throwable) { null } ?: return
             try {
                 block(host)
             } catch (e: Throwable) {
@@ -153,6 +159,7 @@ internal class OnboardingPaywallBridge(
             }
         } else {
             mainHandler.post {
+                val host = try { AppDNA.paywall.listener } catch (_: Throwable) { null } ?: return@post
                 try {
                     block(host)
                 } catch (e: Throwable) {
