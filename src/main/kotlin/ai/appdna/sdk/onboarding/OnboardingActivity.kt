@@ -122,6 +122,13 @@ class OnboardingActivity : ComponentActivity() {
                     map
                 } catch (_: Throwable) { null }
             }
+            // SPEC-070-A finalization P0 audit-8 D2 — restore navigationHistory
+            // alongside currentIndex / responses so previous_step_* rules
+            // continue to evaluate correctly after process death.
+            savedInstanceState.getStringArray(KEY_NAV_HISTORY)?.let { arr ->
+                viewModel.navigationHistory.clear()
+                viewModel.navigationHistory.addAll(arr)
+            }
         }
 
         setContent {
@@ -203,6 +210,10 @@ class OnboardingActivity : ComponentActivity() {
             }
             outState.putString(KEY_RESPONSES, obj.toString())
         } catch (_: Throwable) { /* best-effort */ }
+        // SPEC-070-A finalization P0 audit-8 D2 — persist navigationHistory
+        // alongside currentIndex / responses. previous_step_* rules need
+        // this for correctness after rotation / process death.
+        outState.putStringArray(KEY_NAV_HISTORY, viewModel.navigationHistory.toTypedArray())
     }
 
     /**
@@ -227,6 +238,9 @@ class OnboardingActivity : ComponentActivity() {
     companion object {
         private const val KEY_CURRENT_STEP_INDEX = "appdna_onboarding_current_step_index"
         private const val KEY_RESPONSES = "appdna_onboarding_responses"
+        // SPEC-070-A finalization P0 audit-8 D2 — navigation history for
+        // previous_step_* rule operators (iOS OnboardingRenderer.swift:982-988).
+        private const val KEY_NAV_HISTORY = "appdna_onboarding_nav_history"
 
         /**
          * SPEC-070-A J.21 — single-slot next-launch payload. Set by [launch]
@@ -353,15 +367,18 @@ internal fun OnboardingFlowHost(
     // topmost; this Composable is rendered inside it.
     val activityCtx = androidx.compose.ui.platform.LocalContext.current
 
-    // SPEC-070-A finalization P0 audit-7 — navigation history stack for
+    // SPEC-070-A finalization P0 audit-7+8 — navigation history stack for
     // `previous_step_equals` / `previous_step_in` rule operators
     // (iOS OnboardingRenderer.swift:982-988, 1065-1088). Push the step
     // id we're LEAVING from before changing currentIndex; rule evaluator
     // reads `lastOrNull()` as the user's previous step. Mirrors iOS
-    // `navigationHistory: [String]`. `mutableStateListOf` keeps the
-    // composable's reads reactive (and Compose-state-survivable in
-    // SnapshotState scope).
-    val navigationHistory = remember { mutableStateListOf<String>() }
+    // `navigationHistory: [String]`.
+    //
+    // Audit-8 D2: hoisted into OnboardingViewModel so it survives
+    // Activity recreation alongside currentIndex / responses. Test path
+    // (no VM available) falls back to a `remember` list — recreation
+    // wouldn't apply there.
+    val navigationHistory = viewModel?.navigationHistory ?: remember { mutableStateListOf<String>() }
 
     // SPEC-083: Hook state
     var isProcessing by remember { mutableStateOf(false) }
@@ -552,7 +569,14 @@ internal fun OnboardingFlowHost(
                             presentPaywallTriggerNode(edgeTarget, depth + 1)
                         } else {
                             val tIdx = flow.steps.indexOfFirst { it.id == edgeTarget }
-                            if (tIdx >= 0) currentIndex = tIdx
+                            if (tIdx >= 0) {
+                                // SPEC-070-A finalization P0 audit-8 D1 —
+                                // push the leaving step before paywall-routed
+                                // navigation so destination's previous_step_*
+                                // rules see the correct prevId.
+                                flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
+                                currentIndex = tIdx
+                            }
                             else {
                                 @Suppress("UNCHECKED_CAST")
                                 onFlowCompleted(responses.toMap() as Map<String, Any>)
@@ -584,6 +608,11 @@ internal fun OnboardingFlowHost(
                         // Treat as a step ID — navigate.
                         val tIdx = flow.steps.indexOfFirst { it.id == chosen }
                         if (tIdx >= 0) {
+                            // SPEC-070-A finalization P0 audit-8 D1 —
+                            // push the leaving step before paywall-routed
+                            // navigation so destination's previous_step_*
+                            // rules see the correct prevId.
+                            flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
                             currentIndex = tIdx
                         } else {
                             // Unknown target — complete the flow as the safest fallback.
@@ -742,6 +771,12 @@ internal fun OnboardingFlowHost(
     fun skipToStep(targetStepId: String) {
         val targetIndex = flow.steps.indexOfFirst { it.id == targetStepId }
         if (targetIndex >= 0) {
+            // SPEC-070-A finalization P0 audit-8 D1 — push the leaving
+            // step before skip-target navigation so the destination's
+            // previous_step_* rules see the correct prevId. Mirrors
+            // iOS navigate(to:appendHistory:) which is called from
+            // every navigation site, including hook-driven SkipTo.
+            flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
             currentIndex = targetIndex
         } else {
             advanceOrComplete()

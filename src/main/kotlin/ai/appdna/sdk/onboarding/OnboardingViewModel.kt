@@ -82,6 +82,18 @@ internal class OnboardingViewModel : ViewModel() {
     val responses: SnapshotStateMap<String, Any> = mutableStateMapOf()
 
     /**
+     * SPEC-070-A finalization P0 audit-8 D2 — navigation history stack
+     * for `previous_step_equals` / `previous_step_in` rule operators
+     * (iOS OnboardingRenderer.swift:982-988, 1065-1088). Hoisted into
+     * the ViewModel alongside [currentIndex] / [responses] so it
+     * survives Activity recreation. Each entry is the step ID the user
+     * navigated AWAY from. Rule evaluator reads `lastOrNull()` as the
+     * user's previous step.
+     */
+    val navigationHistory: androidx.compose.runtime.snapshots.SnapshotStateList<String> =
+        androidx.compose.runtime.mutableStateListOf()
+
+    /**
      * Snapshot index restored by [OnboardingActivity.onCreate] from
      * `savedInstanceState`. Read once by the Compose host's initial-state
      * seed, then cleared.
