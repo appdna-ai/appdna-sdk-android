@@ -2,6 +2,7 @@ package ai.appdna.sdk.feedback
 
 // SPEC-070-A J.22 — re-wrap interpolated options as ImmutableList for Compose stability.
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.launch
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -200,6 +201,11 @@ fun SurveyScreen(
     }
     var showCompletion by remember { mutableStateOf(false) }
     val currentView = LocalView.current
+    // SPEC-070-A finalization P0 audit-10 — coroutine scope for the
+    // thank-you delay (mirrors iOS DispatchQueue.main.asyncAfter 2.5s
+    // before completion). Bound to composition so cancellation on
+    // Activity destroy is automatic.
+    val completionScope = rememberCoroutineScope()
     val visibleQuestions by remember {
         derivedStateOf {
             config.questions.filter { q ->
@@ -390,7 +396,26 @@ fun SurveyScreen(
                         )
                         showCompletion = true
                         val allAnswers = visibleQuestions.mapNotNull { answers[it.id] }
-                        onComplete(allAnswers)
+                        // SPEC-070-A finalization P0 audit-10 — defer
+                        // onComplete by 2.5s when a thank-you Lottie or
+                        // particle/confetti effect is configured. Mirrors
+                        // iOS SurveyRenderer.swift:372-386 which waits
+                        // 2.5s before dismissing so the celebration
+                        // actually renders. Without this, calling
+                        // onComplete synchronously triggers cleanup() →
+                        // finish() and the Lottie/confetti UI never gets
+                        // a frame. No thank-you configured → immediate
+                        // dispatch (preserves prior behavior).
+                        val hasThankYou = config.appearance.thankyouLottieUrl != null
+                            || config.appearance.thankyouParticleEffect != null
+                        if (hasThankYou) {
+                            completionScope.launch {
+                                kotlinx.coroutines.delay(2500)
+                                onComplete(allAnswers)
+                            }
+                        } else {
+                            onComplete(allAnswers)
+                        }
                     },
                     enabled = canAdvance,
                     colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
