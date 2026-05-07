@@ -704,7 +704,13 @@ internal fun OnboardingFlowHost(
                 )
                 if (!matches) continue
 
-                when (val classified = classifyRuleTarget(rule.target_step_id)) {
+                // SPEC-070-A finalization Phase D — short-id analytics_event
+                // upgrade. Console emits e.g. `analytics2` (no legacy prefix);
+                // graph_nodes[target].type == "analytics_event" tells us to
+                // re-classify from RuleTarget.Step → RuleTarget.AnalyticsEvent.
+                @Suppress("UNCHECKED_CAST")
+                val rawClassified = classifyRuleTarget(rule.target_step_id)
+                when (val classified = upgradeToAnalyticsEventIfShortId(rawClassified, flow.graph_nodes as? Map<String, Any?>)) {
                     is RuleTarget.Empty -> continue
                     is RuleTarget.PaywallTrigger -> {
                         presentPaywallTriggerNode(classified.rawTarget)
@@ -747,21 +753,43 @@ internal fun OnboardingFlowHost(
                         }
                     }
                     is RuleTarget.AnalyticsEvent -> {
-                        // SPEC-070-A finalization Phase D — analytics_event_*
-                        // graph node fires a custom analytics event, then
-                        // falls through to natural step advancement.
-                        // Mirrors iOS analytics_event routing.
+                        // SPEC-070-A finalization Phase D — analytics_event
+                        // graph node. Mirrors iOS OnboardingRenderer.swift:
+                        // 789-801 exactly:
+                        //   1. Resolve event_name from
+                        //      `flow.graph_nodes[nodeId].event_name`,
+                        //      default to literal "onboarding_analytics".
+                        //   2. Fire eventTracker.track(eventName, payload)
+                        //      with payload {flow_id, node_id, step_id}.
+                        //      `node_id` (NOT `step_index`) is the
+                        //      load-bearing key for ETL grouping.
+                        //   3. If `nodeData.next_target` is set, follow
+                        //      it (recursively classify; supports chained
+                        //      analytics → step / analytics → analytics).
+                        //   4. Otherwise fall through to natural advance
+                        //      via `continue`.
+                        @Suppress("UNCHECKED_CAST")
+                        val nodeData = (flow.graph_nodes?.get(classified.nodeId) as? Map<String, Any?>)
+                        val eventName = (nodeData?.get("event_name") as? String) ?: "onboarding_analytics"
                         eventTracker?.track(
-                            classified.eventName,
+                            eventName,
                             mapOf(
                                 "flow_id" to flow.id,
-                                "step_id" to (step.id),
-                                "step_index" to currentIndex,
+                                "node_id" to classified.nodeId,
+                                "step_id" to step.id,
                             ),
                         )
-                        // Continue rule loop in case multiple rules; ultimately
-                        // falls through to natural advancement (currentIndex++)
-                        // below.
+                        val nextTarget = nodeData?.get("next_target") as? String
+                        if (!nextTarget.isNullOrBlank()) {
+                            val tIdx = flow.steps.indexOfFirst { it.id == nextTarget }
+                            if (tIdx >= 0) {
+                                flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
+                                currentIndex = tIdx
+                                return
+                            }
+                        }
+                        // No next_target — continue rule loop; eventually
+                        // falls through to natural advancement.
                         continue
                     }
                     is RuleTarget.Unknown -> continue

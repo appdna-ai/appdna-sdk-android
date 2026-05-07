@@ -251,11 +251,14 @@ internal sealed class RuleTarget {
     /**
      * SPEC-070-A finalization Phase D — `analytics_event_*` graph node.
      * iOS routes these targets to fire a custom analytics event then
-     * fall through to natural step advancement. Android previously
-     * fell into the Step branch and treated the literal string as a
-     * step id (which never matched).
+     * follow `next_target` (or fall through to natural advancement).
+     *
+     * `nodeId` is the graph-node identifier (loaded into the analytics
+     * payload as `node_id` for warehouse grouping). `eventName` is
+     * resolved by the OnboardingActivity consumer because it requires
+     * graph_nodes lookup (this file is composable-free).
      */
-    data class AnalyticsEvent(val eventName: String) : RuleTarget()
+    data class AnalyticsEvent(val nodeId: String) : RuleTarget()
     data class Unknown(val rawTarget: String) : RuleTarget()
 }
 
@@ -278,7 +281,30 @@ internal fun classifyRuleTarget(target: String?): RuleTarget {
         target.startsWith("screen_") -> RuleTarget.Screen(target.removePrefix("screen_"))
         target.startsWith("flow_") -> RuleTarget.SubFlow(target.removePrefix("flow_"))
         // SPEC-070-A finalization Phase D — analytics_event_* graph node.
-        target.startsWith("analytics_event_") -> RuleTarget.AnalyticsEvent(target.removePrefix("analytics_event_"))
+        // Carry the FULL target (the graph_node id) so the consumer can
+        // resolve event_name + next_target via flow.graph_nodes lookup.
+        target.startsWith("analytics_event_") -> RuleTarget.AnalyticsEvent(target)
         else -> RuleTarget.Step(target)
     }
+}
+
+/**
+ * SPEC-070-A finalization Phase D — short-id analytics_event detector.
+ * Console editor emits short ids like `analytics2` instead of the legacy
+ * `analytics_event_<timestamp>`. iOS at OnboardingRenderer.swift:789 routes
+ * via `target.hasPrefix("analytics_event_") || nodeType == "analytics_event"`;
+ * Android needs the same dual-path. Call this from the consumer after
+ * the prefix-classified result is `RuleTarget.Step` to upgrade to
+ * AnalyticsEvent when the graph_node type matches.
+ */
+internal fun upgradeToAnalyticsEventIfShortId(
+    classified: RuleTarget,
+    graphNodes: Map<String, Any?>?,
+): RuleTarget {
+    if (classified !is RuleTarget.Step) return classified
+    val nodeData = graphNodes?.get(classified.stepId) as? Map<*, *> ?: return classified
+    val nodeType = nodeData["type"] as? String ?: return classified
+    return if (nodeType == "analytics_event") {
+        RuleTarget.AnalyticsEvent(classified.stepId)
+    } else classified
 }
