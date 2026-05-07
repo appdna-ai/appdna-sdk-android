@@ -1220,6 +1220,94 @@ private fun emitAuthAction(
     onNext(data)
 }
 
+// SPEC-070-A finalization OB-8 — three-zone block layout helper.
+//
+// iOS partitions content_blocks by `block.zone` ("top" / "center" /
+// "bottom") into a 3-row Column where Spacer.weight(1f) between each
+// zone makes top blocks stick to top, bottom blocks stick to bottom,
+// and center blocks fill the remaining space (`ThreeZoneStepLayout.swift`
+// + `ContentBlockRendererView.swift:1421-1431`). Without this, the CTA
+// authored at the bottom of a step + footer-pinned legal text scrolled
+// inline with the question content, making every step's vertical
+// rhythm wrong vs iOS.
+//
+// Behavior:
+//   - If at least one block declares zone, partition by zone and render
+//     three Columns with weight(1f) Spacer separators between non-empty
+//     zones. Center is the default for blocks without a zone.
+//   - If NO block declares a zone, fall through to a single Column —
+//     legacy / unzoned content keeps its existing render shape.
+//
+// Mirrors iOS' implicit center default at ThreeZoneStepLayout.swift:38-50.
+@androidx.compose.runtime.Composable
+private fun ThreeZoneBlockLayout(
+    blocks: List<ContentBlock>,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)?,
+    currentStepIndex: Int,
+    totalSteps: Int,
+    modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+) {
+    val anyZoned = blocks.any { !it.zone.isNullOrBlank() }
+    if (!anyZoned) {
+        ContentBlockRendererView(
+            blocks = blocks,
+            onAction = onAction,
+            toggleValues = toggleValues,
+            inputValues = inputValues,
+            loc = loc,
+            currentStepIndex = currentStepIndex,
+            totalSteps = totalSteps,
+        )
+        return
+    }
+    val top = blocks.filter { it.zone?.lowercase() == "top" }
+    val bottom = blocks.filter { it.zone?.lowercase() == "bottom" }
+    val center = blocks.filter {
+        val z = it.zone?.lowercase()
+        z == null || z.isBlank() || z == "center"
+    }
+    Column(modifier = modifier.fillMaxSize()) {
+        if (top.isNotEmpty()) {
+            ContentBlockRendererView(
+                blocks = top,
+                onAction = onAction,
+                toggleValues = toggleValues,
+                inputValues = inputValues,
+                loc = loc,
+                currentStepIndex = currentStepIndex,
+                totalSteps = totalSteps,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        if (center.isNotEmpty()) {
+            ContentBlockRendererView(
+                blocks = center,
+                onAction = onAction,
+                toggleValues = toggleValues,
+                inputValues = inputValues,
+                loc = loc,
+                currentStepIndex = currentStepIndex,
+                totalSteps = totalSteps,
+            )
+        }
+        Spacer(modifier = Modifier.weight(1f))
+        if (bottom.isNotEmpty()) {
+            ContentBlockRendererView(
+                blocks = bottom,
+                onAction = onAction,
+                toggleValues = toggleValues,
+                inputValues = inputValues,
+                loc = loc,
+                currentStepIndex = currentStepIndex,
+                totalSteps = totalSteps,
+            )
+        }
+    }
+}
+
 // SPEC-070-A finalization OB-7 — collect every image URL referenced by a
 // flow so [ImagePreloader.prefetch] can warm Coil's cache before the first
 // paint. Mirrors iOS `OnboardingRenderer.swift:866-916` `collectImageURLs`
@@ -1494,7 +1582,7 @@ private fun BlockBasedStepView(
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                         Spacer(Modifier.height(200.dp))
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -1513,7 +1601,7 @@ private fun BlockBasedStepView(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -1524,7 +1612,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     Spacer(Modifier.height(16.dp))
                     ai.appdna.sdk.core.NetworkImage(
                         url = effectiveConfig.image_url,
@@ -1546,7 +1634,7 @@ private fun BlockBasedStepView(
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                     Spacer(Modifier.height(16.dp))
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
             else -> { // no_image
@@ -1556,7 +1644,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ContentBlockRendererView(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
         }

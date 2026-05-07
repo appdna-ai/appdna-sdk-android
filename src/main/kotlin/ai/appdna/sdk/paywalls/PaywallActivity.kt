@@ -350,18 +350,11 @@ fun PaywallScreen(
                 ?: emptyList<PaywallPlan>()
             return if (sectionPlans.isEmpty()) (config.plans ?: emptyList()) else sectionPlans
         }
-        // SPEC-070-A finalization PW-3 — `effectiveCtaText` helper.
-        // iOS reads `config.cta?.text ?? section.data?.ctaText ?? section.data?.text ?? "Continue"`
-        // (`PaywallRenderer.swift:146-148, 517-519`). Note also that Firestore
-        // emits flat `cta_text` on the section.data (not nested `cta.text`),
-        // so we read both shapes.
-        fun effectiveCtaText(section: PaywallSection?): String {
-            return config.cta?.text?.takeIf { it.isNotBlank() }
-                ?: section?.data?.cta?.text?.takeIf { it.isNotBlank() }
-                ?: section?.data?.cta_text?.takeIf { it.isNotBlank() }
-                ?: section?.data?.text?.takeIf { it.isNotBlank() }
-                ?: "Continue"
-        }
+        // SPEC-070-A finalization PW-3 — CTA text resolution chain is now
+        // inlined at the CTA section render site (PaywallActivity.kt:~1497)
+        // because that site lives inside PaywallSectionView, a separate
+        // @Composable scope from PaywallScreen. The helper that previously
+        // lived here was dead code — audit round 2 D1 cleanup.
 
         // Content in a Column with scrollable area + sticky footer
         Column(modifier = Modifier.fillMaxSize()) {
