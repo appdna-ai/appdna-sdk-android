@@ -593,34 +593,174 @@ fun PaywallScreen(
 
 @Composable
 private fun PaywallBackground(background: PaywallBackground?) {
+    // SPEC-070-A finalization PW-7 / PW-8 — full PaywallBackground matrix
+    // mirroring iOS' PaywallRenderer LegacyBackground/BackgroundStyle paths
+    // (PaywallRenderer.swift:386-449). Adds: gradient.stops+angle parsing,
+    // video background composable, image_fit honoring, overlay color, and
+    // a transparent/clear/none type that returns Color.Transparent.
     when (background?.type) {
         "gradient" -> {
-            val colors = background.colors?.map { parseHexColor(it) }
-            if (colors != null && colors.size >= 2) {
-                Box(modifier = Modifier.fillMaxSize().background(Brush.verticalGradient(colors)))
+            // Prefer canonical `gradient.stops + angle` (Firestore writes it
+            // this way per validator). Fall back to legacy `colors` array.
+            val stops = background.gradient?.stops
+            val angle = background.gradient?.angle ?: 180.0 // default top→bottom
+            val brush: Brush? = when {
+                stops != null && stops.size >= 2 -> {
+                    val colorStopList = stops.mapNotNull { stop ->
+                        val c = stop.color ?: return@mapNotNull null
+                        val pos = stop.position?.toFloat() ?: 0f
+                        pos to parseHexColor(c)
+                    }.toTypedArray()
+                    if (colorStopList.size >= 2) {
+                        // Compute unit-points from angle. iOS:
+                        // start.x = 0.5 - sin(rads)/2, etc.
+                        val rads = angle * Math.PI / 180.0
+                        val sx = (0.5 - kotlin.math.sin(rads) / 2).toFloat()
+                        val sy = (0.5 + kotlin.math.cos(rads) / 2).toFloat()
+                        val ex = (0.5 + kotlin.math.sin(rads) / 2).toFloat()
+                        val ey = (0.5 - kotlin.math.cos(rads) / 2).toFloat()
+                        Brush.linearGradient(
+                            colorStops = colorStopList,
+                            start = androidx.compose.ui.geometry.Offset(sx, sy),
+                            end = androidx.compose.ui.geometry.Offset(ex, ey),
+                        )
+                    } else null
+                }
+                background.colors != null && background.colors.size >= 2 -> {
+                    val cs = background.colors.map { parseHexColor(it) }
+                    Brush.verticalGradient(cs)
+                }
+                else -> null
+            }
+            if (brush != null) {
+                Box(modifier = Modifier.fillMaxSize().background(brush))
             } else {
                 Box(modifier = Modifier.fillMaxSize().background(Color.Black))
             }
         }
         "image" -> {
             Box(modifier = Modifier.fillMaxSize()) {
-                background.value?.let { url ->
+                // Prefer canonical `image_url`, fall back to legacy `value`.
+                val imageUrl = background.image_url ?: background.value
+                if (imageUrl != null) {
+                    val scale = when (background.image_fit) {
+                        "contain" -> androidx.compose.ui.layout.ContentScale.Fit
+                        "fill" -> androidx.compose.ui.layout.ContentScale.FillBounds
+                        else -> androidx.compose.ui.layout.ContentScale.Crop // "cover" default
+                    }
                     ai.appdna.sdk.core.NetworkImage(
-                        url = url,
+                        url = imageUrl,
                         modifier = Modifier.fillMaxSize(),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        contentScale = scale,
                     )
-                } ?: Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                    // Optional overlay color tint (iOS PaywallRenderer:593).
+                    background.overlay?.let { overlayHex ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(parseHexColor(overlayHex)),
+                        )
+                    }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                }
+            }
+        }
+        "video" -> {
+            // PW-8 — Media3/ExoPlayer-backed video background. Mirrors iOS'
+            // `VideoBackgroundView` (PaywallRenderer.swift:416). Auto-mutes
+            // unless `video_muted == false`, loops by default.
+            VideoBackgroundView(
+                url = background.video_url ?: background.value,
+                posterUrl = background.video_poster_url,
+                muted = background.video_muted ?: true,
+                loop = background.video_loop ?: true,
+                modifier = Modifier.fillMaxSize(),
+            )
+            background.overlay?.let { overlayHex ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(parseHexColor(overlayHex)),
+                )
             }
         }
         "color" -> {
+            // PW-6 fix already in parser: `value` now folds in `bg.color`.
             val color = background.value?.let { parseHexColor(it) } ?: Color.Black
             Box(modifier = Modifier.fillMaxSize().background(color))
+        }
+        "transparent", "clear", "none" -> {
+            // Explicit transparent type — composable but renders nothing so
+            // the host app's underlying screen shows through.
+            Box(modifier = Modifier.fillMaxSize())
         }
         else -> {
             Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background))
         }
     }
+}
+
+/**
+ * SPEC-070-A finalization PW-8 — video background composable backed by
+ * Media3/ExoPlayer. Mirrors iOS' `VideoBackgroundView` (AVPlayer-backed):
+ * auto-plays muted, loops, hides controls.
+ *
+ * Lifecycle:
+ *  - DisposableEffect tears the player down on composition exit so the SDK
+ *    doesn't hold an audio focus token across paywall dismissals.
+ *  - Renders a poster image as a placeholder until the player is ready.
+ */
+@Composable
+private fun VideoBackgroundView(
+    url: String?,
+    posterUrl: String?,
+    muted: Boolean,
+    loop: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (url.isNullOrBlank()) {
+        // Bare poster fallback — useful if video URL fails to resolve.
+        Box(modifier = modifier) {
+            posterUrl?.let { p ->
+                ai.appdna.sdk.core.NetworkImage(
+                    url = p,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+            }
+        }
+        return
+    }
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val exoPlayer = remember(url) {
+        androidx.media3.exoplayer.ExoPlayer.Builder(context).build().apply {
+            setMediaItem(androidx.media3.common.MediaItem.fromUri(url))
+            volume = if (muted) 0f else 1f
+            repeatMode = if (loop) {
+                androidx.media3.common.Player.REPEAT_MODE_ONE
+            } else {
+                androidx.media3.common.Player.REPEAT_MODE_OFF
+            }
+            playWhenReady = true
+            prepare()
+        }
+    }
+    androidx.compose.runtime.DisposableEffect(exoPlayer) {
+        onDispose {
+            exoPlayer.release()
+        }
+    }
+    androidx.compose.ui.viewinterop.AndroidView(
+        modifier = modifier,
+        factory = { ctx ->
+            androidx.media3.ui.PlayerView(ctx).apply {
+                useController = false
+                player = exoPlayer
+                resizeMode = androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+            }
+        },
+    )
 }
 
 @OptIn(ExperimentalFoundationApi::class)
