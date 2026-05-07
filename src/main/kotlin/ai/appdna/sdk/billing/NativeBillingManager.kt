@@ -810,7 +810,12 @@ class NativeBillingManager internal constructor(
             val props = mutableMapOf<String, Any>(
                 "product_id" to productId,
                 "paywall_id" to (currentPaywallId ?: ""),
-                "is_trial" to entitlement.isTrial.toString(),
+                // SPEC-070-A finalization parity audit R6 — emit Bool not
+                // stringified Bool. iOS NativeBillingManager.swift:160 emits
+                // raw Bool; Android was sending "true"/"false" string. ETL
+                // dashboards filtering WHERE is_trial = true silently
+                // dropped Android rows.
+                "is_trial" to entitlement.isTrial,
             )
             if (priceInfo != null) {
                 props["price"] = priceInfo.priceMicros / 1_000_000.0

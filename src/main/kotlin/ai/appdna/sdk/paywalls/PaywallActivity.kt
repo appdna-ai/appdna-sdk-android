@@ -309,6 +309,17 @@ internal data class PostPurchaseOverlayState(
     val message: String? = null,
     val confetti: Boolean = false,
     val lottieUrl: String? = null,
+    /**
+     * SPEC-070-A finalization parity audit R6 — failure overlay
+     * retry CTA. Mirrors iOS PaywallManager.swift:309-313 which posts
+     * `paywallPurchaseFailure` notification with `retry_text` /
+     * `action`. PaywallRenderer.swift:351-353 renders a labelled retry
+     * button when `action == "retry"`. Android failure overlay
+     * previously dropped both fields — this surface re-introduces them.
+     */
+    val retryText: String? = null,
+    val action: String? = null,
+    val allowDismiss: Boolean = true,
 )
 
 @Composable
@@ -676,26 +687,63 @@ fun PaywallScreen(
                     }
                 }
             } else if (!overlay.message.isNullOrEmpty()) {
-                // Message-only success overlay (no lottie configured) — surface
-                // a centered toast-style message atop the paywall.
+                // Message-only overlay (no lottie configured) — surface
+                // a centered card atop the paywall. SPEC-070-A finalization
+                // parity audit R6 — when overlay.action == "retry", render
+                // a retry CTA labelled with overlay.retryText (mirrors iOS
+                // PaywallRenderer.swift:351-353). When action is null
+                // (success path) or "show_error", show message-only.
+                val isFailure = overlay.action == "retry" || overlay.action == "show_error"
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.3f)),
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .let { mod ->
+                            if (overlay.allowDismiss) {
+                                mod.clickable { postPurchaseOverlay = null }
+                            } else mod
+                        },
                     contentAlignment = Alignment.Center,
                 ) {
                     Card(
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF2E9E51)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isFailure) Color(0xFFD64545) else Color(0xFF2E9E51),
+                        ),
                     ) {
-                        Text(
-                            text = overlay.message,
-                            color = Color.White,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center,
+                        Column(
                             modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp),
-                        )
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(
+                                text = overlay.message,
+                                color = Color.White,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                textAlign = TextAlign.Center,
+                            )
+                            // Retry CTA — only when iOS-side action == "retry".
+                            if (overlay.action == "retry") {
+                                Spacer(Modifier.height(12.dp))
+                                Button(
+                                    onClick = {
+                                        // Re-fire purchase for currently-selected plan.
+                                        val plan = (config.plans ?: emptyList()).firstOrNull { it.id == selectedPlanId }
+                                        postPurchaseOverlay = null
+                                        plan?.let { onPlanSelected(it, emptyMap()) }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = Color.White,
+                                        contentColor = Color(0xFFD64545),
+                                    ),
+                                ) {
+                                    Text(
+                                        text = overlay.retryText ?: "Try Again",
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
             }

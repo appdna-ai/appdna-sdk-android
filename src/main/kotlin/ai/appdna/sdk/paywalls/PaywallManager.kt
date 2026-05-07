@@ -337,10 +337,16 @@ internal class PaywallManager(
                     message = config.message ?: "Payment failed. Please try again.",
                     confetti = false,
                     lottieUrl = null,
+                    // SPEC-070-A finalization parity audit R6 — propagate
+                    // retry_text and action so the failure overlay can render
+                    // a labelled retry CTA. Mirrors iOS PaywallManager.swift:
+                    // 309-313 + PaywallRenderer.swift:351-353. Without this,
+                    // console-configured retry button text + retry-vs-dismiss
+                    // action were silently dropped.
+                    retryText = config.retry_text,
+                    action = config.action,
+                    allowDismiss = config.allow_dismiss ?: true,
                 )
-                // Retry-vs-show_error UX divergence handled host-side via the
-                // existing onPaywallPurchaseFailed delegate; the overlay only
-                // surfaces the message text.
             }
             else -> { /* unknown action — no-op */ }
         }
