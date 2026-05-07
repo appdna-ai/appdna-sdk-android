@@ -1535,13 +1535,15 @@ private fun PaywallSectionView(
                             val isSelected = selectedPlanId == plan.id
                             Button(
                                 onClick = {
+                                    // SPEC-070-A finalization B5 P2 — iOS
+                                    // PaywallRenderer.swift:1993 fires the
+                                    // CTA immediately on plan tap for the
+                                    // product_as_cta layout. Match it: select
+                                    // the plan THEN trigger purchase in the
+                                    // same gesture so users don't have to
+                                    // tap twice.
                                     onPlanSelect(plan.id)
-                                    // iOS variant immediately fires CTA
-                                    // on selection. Android keeps the
-                                    // existing "select first, then CTA
-                                    // tap" flow — single-tap purchase
-                                    // requires extra wiring through
-                                    // onPlanSelected callback.
+                                    onCTATap()
                                 },
                                 modifier = Modifier
                                     .fillMaxWidth()
