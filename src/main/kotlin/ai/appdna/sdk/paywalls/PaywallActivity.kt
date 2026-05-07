@@ -80,6 +80,12 @@ class PaywallActivity : ComponentActivity() {
     // flow stuck in mid-state on next resume.
     private var snapshotOnDismiss: ((DismissReason) -> Unit)? = null
     private var dispatchedDismiss: Boolean = false
+    // SPEC-070-A finalization P0 audit-3 P1 fix — instance-stored
+    // launch token so cleanup/onBackPressed/onDestroy can pull THIS
+    // Activity's slots from the per-launch registry, not whatever was
+    // last written to the static companion-object slots.
+    private var launchToken: String? = null
+    private var instanceConfig: PaywallConfig? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,18 +98,24 @@ class PaywallActivity : ComponentActivity() {
             finish()
             return
         }
-
-        val config = pendingConfig ?: run {
+        // SPEC-070-A finalization P0 audit-3 — read THIS Activity's
+        // launch slot via the per-call UUID extra. Concurrent launches
+        // each get their own slot; no clobber.
+        val token = intent.getStringExtra(EXTRA_LAUNCH_TOKEN)
+        val slots = token?.let { activeLaunches.remove(it) } ?: run {
             finish()
             return
         }
+        launchToken = token
+        val config = slots.config
+        instanceConfig = config
 
-        val onAppear = pendingOnAppear
-        val onDismiss = pendingOnDismiss
-        val onPlanSelected = pendingOnPlanSelected
-        val onPromoCodeSubmit = pendingOnPromoCodeSubmit
+        val onAppear = slots.onAppear
+        val onDismiss = slots.onDismiss
+        val onPlanSelected = slots.onPlanSelected
+        val onPromoCodeSubmit = slots.onPromoCodeSubmit
         // SPEC-070-A C.3 — restore lifecycle hook (delegate-fired by PaywallManager)
-        val onRestoreCb = pendingOnRestore
+        val onRestoreCb = slots.onRestore
 
         // SPEC-070-A finalization OB-5 audit-2 HIGH-3 — capture onDismiss
         // on the instance so onDestroy can fire it when the regular paths
@@ -142,12 +154,10 @@ class PaywallActivity : ComponentActivity() {
     }
 
     private fun cleanup() {
-        pendingConfig = null
-        pendingOnAppear = null
-        pendingOnDismiss = null
-        pendingOnPlanSelected = null
-        pendingOnPromoCodeSubmit = null
-        pendingOnRestore = null
+        // SPEC-070-A finalization P0 audit-3 — slot was already removed
+        // from activeLaunches in onCreate; no companion-object cleanup
+        // required. instanceConfig is dropped by Activity destruction.
+        instanceConfig = null
         finish()
     }
 
@@ -156,14 +166,16 @@ class PaywallActivity : ComponentActivity() {
         // intercept the system back so the user can't dismiss without selecting
         // a plan or restoring. Mirrors iOS `Paywalls/PaywallRenderer.swift` which
         // wraps the paywall in `.interactiveDismissDisabled(!allowed)`.
-        val allowed = pendingConfig?.dismiss?.allowed ?: true
+        // SPEC-070-A finalization P0 audit-3 — read THIS Activity's
+        // dismiss policy from instanceConfig, NOT a global slot.
+        val allowed = instanceConfig?.dismiss?.allowed ?: true
         if (!allowed) {
             return
         }
         dispatchedDismiss = true
         @Suppress("DEPRECATION")
         super.onBackPressed()
-        pendingOnDismiss?.invoke(DismissReason.DISMISSED)
+        snapshotOnDismiss?.invoke(DismissReason.DISMISSED)
         cleanup()
     }
 
@@ -184,15 +196,41 @@ class PaywallActivity : ComponentActivity() {
 
     companion object {
         private const val EXTRA_PAYWALL_ID = "paywall_id"
-        private var pendingConfig: PaywallConfig? = null
-        private var pendingOnAppear: (() -> Unit)? = null
-        private var pendingOnDismiss: ((DismissReason) -> Unit)? = null
-        private var pendingOnPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null
-        // AC-037: Promo code delegate callback
-        private var pendingOnPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null
-        // SPEC-070-A C.3 — restore lifecycle callback (PaywallManager fires
-        // the AppDNAPaywallDelegate restore methods from this hook).
-        private var pendingOnRestore: (() -> Unit)? = null
+        private const val EXTRA_LAUNCH_TOKEN = "paywall_launch_token"
+
+        // SPEC-070-A finalization P0 audit-3 P1 fix — per-launch slot
+        // registry. Replaces the old single-set companion-object vars
+        // (pendingConfig / pendingOnDismiss / etc.) which were CLOBBERED
+        // when two `PaywallManager.present()` calls happened in quick
+        // succession (e.g. journey trigger + host-initiated). Two rapid
+        // launches both wrote to the same slots; the FIRST Activity's
+        // onCreate then read SECOND launch's payload, rendering the wrong
+        // paywall and firing the wrong host listeners. iOS UIKit's
+        // `present(_:animated:)` no-ops a duplicate present on the same
+        // parent VC; Android's `startActivity` stacks → exposed this race.
+        //
+        // Now: each `launch()` mints a UUID, stores its payload in this
+        // map under the UUID, passes the UUID via Intent.putExtra. Each
+        // Activity reads its OWN payload in onCreate via the UUID extra
+        // and removes its slot. Concurrent launches each have their own
+        // payload — no clobber. Mirrors how iOS captures delegate refs
+        // in per-call SwiftUI sheet closures.
+        internal data class LaunchSlots(
+            val config: PaywallConfig,
+            val onAppear: (() -> Unit)? = null,
+            val onDismiss: ((DismissReason) -> Unit)? = null,
+            val onPlanSelected: ((PaywallPlan, Map<String, Any>) -> Unit)? = null,
+            val onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
+            val onRestore: (() -> Unit)? = null,
+        )
+        private val activeLaunches = java.util.concurrent.ConcurrentHashMap<String, LaunchSlots>()
+
+        // Read-only accessor for `onBackPressed` to consult the active
+        // paywall's `dismiss.allowed` field. Returns null if the Activity
+        // already consumed and removed its slot, in which case the back
+        // press should fall through to system default (allowed).
+        internal fun slotsForToken(token: String?): LaunchSlots? =
+            token?.let { activeLaunches[it] }
 
         fun launch(
             context: Context,
@@ -205,14 +243,18 @@ class PaywallActivity : ComponentActivity() {
             onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
             onRestore: (() -> Unit)? = null,
         ) {
-            pendingConfig = config
-            pendingOnAppear = onAppear
-            pendingOnDismiss = onDismiss
-            pendingOnPlanSelected = onPlanSelected
-            pendingOnPromoCodeSubmit = onPromoCodeSubmit
-            pendingOnRestore = onRestore
+            val token = java.util.UUID.randomUUID().toString()
+            activeLaunches[token] = LaunchSlots(
+                config = config,
+                onAppear = onAppear,
+                onDismiss = onDismiss,
+                onPlanSelected = onPlanSelected,
+                onPromoCodeSubmit = onPromoCodeSubmit,
+                onRestore = onRestore,
+            )
             val intent = Intent(context, PaywallActivity::class.java).apply {
                 putExtra(EXTRA_PAYWALL_ID, paywallId)
+                putExtra(EXTRA_LAUNCH_TOKEN, token)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             context.startActivity(intent)
