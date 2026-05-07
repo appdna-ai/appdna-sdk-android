@@ -22,6 +22,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -343,7 +344,15 @@ fun PaywallScreen(
             val scrollableSections = config.sections.filter {
                 it.type != "sticky_footer"
             }
+            // SPEC-070-A finalization PW-11 — collapse_on_scroll wiring.
+            // Mirrors iOS PaywallScrollOffsetPrefKey-driven collapse: as user
+            // scrolls, sections marked collapse_on_scroll==true fade their
+            // alpha + slightly translate up. We hoist a LazyListState here
+            // and let each section item read the current scroll offset to
+            // derive its alpha when the flag is set.
+            val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
             LazyColumn(
+                state = lazyListState,
                 modifier = Modifier
                     .weight(1f)
                     .padding((config.layout.padding ?: 20f).dp),
@@ -352,11 +361,37 @@ fun PaywallScreen(
                     items = scrollableSections,
                     key = { idx, section -> "${section.type}_${section.id ?: idx}" },
                 ) { index, section ->
+                    // PW-11 — compute collapse alpha for this specific item.
+                    // When the section is at index N and the user has scrolled
+                    // past it (firstVisibleItemIndex > N) OR it's still the
+                    // first visible but partially scrolled (offset > 0), we
+                    // fade it. Range: alpha 0.3..1.0.
+                    val collapseAlpha by androidx.compose.runtime.remember {
+                        androidx.compose.runtime.derivedStateOf {
+                            if (section.collapse_on_scroll != true) {
+                                1f
+                            } else {
+                                val first = lazyListState.firstVisibleItemIndex
+                                val offset = lazyListState.firstVisibleItemScrollOffset
+                                when {
+                                    first > index -> 0.3f
+                                    first == index -> {
+                                        // 0 offset = full opacity; 240px+ scrolled = min alpha.
+                                        val ratio = (offset.toFloat() / 240f).coerceIn(0f, 1f)
+                                        1f - ratio * 0.7f
+                                    }
+                                    else -> 1f
+                                }
+                            }
+                        }
+                    }
                     Box(
-                        modifier = Modifier.sectionStagger(
-                            config.animation?.section_stagger,
-                            delayMs = staggerDelay * index,
-                        )
+                        modifier = Modifier
+                            .alpha(collapseAlpha)
+                            .sectionStagger(
+                                config.animation?.section_stagger,
+                                delayMs = staggerDelay * index,
+                            )
                     ) {
                         PaywallSectionView(
                             section = section,
@@ -1311,35 +1346,104 @@ private fun PaywallSectionView(
             }
         }
         "cta" -> {
+            // SPEC-070-A finalization PW-10 — full CTA section with optional
+            // restore button placed above OR below the main CTA, plus CTA
+            // gradient + cta_height + cta_font_size honored from authored
+            // values. Mirrors iOS PaywallRenderer CTA branch with the
+            // RestoreLinkView wrapping (PaywallRenderer.swift:146-205).
             val buttonBgColor = section.style?.elements?.get("button")?.background?.color?.let {
                 StyleEngine.parseColor(it)
             } ?: Color(0xFF6366F1)
+            // PW-10: prefer authored cta_font_size over the 17.sp baseline.
+            val ctaFontSize = (section.data?.cta_font_size ?: section.data?.cta?.font_size?.toFloat() ?: 17f).sp
+            val ctaHeight = (section.data?.cta_height ?: section.data?.cta?.height?.toFloat() ?: 56f).dp
             val buttonTextStyle = StyleEngine.applyTextStyle(
-                TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 17.sp),
-                section.style?.elements?.get("button")?.text_style
+                TextStyle(fontWeight = FontWeight.SemiBold, fontSize = ctaFontSize),
+                section.style?.elements?.get("button")?.text_style,
             )
-            Button(
-                onClick = onCTATap,
-                enabled = !isPurchasing,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .ctaAnimation(config.animation?.cta_animation)
-                    .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = buttonBgColor)
-            ) {
-                if (isPurchasing) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(20.dp),
-                        color = Color.White,
-                        strokeWidth = 2.dp
-                    )
-                } else {
-                    Text(
-                        text = loc("cta.text", section.data?.cta?.text ?: "Continue"),
-                        style = buttonTextStyle,
-                    )
+            // PW-10 / iOS PaywallRenderer.swift:1052+ — CTA gradient brush
+            // built from gradient.stops + angle. Falls back to solid color
+            // when no gradient is authored.
+            val ctaGradient = section.data?.cta_gradient
+            val ctaBrush: Brush? = ctaGradient?.takeIf { (it.stops?.size ?: 0) >= 2 }?.let { g ->
+                val stops = g.stops!!.mapNotNull { s ->
+                    val c = s.color ?: return@mapNotNull null
+                    val pos = s.position?.toFloat() ?: 0f
+                    pos to parseHexColor(c)
+                }.toTypedArray()
+                if (stops.size < 2) return@let null
+                val rads = (g.angle ?: 90.0) * Math.PI / 180.0
+                val sx = (0.5 - kotlin.math.sin(rads) / 2).toFloat()
+                val sy = (0.5 + kotlin.math.cos(rads) / 2).toFloat()
+                val ex = (0.5 + kotlin.math.sin(rads) / 2).toFloat()
+                val ey = (0.5 - kotlin.math.cos(rads) / 2).toFloat()
+                Brush.linearGradient(
+                    colorStops = stops,
+                    start = androidx.compose.ui.geometry.Offset(sx, sy),
+                    end = androidx.compose.ui.geometry.Offset(ex, ey),
+                )
+            }
+
+            // PW-10 — restore link rendering helper.
+            val showRestoreLink = section.data?.show_restore == true
+            val restorePosition = section.data?.restore_position ?: "below"
+            val restoreText = section.data?.restore_text ?: "Restore Purchases"
+            val restoreColor = section.data?.restore_text_color?.let { parseHexColor(it) }
+                ?: Color.White.copy(alpha = 0.6f)
+            val restoreFontSize = (section.data?.restore_font_size ?: 13f).sp
+
+            @Composable
+            fun RestoreLink() {
+                val ctx = androidx.compose.ui.platform.LocalContext.current
+                Text(
+                    text = loc("cta.restore_text", restoreText),
+                    color = restoreColor,
+                    fontSize = restoreFontSize,
+                    modifier = Modifier
+                        .clickable { onRestore() }
+                        .padding(vertical = 8.dp)
+                        .semantics {
+                            contentDescription = ctx.getString(R.string.appdna_a11y_paywall_restore)
+                        },
+                )
+            }
+
+            Column(modifier = Modifier.fillMaxWidth()) {
+                if (showRestoreLink && restorePosition == "above") {
+                    RestoreLink()
+                    Spacer(Modifier.height(8.dp))
+                }
+                // CTA Button — paints gradient if present, else solid color.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(ctaHeight)
+                        .ctaAnimation(config.animation?.cta_animation)
+                        .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
+                        .clip(RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 14f).dp))
+                        .then(
+                            if (ctaBrush != null) Modifier.background(ctaBrush)
+                            else Modifier.background(buttonBgColor)
+                        )
+                        .clickable(enabled = !isPurchasing) { onCTATap() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (isPurchasing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(20.dp),
+                            color = Color.White,
+                            strokeWidth = 2.dp,
+                        )
+                    } else {
+                        Text(
+                            text = loc("cta.text", section.data?.cta?.text ?: "Continue"),
+                            style = buttonTextStyle.copy(color = Color.White),
+                        )
+                    }
+                }
+                if (showRestoreLink && restorePosition != "above") {
+                    Spacer(Modifier.height(8.dp))
+                    RestoreLink()
                 }
             }
         }

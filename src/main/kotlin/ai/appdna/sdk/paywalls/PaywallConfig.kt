@@ -282,6 +282,24 @@ data class PaywallSectionData(
     val badge_border_color: String? = null,
     val badge_border_width: Float? = null,
     val badge_icon: String? = null,
+
+    // SPEC-070-A finalization PW-10 — restore button placement on CTA section.
+    // iOS lets the console author place a "Restore Purchases" link above OR
+    // below the main CTA, with custom text/color/font. Without this, Android
+    // hardcoded the restore button inside the `plans` section
+    // (PaywallActivity.kt:1296-1310) and the cta section had no restore at
+    // all. iOS source: PaywallConfig.swift:107-108.
+    val restore_text: String? = null,
+    val show_restore: Boolean? = null,
+    val restore_position: String? = null, // "above" | "below"
+    val restore_text_color: String? = null,
+    val restore_font_size: Float? = null,
+
+    // SPEC-070-A finalization — CTA gradient (iOS `ctaGradient: PaywallGradient?`).
+    // Console-authored CTA gradients silently rendered as solid before this.
+    val cta_gradient: PaywallGradient? = null,
+    val cta_height: Float? = null,
+    val cta_font_size: Float? = null,
 )
 
 // SPEC-089d: Sub-types for new paywall sections
@@ -1047,6 +1065,30 @@ internal object PaywallConfigParser {
                 badge_border_color = d["badge_border_color"] as? String,
                 badge_border_width = (d["badge_border_width"] as? Number)?.toFloat(),
                 badge_icon = d["badge_icon"] as? String,
+                // PW-10 — restore button placement on CTA section.
+                restore_text = d["restore_text"] as? String,
+                show_restore = d["show_restore"] as? Boolean,
+                restore_position = d["restore_position"] as? String,
+                restore_text_color = d["restore_text_color"] as? String,
+                restore_font_size = (d["restore_font_size"] as? Number)?.toFloat(),
+                // CTA gradient + height/font_size (iOS PaywallConfig.swift extras).
+                cta_gradient = (d["cta_gradient"] as? Map<String, Any>)?.let { g ->
+                    @Suppress("UNCHECKED_CAST")
+                    val stopsList = (g["stops"] as? List<*>)?.mapNotNull { s ->
+                        val sm = (s as? Map<String, Any>) ?: return@mapNotNull null
+                        PaywallGradientStop(
+                            color = sm["color"] as? String,
+                            position = (sm["position"] as? Number)?.toDouble(),
+                        )
+                    }
+                    PaywallGradient(
+                        type = g["type"] as? String,
+                        angle = (g["angle"] as? Number)?.toDouble(),
+                        stops = stopsList,
+                    )
+                },
+                cta_height = (d["cta_height"] as? Number)?.toFloat(),
+                cta_font_size = (d["cta_font_size"] as? Number)?.toFloat(),
             )
         }
 
