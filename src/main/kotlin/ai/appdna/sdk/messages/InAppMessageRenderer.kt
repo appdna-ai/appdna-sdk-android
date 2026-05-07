@@ -628,11 +628,13 @@ private fun FullscreenMessageView(
         IconButton(
             onClick = onDismiss,
             // SPEC-070-A J.11 \u2014 fullscreen close X (Text glyph).
+            // SPEC-070-A finalization R6 P1 (Lens B) \u2014 no background fill,
+            // matches iOS FullscreenView.swift:129-135 which renders just the
+            // xmark glyph inside a clipShape(Circle()) with no .background.
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(16.dp)
                 .size(36.dp)
-                .background(Color.LightGray.copy(alpha = 0.5f), CircleShape)
                 .semantics { contentDescription = fullscreenCloseCd },
         ) {
             Text("\u2715", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
