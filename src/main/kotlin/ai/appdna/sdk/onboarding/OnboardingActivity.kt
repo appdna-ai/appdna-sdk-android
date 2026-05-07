@@ -972,9 +972,15 @@ internal fun OnboardingFlowHost(
                         if (data != null) {
                             responses[step.id] = data
                         }
-                        // SPEC-087: Persist responses incrementally so TemplateEngine has fresh data for next step
-                        @Suppress("UNCHECKED_CAST")
-                        ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses.toMap() as Map<String, Map<String, Any>>)
+                        // SPEC-087: Persist responses incrementally so TemplateEngine has fresh data for next step.
+                        // SPEC-070-A finalization spec audit-4 — was unsafe
+                        // `as Map<String, Map<String, Any>>` cast that
+                        // throws ClassCastException whenever a step writes
+                        // a primitive top-level value (very common). Drop
+                        // the cast — `setOnboardingResponses` already takes
+                        // `Map<String, Any>` (SessionDataStore.kt:70) so
+                        // pass-through is type-safe.
+                        ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses.toMap())
                         onStepCompleted(step.id, currentIndex, data)
 
                         // SPEC-083: Determine hook type — client delegate takes priority
