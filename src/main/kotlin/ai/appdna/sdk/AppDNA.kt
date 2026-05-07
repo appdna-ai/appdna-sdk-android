@@ -113,6 +113,34 @@ object AppDNA {
     @JvmStatic val push = PushModule()
     /** Billing module. */
     @JvmStatic val billing = BillingModule()
+
+    // SPEC-070-A finalization B6#P0-25 — top-level delegate properties.
+    // Mirrors iOS `AppDNA.pushDelegate`, `AppDNA.billingDelegate`,
+    // `AppDNA.screenDelegate` so hosts copying iOS samples
+    // (`AppDNA.screenDelegate = self`) compile on Android. Each property
+    // proxies to the corresponding `module.setDelegate(...)`. Reads return
+    // the most recently set value.
+
+    private var _pushDelegate: AppDNAPushDelegate? = null
+    /** SPEC-070-A finalization B6#P0-25 — top-level proxy for `push.setDelegate(...)`. */
+    @JvmStatic
+    var pushDelegate: AppDNAPushDelegate?
+        get() = _pushDelegate
+        set(value) { _pushDelegate = value; push.setDelegate(value) }
+
+    private var _billingDelegate: AppDNABillingDelegate? = null
+    /** SPEC-070-A finalization B6#P0-25 — top-level proxy for `billing.setDelegate(...)`. */
+    @JvmStatic
+    var billingDelegate: AppDNABillingDelegate?
+        get() = _billingDelegate
+        set(value) { _billingDelegate = value; billing.setDelegate(value) }
+
+    private var _screenDelegate: ai.appdna.sdk.screens.AppDNAScreenDelegate? = null
+    /** SPEC-070-A finalization B6#P0-25 — top-level proxy for `ScreenManager.shared.setDelegate(...)`. */
+    @JvmStatic
+    var screenDelegate: ai.appdna.sdk.screens.AppDNAScreenDelegate?
+        get() = _screenDelegate
+        set(value) { _screenDelegate = value; ai.appdna.sdk.screens.ScreenManager.shared.setDelegate(value) }
     /** Onboarding module. */
     @JvmStatic val onboarding = ai.appdna.sdk.OnboardingModule()
     /** Paywall module. */
@@ -719,6 +747,31 @@ object AppDNA {
             context = context,
             listener = listener
         ) ?: Log.warning("Cannot present paywall — SDK not configured")
+    }
+
+    /**
+     * SPEC-070-A finalization B6#P0-24 — facade overload for placement-based
+     * paywall presentation. Mirrors iOS `AppDNA.presentPaywall(placement:from:context:delegate:)`
+     * which selects the best paywall by audience rules + priority. The
+     * underlying selection algorithm lives in
+     * [ai.appdna.sdk.paywalls.PaywallManager.presentByPlacement] —
+     * this is a thin wrapper so hosts don't have to reach through
+     * `AppDNA.paywalls.manager?.presentByPlacement(...)`.
+     */
+    @JvmStatic
+    @JvmOverloads
+    fun presentPaywallByPlacement(
+        activity: Activity,
+        placement: String,
+        context: PaywallContext? = null,
+        listener: AppDNAPaywallDelegate? = null,
+    ) {
+        paywallManager?.presentByPlacement(
+            activity = activity,
+            placement = placement,
+            context = context,
+            listener = listener,
+        ) ?: Log.warning("Cannot present paywall by placement — SDK not configured")
     }
 
     // MARK: - Public API: Onboarding (v0.2)
