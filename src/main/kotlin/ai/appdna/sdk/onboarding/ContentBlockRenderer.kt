@@ -623,13 +623,58 @@ data class FormFieldBlockStyle(
     val toggle_off_color: String? = null,
 )
 
-/** Option for select, chips, segmented inputs. */
+/**
+ * Option for select, chips, segmented inputs.
+ *
+ * SPEC-070-A finalization P0 audit-11 Drift 2 — expanded from 3 fields
+ * to 24 to mirror iOS `InputOption` (ContentBlockTypes.swift:316-406).
+ * Console authors who set per-option styling (selected/unselected images,
+ * subtitles, per-option colors / fonts / icons / borders / backgrounds /
+ * cell alignment / image overlays) now see those values applied on
+ * Android instead of being silently dropped.
+ */
 @androidx.compose.runtime.Immutable
 data class InputOption(
     val value: String,
     val label: String,
     val image_url: String? = null,
-)
+    /** Stable id (falls back to `value` when null on iOS). */
+    val id: String? = null,
+    /** SF Symbol / emoji glyph rendered next to the label. */
+    val icon: String? = null,
+    /** Image swap on selection (falls back to `image_url`). */
+    val selected_image_url: String? = null,
+    val unselected_image_url: String? = null,
+    /** Per-option subtitle (smaller font under label). */
+    val subtitle: String? = null,
+    /** Per-option text styling — overrides field_config defaults. */
+    val title_color: String? = null,
+    val subtitle_color: String? = null,
+    val title_font_size: Double? = null,
+    val subtitle_font_size: Double? = null,
+    val title_font_weight: String? = null,
+    /** Grid toggle: icon to show when selected/unselected. */
+    val selected_icon: String? = null,
+    val unselected_icon: String? = null,
+    /** Image overlay: colored circle with opacity rendered over image. */
+    val image_overlay_color: String? = null,
+    val image_overlay_opacity: Double? = null,
+    /** Per-option border overrides. */
+    val border_color: String? = null,
+    val selected_border_color: String? = null,
+    /** Per-option backgrounds. */
+    val bg_color: String? = null,
+    val selected_bg_color: String? = null,
+    val selected_text_color: String? = null,
+    /** Per-option grid cell alignment ("leading" | "center" | "trailing"). */
+    val cell_alignment: String? = null,
+) {
+    /** Mirrors iOS `resolvedImageURL(isSelected:)` — selected/unselected variant first, default image_url last. */
+    fun resolvedImageURL(isSelected: Boolean): String? {
+        val variant = if (isSelected) selected_image_url else unselected_image_url
+        return variant?.takeIf { it.isNotBlank() } ?: image_url
+    }
+}
 
 /** Visibility condition (SPEC-089d §6.3). */
 @androidx.compose.runtime.Stable

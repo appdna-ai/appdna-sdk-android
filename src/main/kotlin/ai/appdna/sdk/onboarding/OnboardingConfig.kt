@@ -818,10 +818,34 @@ internal object OnboardingConfigParser {
                         if (fo is Map<*, *>) {
                             @Suppress("UNCHECKED_CAST")
                             val fm = fo as Map<String, Any>
+                            // SPEC-070-A finalization P0 audit-11 Drift 2 —
+                            // expanded to read all 24 iOS InputOption fields.
+                            // Console-authored per-option styling now reaches
+                            // the renderer instead of being dropped on parse.
                             InputOption(
                                 value = fm["id"] as? String ?: fm["value"] as? String ?: "",
                                 label = fm["label"] as? String ?: "",
                                 image_url = fm["image_url"] as? String,
+                                id = fm["id"] as? String,
+                                icon = fm["icon"] as? String,
+                                selected_image_url = fm["selected_image_url"] as? String,
+                                unselected_image_url = fm["unselected_image_url"] as? String,
+                                subtitle = fm["subtitle"] as? String,
+                                title_color = fm["title_color"] as? String,
+                                subtitle_color = fm["subtitle_color"] as? String,
+                                title_font_size = (fm["title_font_size"] as? Number)?.toDouble(),
+                                subtitle_font_size = (fm["subtitle_font_size"] as? Number)?.toDouble(),
+                                title_font_weight = fm["title_font_weight"] as? String,
+                                selected_icon = fm["selected_icon"] as? String,
+                                unselected_icon = fm["unselected_icon"] as? String,
+                                image_overlay_color = fm["image_overlay_color"] as? String,
+                                image_overlay_opacity = (fm["image_overlay_opacity"] as? Number)?.toDouble(),
+                                border_color = fm["border_color"] as? String,
+                                selected_border_color = fm["selected_border_color"] as? String,
+                                bg_color = fm["bg_color"] as? String,
+                                selected_bg_color = fm["selected_bg_color"] as? String,
+                                selected_text_color = fm["selected_text_color"] as? String,
+                                cell_alignment = fm["cell_alignment"] as? String,
                             )
                         } else null
                     }?.toImmutableList(),
