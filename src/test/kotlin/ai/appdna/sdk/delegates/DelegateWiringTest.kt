@@ -80,7 +80,7 @@ class DelegateWiringTest {
         var unavailableCount = 0
 
         override fun onPurchaseCompleted(productId: String, transaction: TransactionInfo) { purchaseCount++ }
-        override fun onPurchaseFailed(productId: String, error: Exception) { failedCount++ }
+        override fun onPurchaseFailed(productId: String, error: Throwable) { failedCount++ }
         override fun onEntitlementsChanged(entitlements: List<Entitlement>) { entitlementsCount++ }
         override fun onRestoreCompleted(restoredProducts: List<String>) { restoreCount++ }
         override fun onBillingUnavailable() { unavailableCount++ }

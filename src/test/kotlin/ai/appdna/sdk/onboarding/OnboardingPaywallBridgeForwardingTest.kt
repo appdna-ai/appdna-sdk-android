@@ -47,7 +47,7 @@ class OnboardingPaywallBridgeForwardingTest {
             override fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: ai.appdna.sdk.TransactionInfo) {
                 log += "purchaseCompleted:$paywallId:$productId"
             }
-            override fun onPaywallPurchaseFailed(paywallId: String, error: Exception) {
+            override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {
                 log += "purchaseFailed:$paywallId:${error.message}"
             }
             override fun onPaywallDismissed(paywallId: String) { log += "dismissed:$paywallId" }
@@ -131,7 +131,7 @@ internal class ForwardingPaywallBridge(private val host: AppDNAPaywallDelegate) 
         host.onPaywallPurchaseStarted(paywallId, productId)
     fun onPaywallPurchaseCompleted(paywallId: String, productId: String, transaction: ai.appdna.sdk.TransactionInfo) =
         host.onPaywallPurchaseCompleted(paywallId, productId, transaction)
-    fun onPaywallPurchaseFailed(paywallId: String, error: Exception) =
+    fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) =
         host.onPaywallPurchaseFailed(paywallId, error)
     fun onPaywallRestoreStarted(paywallId: String) = host.onPaywallRestoreStarted(paywallId)
     fun onPaywallRestoreCompleted(paywallId: String, productIds: List<String>) =
