@@ -798,10 +798,17 @@ private fun TooltipMessageView(
                 }
             }
 
-            // Pointer arrow (Gap #17)
+            // Pointer arrow (Gap #17). SPEC-070-A finalization R4 P2 (Lens B)
+            // — soft drop-shadow matches iOS TooltipView shadow(0.08 opacity).
             Box(
                 modifier = Modifier
                     .size(12.dp)
+                    .shadow(
+                        elevation = 2.dp,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),
+                        ambientColor = Color.Black.copy(alpha = 0.08f),
+                        spotColor = Color.Black.copy(alpha = 0.08f),
+                    )
                     .rotate(45f)
                     .offset(y = (-6).dp)
                     .background(bgColor),

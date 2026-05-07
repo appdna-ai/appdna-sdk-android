@@ -12,6 +12,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +25,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -301,13 +305,109 @@ private fun ScreenHostBody(
     }
     val spacing = (config.layout.spacing ?: 12.0).dp
 
+    // SPEC-070-A finalization R4 P1 (Lens B) — presentation-mode container.
+    // iOS ScreenPresenter routes via UIModalPresentationStyle:
+    //   "fullscreen" → fillMaxSize + edge-to-edge
+    //   "page_sheet" → top inset + rounded top + dim backdrop
+    //   "bottom_sheet" → 70% height aligned bottom + grabber bar + dim backdrop
+    // Android ScreenHostActivity uses Theme.Translucent for ALL modes, so the
+    // visual differentiation lives in the Compose body's positioning + chrome.
+    val presentation = config.presentation
+    val isBottomSheet = presentation == "bottom_sheet"
+    val isPageSheet = presentation == "page_sheet" || presentation == "modal"
+
+    val outerModifier = Modifier
+        .fillMaxSize()
+        .let { mod ->
+            // Dim backdrop for sheet presentations; fullscreen has no backdrop.
+            if (isBottomSheet || isPageSheet) {
+                mod.background(Color.Black.copy(alpha = 0.4f))
+                    .clickable(
+                        interactionSource = androidx.compose.runtime.remember {
+                            androidx.compose.foundation.interaction.MutableInteractionSource()
+                        },
+                        indication = null,
+                        onClick = { if (config.dismiss?.enabled != false) onDismiss() },
+                    )
+            } else mod
+        }
+
+    val bodyAlignment = when {
+        isBottomSheet -> Alignment.BottomCenter
+        isPageSheet -> Alignment.Center
+        else -> Alignment.TopStart
+    }
+
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(bgColor)
-            .then(safeAreaModifier),
+        modifier = outerModifier,
+        contentAlignment = bodyAlignment,
+    ) {
+        // Inner container holds the actual screen content. For sheets this is
+        // a sized child; for fullscreen it fills.
+        val innerSheetShape = androidx.compose.foundation.shape.RoundedCornerShape(
+            topStart = if (isBottomSheet || isPageSheet) 16.dp else 0.dp,
+            topEnd = if (isBottomSheet || isPageSheet) 16.dp else 0.dp,
+            bottomStart = if (isPageSheet) 16.dp else 0.dp,
+            bottomEnd = if (isPageSheet) 16.dp else 0.dp,
+        )
+        val innerModifier = when {
+            isBottomSheet -> Modifier
+                .fillMaxWidth()
+                .fillMaxHeight(0.7f)
+                .clip(innerSheetShape)
+                .background(bgColor)
+                .clickable(
+                    interactionSource = androidx.compose.runtime.remember {
+                        androidx.compose.foundation.interaction.MutableInteractionSource()
+                    },
+                    indication = null,
+                    onClick = {},
+                )
+                .then(safeAreaModifier)
+            isPageSheet -> Modifier
+                .fillMaxWidth(0.92f)
+                .fillMaxHeight(0.85f)
+                .clip(innerSheetShape)
+                .background(bgColor)
+                .clickable(
+                    interactionSource = androidx.compose.runtime.remember {
+                        androidx.compose.foundation.interaction.MutableInteractionSource()
+                    },
+                    indication = null,
+                    onClick = {},
+                )
+                .then(safeAreaModifier)
+            else -> Modifier
+                .fillMaxSize()
+                .background(bgColor)
+                .then(safeAreaModifier)
+        }
+    Box(
+        modifier = innerModifier,
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
+            // SPEC-070-A finalization R4 P1 (Lens B) — bottom-sheet grabber
+            // affordance. iOS pageSheet + bottom_sheet show a grabber pill at
+            // the top edge by default; Android needs to draw one explicitly
+            // since we host in a translucent Activity, not a BottomSheetDialog.
+            if (isBottomSheet) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 8.dp, bottom = 4.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp, 4.dp)
+                            .background(
+                                color = Color.Gray.copy(alpha = 0.4f),
+                                shape = androidx.compose.foundation.shape.RoundedCornerShape(2.dp),
+                            ),
+                    ) {}
+                }
+            }
+
             // Optional nav bar — title + close button.
             config.navBar?.let { nav ->
                 val navBg = nav.backgroundColor?.let { StyleEngine.parseColor(it) }
@@ -379,5 +479,6 @@ private fun ScreenHostBody(
                 )
             }
         }
+        } // close inner Box (sized presentation container)
     }
 }
