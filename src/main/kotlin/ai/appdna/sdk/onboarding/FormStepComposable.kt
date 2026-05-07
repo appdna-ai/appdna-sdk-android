@@ -26,14 +26,28 @@ import java.util.*
  * Form step composable: renders native input controls for each FormField (SPEC-082).
  */
 @Composable
-fun FormStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
+fun FormStep(
+    config: StepConfig,
+    onNext: (Map<String, Any>?) -> Unit,
+    /**
+     * SPEC-070-A finalization B4 P1 — previously-entered responses
+     * (one map keyed by field_id) used to restore form state on back nav.
+     * Mirrors iOS FormStepView.savedValues (FormStepView.swift:9,119-123).
+     */
+    savedValues: Map<String, Any>? = null,
+) {
     val fields = config.fields ?: emptyList()
     val values = remember { mutableStateMapOf<String, Any?>() }
     val errors = remember { mutableStateMapOf<String, String>() }
 
-    // Initialize defaults
+    // Initialize defaults + savedValues. Order: savedValues (back-nav
+    // restoration) wins over fieldDefaults wins over per-field default_value.
     LaunchedEffect(fields) {
-        // SPEC-083: Apply fieldDefaults from StepConfigOverride first
+        // SPEC-070-A finalization B4 P1 — restore from prior responses first.
+        savedValues?.forEach { (fieldId, value) ->
+            if (values[fieldId] == null) values[fieldId] = value
+        }
+        // SPEC-083: Apply fieldDefaults from StepConfigOverride next
         config.field_defaults?.forEach { (fieldId, value) ->
             if (values[fieldId] == null) {
                 values[fieldId] = value

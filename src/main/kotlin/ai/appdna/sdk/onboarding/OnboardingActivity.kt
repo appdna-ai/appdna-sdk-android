@@ -1078,6 +1078,16 @@ internal fun OnboardingFlowHost(
                     step = step,
                     effectiveConfig = effectiveConfig,
                     flowId = flow.id,
+                    // SPEC-070-A finalization B4 P1 — when revisiting a step
+                    // via back navigation, restore previously-entered field
+                    // values. Mirrors iOS OnboardingStepRouter savedResponses
+                    // (OnboardingRenderer.swift:1316,1448) which is threaded
+                    // into FormStepView/BlockBasedStepView so inputValues
+                    // pre-populate from `responses[step.id]`.
+                    savedResponses = (responses[step.id] as? Map<*, *>)?.let { raw ->
+                        @Suppress("UNCHECKED_CAST")
+                        raw as Map<String, Any>
+                    },
                     onNext = { data ->
                         if (data != null) {
                             responses[step.id] = data
@@ -1432,9 +1442,33 @@ fun OnboardingStepView(
     flowId: String = "",
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
+    /**
+     * SPEC-070-A finalization B4 P1 — previously-entered responses for
+     * THIS step, threaded down so back-nav restores text/selection/toggle
+     * state. Mirrors iOS OnboardingStepRouter.savedResponses
+     * (OnboardingRenderer.swift:1316,1448).
+     */
+    savedResponses: Map<String, Any>? = null,
 ) {
-    val toggleValues = remember { mutableMapOf<String, Boolean>() }
-    val inputValues = remember { mutableMapOf<String, Any>() }
+    // SPEC-070-A finalization B4 P1 — pre-populate from savedResponses on
+    // first composition. `step.id` keying the remember ensures a fresh
+    // clear when the user navigates forward to a different step.
+    val toggleValues = remember(step.id) {
+        mutableMapOf<String, Boolean>().apply {
+            savedResponses?.forEach { (k, v) ->
+                if (k.startsWith("toggle_") && v is Boolean) put(k.removePrefix("toggle_"), v)
+            }
+        }
+    }
+    val inputValues = remember(step.id) {
+        mutableMapOf<String, Any>().apply {
+            savedResponses?.forEach { (k, v) ->
+                if (!k.startsWith("toggle_") && k != "action" && k != "selected" && k != "selection_mode") {
+                    put(k, v)
+                }
+            }
+        }
+    }
 
     // SPEC-084: Block-based vs legacy rendering
     val blocks = effectiveConfig.content_blocks
@@ -1466,7 +1500,7 @@ fun OnboardingStepView(
                 OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
-                OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext)
+                OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
                 OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(step = step, flowId = flowId, onNext = { data -> onNext(data) }, onSkip = { onSkip() })
             }
 
