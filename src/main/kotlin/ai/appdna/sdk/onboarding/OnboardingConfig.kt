@@ -709,6 +709,13 @@ internal object OnboardingConfigParser {
                                 type = pm["type"] as? String ?: "",
                                 label = pm["label"] as? String,
                                 enabled = pm["enabled"] as? Boolean ?: true,
+                                // SPEC-070-A finalization OB-2 — per-provider color/style overrides.
+                                bg_color = pm["bg_color"] as? String,
+                                text_color = pm["text_color"] as? String,
+                                border_color = pm["border_color"] as? String,
+                                border_width = (pm["border_width"] as? Number)?.toFloat(),
+                                corner_radius = (pm["corner_radius"] as? Number)?.toFloat(),
+                                icon_style = pm["icon_style"] as? String,
                             )
                         } else null
                     }?.toImmutableList(),

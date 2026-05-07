@@ -528,6 +528,19 @@ data class SocialProvider(
     val type: String,
     val label: String? = null,
     val enabled: Boolean = true,
+    // SPEC-070-A finalization OB-2 — per-provider color/style overrides.
+    // iOS resolves these in the renderer with brand-default fallbacks
+    // (`ContentBlockRendererView.swift:724-771`). Without these fields,
+    // every social-login provider rendered with hardcoded brand colors
+    // and console-authored overrides were silently dropped (user
+    // reported as "colors on button text are not the same as on iOS
+    // and set in console").
+    val bg_color: String? = null,
+    val text_color: String? = null,
+    val border_color: String? = null,
+    val border_width: Float? = null,
+    val corner_radius: Float? = null,
+    val icon_style: String? = null, // "logo" | "monochrome" | "filled"
 )
 
 /** Countdown labels config (SPEC-089d §3.7). */
@@ -1501,7 +1514,13 @@ private fun SocialLoginBlock(
             }
             val displayLabel = loc?.invoke("block.${block.id}.provider.$index", label) ?: label
 
-            val (bgColor, textColor, borderColor) = when (provider.type) {
+            // SPEC-070-A finalization OB-2 — per-provider color overrides.
+            // Brand-default Triple comes first; provider.bg_color / text_color
+            // / border_color override piecewise when authored. Mirrors iOS
+            // ContentBlockRendererView.swift:724-771 which resolves
+            // `provider.bg_color ?? socialLoginBgColor(provider.type)` for
+            // each color independently.
+            val (defaultBg, defaultText, defaultBorder) = when (provider.type) {
                 "apple" -> Triple(Color(0xFF000000), Color.White, Color(0xFF000000))
                 "google" -> Triple(Color.White, Color(0xFF1F1F1F), Color(0xFFDADCE0))
                 "facebook" -> Triple(Color(0xFF1877F2), Color.White, Color(0xFF1877F2))
@@ -1513,6 +1532,12 @@ private fun SocialLoginBlock(
                 )
                 else -> Triple(Color(0xFF6366F1), Color.White, Color(0xFF6366F1))
             }
+            val bgColor = provider.bg_color?.let { StyleEngine.parseColor(it) } ?: defaultBg
+            val textColor = provider.text_color?.let { StyleEngine.parseColor(it) } ?: defaultText
+            val borderColor = provider.border_color?.let { StyleEngine.parseColor(it) } ?: defaultBorder
+            // OB-2 — per-provider corner_radius + border_width overrides.
+            val providerCorner = (provider.corner_radius ?: block.button_corner_radius?.toFloat() ?: 12f).dp
+            val providerBorderWidth = (provider.border_width ?: 1f).dp
 
             val providerIcon = when (provider.type) {
                 "apple" -> "\uF8FF"  // Apple logo placeholder
