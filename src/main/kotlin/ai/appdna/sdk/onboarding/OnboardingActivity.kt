@@ -1126,6 +1126,32 @@ fun OnboardingStepView(
  * `action_value` for everything else, leaving channel resolution to the
  * host.
  */
+// SPEC-070-A finalization OB-4 — actions iOS' AuthActionPolicy says
+// REQUIRE a host-registered onboarding delegate (`onBeforeStepAdvance`)
+// before they can advance. iOS source-of-truth:
+// `OnboardingRenderer.swift:1605-1618 AuthActionPolicy.delegateRequiredActions`.
+// Without a delegate, sensitive credentials (email/password/OTP) would
+// silently flow through `onNext` -> `responses` payload while no host
+// authentication side-effect actually runs. iOS logs a warning and
+// stays on the step so the user notices auth didn't happen.
+private val AUTH_ACTIONS_REQUIRING_DELEGATE = setOf(
+    "login",
+    "register",
+    "reset_password",
+    "magic_link",
+    "verify_email",
+    "resend_verification",
+    "enable_biometric",
+    "email_login",
+    "request_otp",
+    "verify_otp",
+    "logout",
+    "change_password",
+    "set_new_password",
+    "delete_account",
+    "update_profile",
+)
+
 private fun emitAuthAction(
     action: String,
     actionValue: String?,
@@ -1133,6 +1159,27 @@ private fun emitAuthAction(
     inputValues: Map<String, Any>,
     onNext: (Map<String, Any>?) -> Unit,
 ) {
+    // SPEC-070-A finalization OB-4 — auth-action delegate gate. If the
+    // host has not registered an AppDNAOnboardingDelegate (which is the
+    // contract surface for `onBeforeStepAdvance`), refuse to advance
+    // for actions in AUTH_ACTIONS_REQUIRING_DELEGATE. Mirrors iOS
+    // OnboardingRenderer.swift:1465-1474 (warn + return early). Logging
+    // via SDK Log so production builds (BuildConfig.DEBUG=false) don't
+    // suppress the message — auth flow misconfiguration is a developer
+    // contract issue worth surfacing in release builds too.
+    if (action in AUTH_ACTIONS_REQUIRING_DELEGATE) {
+        val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
+        if (!hasDelegate) {
+            ai.appdna.sdk.Log.warning(
+                "Auth action `$action` was triggered but no AppDNAOnboardingDelegate " +
+                "is registered. Register via AppDNA.onboarding.setDelegate(...) and " +
+                "implement onBeforeStepAdvance to handle authentication. Step will NOT " +
+                "advance to avoid silently leaking credentials into the responses payload."
+            )
+            return
+        }
+    }
+
     val data = mutableMapOf<String, Any>()
     // input values first so SDK-controlled keys overwrite collisions
     data.putAll(inputValues)
