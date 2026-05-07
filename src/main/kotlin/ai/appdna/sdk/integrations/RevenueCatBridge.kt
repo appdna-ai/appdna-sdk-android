@@ -74,8 +74,90 @@ internal class RevenueCatBridge {
             configureMethod.invoke(null, configuration)
             configured = true
             Log.info("RevenueCat bridge initialized")
+            // SPEC-070-A finalization parity audit R4 — install the
+            // UpdatedCustomerInfoListener so cross-device entitlement
+            // broadcasts (web purchase syndication, family sharing,
+            // foreground subscription restore) auto-fire
+            // `purchase_completed` events on Android. Mirrors iOS
+            // RevenueCatBridge.swift:93-103 PurchasesDelegate
+            // `purchases(_:receivedUpdated:)` callback.
+            installUpdatedCustomerInfoListener()
         } catch (e: Exception) {
             Log.error("RevenueCatBridge.configure failed: ${e.message}")
+        }
+    }
+
+    /**
+     * SPEC-070-A finalization parity audit R4 — install
+     * UpdatedCustomerInfoListener via reflection so entitlement-change
+     * broadcasts auto-fire `purchase_completed` analytics events.
+     *
+     * RevenueCat 7.x Android API:
+     *   `Purchases.sharedInstance.updatedCustomerInfoListener =
+     *      UpdatedCustomerInfoListener { customerInfo -> ... }`
+     *
+     * Reflection-based to keep `compileOnly` boundary intact. Failure
+     * to install logs warning + continues — host can still emit events
+     * via `forwardPurchaseSuccess`.
+     */
+    private fun installUpdatedCustomerInfoListener() {
+        try {
+            val purchasesCls = Class.forName("com.revenuecat.purchases.Purchases")
+            // sharedInstance is a static getter; field on Companion in 7.x
+            val sharedInstance = try {
+                purchasesCls.getMethod("getSharedInstance").invoke(null)
+            } catch (_: NoSuchMethodException) {
+                // Older API: companion object pattern.
+                val companion = purchasesCls.getField("Companion").get(null)
+                companion.javaClass.getMethod("getSharedInstance").invoke(companion)
+            } ?: return
+            val listenerCls = Class.forName("com.revenuecat.purchases.interfaces.UpdatedCustomerInfoListener")
+            val proxy = java.lang.reflect.Proxy.newProxyInstance(
+                listenerCls.classLoader,
+                arrayOf(listenerCls),
+            ) { _, method, args ->
+                if (method.name == "onReceived") {
+                    val customerInfo = args?.getOrNull(0)
+                    if (customerInfo != null) {
+                        val active = customerInfoToActiveEntitlementKeys(customerInfo)
+                        if (active.isNotEmpty()) {
+                            AppDNA.track(
+                                "purchase_completed",
+                                mapOf(
+                                    "provider" to "revenuecat",
+                                    "entitlements" to active,
+                                ),
+                            )
+                            // Also fan out to host's billing delegate.
+                            delegate?.onEntitlementsChanged(
+                                customerInfoToEntitlements(customerInfo),
+                            )
+                        }
+                    }
+                }
+                null
+            }
+            // Setter: setUpdatedCustomerInfoListener(listener: UpdatedCustomerInfoListener?)
+            val setterMethod = purchasesCls.getMethod("setUpdatedCustomerInfoListener", listenerCls)
+            setterMethod.invoke(sharedInstance, proxy)
+            Log.debug("RevenueCatBridge: UpdatedCustomerInfoListener installed")
+        } catch (e: Throwable) {
+            Log.warning("RevenueCatBridge: UpdatedCustomerInfoListener install failed: ${e.message}")
+        }
+    }
+
+    /** Extract list of active entitlement-keys from a RevenueCat CustomerInfo. */
+    @Suppress("UNCHECKED_CAST")
+    private fun customerInfoToActiveEntitlementKeys(customerInfo: Any): List<String> {
+        return try {
+            val entitlementsObj = customerInfo.javaClass.getMethod("getEntitlements").invoke(customerInfo)
+                ?: return emptyList()
+            val activeMap = entitlementsObj.javaClass.getMethod("getActive").invoke(entitlementsObj)
+                as? Map<String, Any> ?: return emptyList()
+            activeMap.keys.toList()
+        } catch (e: Throwable) {
+            Log.debug("customerInfoToActiveEntitlementKeys parse failure: ${e.message}")
+            emptyList()
         }
     }
 
