@@ -873,14 +873,72 @@ internal fun OnboardingFlowHost(
                 val progressTrackColor = flow.settings.progress_track_color?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: Color.Gray.copy(alpha = 0.2f)
-                LinearProgressIndicator(
-                    progress = progress,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp),
-                    color = progressColor,
-                    trackColor = progressTrackColor
-                )
+                // SPEC-070-A finalization Phase B — progress_style branches.
+                // Mirrors iOS OnboardingRenderer.swift progress style switch:
+                //   "dots" — N circles, filled to currentIndex
+                //   "segmented_bar" — N segments, filled to currentIndex
+                //   "fraction" — Text "i / N"
+                //   "none" — render nothing (still in show_progress branch)
+                //   default / "continuous_bar" — LinearProgressIndicator (existing)
+                val totalSteps = flow.steps.size.coerceAtLeast(1)
+                val current = (currentIndex + 1).coerceIn(1, totalSteps)
+                when (flow.settings.progress_style?.lowercase()) {
+                    "none" -> { /* explicit suppress */ }
+                    "dots" -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                        ) {
+                            for (i in 1..totalSteps) {
+                                val filled = i <= current
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (filled) 10.dp else 8.dp)
+                                        .clip(androidx.compose.foundation.shape.CircleShape)
+                                        .background(if (filled) progressColor else progressTrackColor),
+                                )
+                            }
+                        }
+                    }
+                    "segmented_bar" -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            for (i in 1..totalSteps) {
+                                val filled = i <= current
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(4.dp)
+                                        .clip(RoundedCornerShape(2.dp))
+                                        .background(if (filled) progressColor else progressTrackColor),
+                                )
+                            }
+                        }
+                    }
+                    "fraction" -> {
+                        Text(
+                            text = "$current / $totalSteps",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp),
+                            textAlign = TextAlign.Center,
+                            fontSize = 14.sp,
+                            color = MaterialTheme.colorScheme.onBackground,
+                        )
+                    }
+                    else -> {
+                        LinearProgressIndicator(
+                            progress = progress,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(4.dp),
+                            color = progressColor,
+                            trackColor = progressTrackColor
+                        )
+                    }
+                }
             }
 
             // Navigation bar

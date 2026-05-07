@@ -29,6 +29,16 @@ enum class LogLevel(val level: Int) {
 }
 
 /**
+ * SPEC-070-A finalization Phase C — app-level forced theme override.
+ * Mirrors iOS `ForcedTheme` enum. Pass to `AppDNA.setForcedTheme(...)`.
+ */
+enum class ForcedTheme {
+    LIGHT,
+    DARK,
+    SYSTEM,
+}
+
+/**
  * Configuration options for the AppDNA SDK.
  */
 data class AppDNAOptions(

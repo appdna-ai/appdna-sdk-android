@@ -1070,6 +1070,38 @@ object AppDNA {
         Log.info("Log level set to ${logLevel.name}")
     }
 
+    /**
+     * SPEC-070-A finalization Phase C — strict-typed LogLevel overload.
+     * Mirrors iOS `setLogLevel(_ level: LogLevel)` (typed enum, no
+     * stringly-typed fallback). Java callers can use either overload
+     * (`AppDNA.setLogLevel("debug")` or `AppDNA.setLogLevel(LogLevel.DEBUG)`).
+     */
+    @JvmStatic
+    fun setLogLevel(level: LogLevel) {
+        Log.level = level
+        Log.info("Log level set to ${level.name}")
+    }
+
+    /**
+     * SPEC-070-A finalization Phase C — app-level forced theme override.
+     * Mirrors iOS `AppDNA.setForcedTheme(_ theme: ForcedTheme?)` (TBD).
+     * When set, the SDK's renderers prefer this theme over the system
+     * pref. Pass null to clear the override and resume system-pref behavior.
+     */
+    @Volatile
+    private var _forcedTheme: ForcedTheme? = null
+
+    /** Read the currently-set forced theme. Null means "follow system". */
+    @JvmStatic
+    fun getForcedTheme(): ForcedTheme? = _forcedTheme
+
+    /** Set or clear the SDK-wide forced theme override. */
+    @JvmStatic
+    fun setForcedTheme(theme: ForcedTheme?) {
+        _forcedTheme = theme
+        Log.info("Forced theme set to ${theme?.name ?: "null (follow system)"}")
+    }
+
     // MARK: - Public API: Web Entitlements (v0.3)
 
     /**
