@@ -45,7 +45,13 @@ data class ScreenConfig(
     val endDate: String? = null,
     val minSdkVersion: String? = null,
     val experimentId: String? = null,
-    val variants: Map<String, Map<String, Any?>>? = null,
+    /**
+     * SPEC-070-A finalization B6 P3 — typed variant overrides. Each entry
+     * is keyed by variant id and parses into a [ScreenVariantOverride]
+     * matching iOS `ScreenVariantOverride`. Mirrors fields the merge step
+     * in [ScreenManager] copies onto the base config.
+     */
+    val variants: Map<String, ScreenVariantOverride>? = null,
     val analyticsName: String? = null,
 ) {
     companion object {
@@ -62,7 +68,7 @@ data class ScreenConfig(
                 val km = k as? String ?: return@mapNotNull null
                 @Suppress("UNCHECKED_CAST")
                 val vm = v as? Map<String, Any?> ?: return@mapNotNull null
-                km to vm
+                km to ScreenVariantOverride.fromMap(vm)
             }?.toMap()
 
             return ScreenConfig(
@@ -91,6 +97,34 @@ data class ScreenConfig(
                 experimentId = data["experiment_id"] as? String,
                 variants = rawVariants,
                 analyticsName = data["analytics_name"] as? String,
+            )
+        }
+    }
+}
+
+/**
+ * SPEC-070-A finalization B6 P3 — typed override applied to a [ScreenConfig]
+ * when an experiment variant is selected. Mirrors iOS
+ * `Screens/ScreenConfig.swift` `ScreenVariantOverride`. ScreenManager copies
+ * the present fields onto the base config; absent fields fall through.
+ */
+@androidx.compose.runtime.Immutable
+data class ScreenVariantOverride(
+    val sections: kotlinx.collections.immutable.ImmutableList<ScreenSection>? = null,
+    val presentation: String? = null,
+    val background: BackgroundConfig? = null,
+    val triggerRules: UnifiedTriggerRules? = null,
+) {
+    companion object {
+        @Suppress("UNCHECKED_CAST")
+        fun fromMap(data: Map<String, Any?>): ScreenVariantOverride {
+            return ScreenVariantOverride(
+                sections = (data["sections"] as? List<Map<String, Any?>>)
+                    ?.map { ScreenSection.fromMap(it) }
+                    ?.toImmutableList(),
+                presentation = data["presentation"] as? String,
+                background = (data["background"] as? Map<String, Any?>)?.let { BackgroundConfig.fromMap(it) },
+                triggerRules = (data["trigger_rules"] as? Map<String, Any?>)?.let { UnifiedTriggerRules.fromMap(it) },
             )
         }
     }

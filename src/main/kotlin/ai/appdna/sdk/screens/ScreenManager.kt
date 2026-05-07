@@ -185,32 +185,18 @@ class ScreenManager private constructor() {
                 if (bucket != null) {
                     variantKey = bucket
                     val override = variantsMap[bucket]
-                    if (override != null) {
-                        @Suppress("UNCHECKED_CAST")
-                        val overrideSections = override["sections"] as? List<Map<String, Any?>>
-                        val overridePresentation = override["presentation"] as? String
-                        @Suppress("UNCHECKED_CAST")
-                        val overrideBackground = (override["background"] as? Map<String, Any?>)?.let {
-                            BackgroundConfig.fromMap(it)
-                        }
-                        // SPEC-070-A finalization B6 P1 — preserve trigger_rules
-                        // from the variant override. iOS ScreenVariantOverride
-                        // keeps this field so a variant can ship its own
-                        // audience/segment/event triggers; Android was
-                        // dropping it, leaving variants stuck on the base
-                        // screen's rules.
-                        @Suppress("UNCHECKED_CAST")
-                        val overrideTriggerRules = (override["trigger_rules"] as? Map<String, Any?>)?.let {
-                            ai.appdna.sdk.core.UnifiedTriggerRules.fromMap(it)
-                        }
-                        if (overrideSections != null) {
-                            resolvedConfig = config.copy(
-                                sections = overrideSections.map { ScreenSection.fromMap(it) }.toImmutableList(),
-                                presentation = overridePresentation ?: config.presentation,
-                                background = overrideBackground ?: config.background,
-                                triggerRules = overrideTriggerRules ?: config.triggerRules,
-                            )
-                        }
+                    // SPEC-070-A finalization B6 P3 — variants is now typed
+                    // (Map<String, ScreenVariantOverride>); merge straight
+                    // off the typed fields. Sections present means the
+                    // variant supplied its own list — fall through to base
+                    // when null. Other fields fall through individually.
+                    if (override?.sections != null) {
+                        resolvedConfig = config.copy(
+                            sections = override.sections,
+                            presentation = override.presentation ?: config.presentation,
+                            background = override.background ?: config.background,
+                            triggerRules = override.triggerRules ?: config.triggerRules,
+                        )
                     }
                 }
             }
