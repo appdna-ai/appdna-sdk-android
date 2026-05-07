@@ -121,7 +121,11 @@ class PaywallActivity : ComponentActivity() {
             // fires (with `reason=process_death`) instead of finishing silently.
             if (savedInstanceState != null) {
                 try {
-                    AppDNA.track("paywall_dismissed", mapOf(
+                    // SPEC-070-A finalization R8 (Lens C P1) — emit canonical
+                    // `paywall_close` event (matches iOS PaywallManager.swift:104
+                    // + Android PaywallManager.kt:136) instead of the
+                    // dashboard-divergent `paywall_dismissed` name.
+                    AppDNA.track("paywall_close", mapOf(
                         "paywall_id" to paywallId,
                         "reason" to "process_death",
                     ))
