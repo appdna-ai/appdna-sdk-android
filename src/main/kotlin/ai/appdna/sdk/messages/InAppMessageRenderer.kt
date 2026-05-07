@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.appdna.sdk.core.NetworkImage
 import ai.appdna.sdk.core.StyleEngine
+import ai.appdna.sdk.core.FontResolver
 import ai.appdna.sdk.core.LottieBlock
 import ai.appdna.sdk.core.LottieBlockView
 import ai.appdna.sdk.core.RiveBlock
@@ -159,7 +160,11 @@ private fun BannerMessageView(
                             content.title?.let {
                                 Text(
                                     text = it,
-                                    fontSize = 14.sp,
+                                    // SPEC-070-A finalization P0 audit-11 M-35
+                                    // — apply title_font_size + font_family
+                                    // (parsed but previously ignored).
+                                    fontSize = (content.title_font_size ?: 14.0).sp,
+                                    fontFamily = FontResolver.resolve(content.font_family),
                                     fontWeight = FontWeight.Bold,
                                     color = textColor,
                                     // SPEC-070-A J.11 — banner title acts as
@@ -170,7 +175,8 @@ private fun BannerMessageView(
                             content.body?.let {
                                 Text(
                                     text = it,
-                                    fontSize = 12.sp,
+                                    fontSize = (content.body_font_size ?: 12.0).sp,
+                                    fontFamily = FontResolver.resolve(content.font_family),
                                     color = if (textColor != Color.Unspecified)
                                         textColor.copy(alpha = 0.7f)
                                     else Color.Gray,
@@ -353,7 +359,10 @@ private fun ModalMessageView(
                 content.title?.let {
                     Text(
                         text = it,
-                        fontSize = 20.sp,
+                        // SPEC-070-A finalization P0 audit-11 M-35 — apply
+                        // title_font_size + font_family.
+                        fontSize = (content.title_font_size ?: 20.0).sp,
+                        fontFamily = FontResolver.resolve(content.font_family),
                         fontWeight = FontWeight.Bold,
                         textAlign = TextAlign.Center,
                         color = textColor,
@@ -368,7 +377,8 @@ private fun ModalMessageView(
                 content.body?.let {
                     Text(
                         text = it,
-                        fontSize = 16.sp,
+                        fontSize = (content.body_font_size ?: 16.0).sp,
+                        fontFamily = FontResolver.resolve(content.font_family),
                         textAlign = TextAlign.Center,
                         color = if (textColor != Color.Unspecified)
                             textColor.copy(alpha = 0.7f)
@@ -525,7 +535,9 @@ private fun FullscreenMessageView(
             content.title?.let {
                 Text(
                     text = it,
-                    fontSize = 32.sp,
+                    // SPEC-070-A finalization P0 audit-11 M-35
+                    fontSize = (content.title_font_size ?: 32.0).sp,
+                    fontFamily = FontResolver.resolve(content.font_family),
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     color = textColor,
@@ -540,7 +552,8 @@ private fun FullscreenMessageView(
             content.body?.let {
                 Text(
                     text = it,
-                    fontSize = 16.sp,
+                    fontSize = (content.body_font_size ?: 16.0).sp,
+                    fontFamily = FontResolver.resolve(content.font_family),
                     textAlign = TextAlign.Center,
                     color = if (textColor != Color.Unspecified)
                         textColor.copy(alpha = 0.7f)
@@ -668,7 +681,9 @@ private fun TooltipMessageView(
                     content.title?.let {
                         Text(
                             text = it,
-                            fontSize = 14.sp,
+                            // SPEC-070-A finalization P0 audit-11 M-35
+                            fontSize = (content.title_font_size ?: 14.0).sp,
+                            fontFamily = FontResolver.resolve(content.font_family),
                             fontWeight = FontWeight.SemiBold,
                             textAlign = TextAlign.Center,
                             color = textColor,
@@ -683,7 +698,8 @@ private fun TooltipMessageView(
                     content.body?.let {
                         Text(
                             text = it,
-                            fontSize = 12.sp,
+                            fontSize = (content.body_font_size ?: 12.0).sp,
+                            fontFamily = FontResolver.resolve(content.font_family),
                             textAlign = TextAlign.Center,
                             color = if (textColor != Color.Unspecified)
                                 textColor.copy(alpha = 0.7f)
