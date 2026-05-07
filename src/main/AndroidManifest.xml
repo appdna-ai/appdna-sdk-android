@@ -111,22 +111,16 @@
             android:windowSoftInputMode="adjustResize" />
 
         <!--
-            Screen slot Activity — forward-declared.
-            TODO(SPEC-070-A phases H/L): the current SDK exposes a Compose
-            composable `ai.appdna.sdk.screens.AppDNAScreenSlot` (a host-
-            embeddable view) rather than a dedicated Activity. When the
-            standalone Activity is added (host-presented full-screen slot),
-            this declaration is forward-compatible — class lives in
-            `ai.appdna.sdk.screens.AppDNAScreenSlotActivity`. Manifest
-            stays here so library consumers don't need a re-publish to
-            pick it up.
+            SDUI screen host Activity — packages/.../screens/ScreenHostActivity.kt.
+            Mirrors iOS Screens/ScreenPresenter.swift. Launched when a host
+            calls AppDNA.showScreen("foo") so server-driven screens get a
+            real Activity surface. SPEC-070-A finalization Lens B P0.
         -->
         <activity
-            android:name="ai.appdna.sdk.screens.AppDNAScreenSlotActivity"
+            android:name="ai.appdna.sdk.screens.ScreenHostActivity"
             android:exported="false"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
-            android:windowSoftInputMode="adjustResize"
-            tools:ignore="MissingClass" />
+            android:windowSoftInputMode="adjustResize" />
 
         <!--
             FirebaseMessagingService — packages/.../integrations/AppDNAMessagingService.kt

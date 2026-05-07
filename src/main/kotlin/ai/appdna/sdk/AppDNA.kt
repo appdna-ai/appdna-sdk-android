@@ -244,6 +244,19 @@ object AppDNA {
     private var bootstrapOrgId: String? = null
     private var bootstrapAppId: String? = null
 
+    /**
+     * Internal accessor used by manager classes (e.g. ScreenManager) that
+     * need to launch host Activities from outside an Activity context.
+     * Returns null when the SDK has not yet been configured.
+     *
+     * SPEC-070-A finalization Lens B P0 — required by ScreenHostActivity
+     * launch path so `AppDNA.showScreen(id)` can present a real Activity
+     * even when the caller didn't supply one (matches iOS where
+     * `AppDNA.showScreen` reads the application's key window itself).
+     */
+    @JvmStatic
+    fun getApplicationContext(): Context? = appContext
+
     // SPEC-070-A final audit pass H F1 — captured to enable
     // `unregisterActivityLifecycleCallbacks` from shutdown().
     private var navigationInterceptorCallbacks:

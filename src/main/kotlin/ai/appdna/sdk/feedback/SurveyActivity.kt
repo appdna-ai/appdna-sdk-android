@@ -62,6 +62,22 @@ class SurveyActivity : ComponentActivity() {
         }
 
         val config = pendingSurveyConfig ?: run {
+            // SPEC-070-A finalization (Lens D P0) — process-death recovery.
+            // After OS killed the process, the static `pendingSurveyConfig`
+            // is gone but the OS recreates this Activity from savedInstanceState.
+            // Notify analytics + delegate before silent finish() so the host
+            // can recover (e.g. show retry banner).
+            if (savedInstanceState != null) {
+                try {
+                    ai.appdna.sdk.AppDNA.track("survey_dismissed", mapOf(
+                        "survey_id" to surveyId,
+                        "reason" to "process_death",
+                    ))
+                    ai.appdna.sdk.AppDNA.surveys.surveyListener?.onSurveyDismissed(surveyId)
+                } catch (e: Throwable) {
+                    ai.appdna.sdk.Log.warning { "Survey process-death recovery delegate fire failed: ${e.message}" }
+                }
+            }
             finish()
             return
         }

@@ -1,5 +1,7 @@
 package ai.appdna.sdk.paywalls
 
+import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.Log
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -111,6 +113,23 @@ class PaywallActivity : ComponentActivity() {
         // no slot, finish(), and the user's purchase context vanishes.
         val token = intent.getStringExtra(EXTRA_LAUNCH_TOKEN)
         val slots = token?.let { activeLaunches[it] } ?: run {
+            // SPEC-070-A finalization (Lens D P0) — process-death recovery.
+            // If we're being recreated by the OS (`savedInstanceState != null`)
+            // but the static `activeLaunches` map is empty, the SDK process was
+            // killed since the original launch and our in-memory callbacks are
+            // gone. Fire the global PaywallDelegate so analytics + onPaywallDismissed
+            // fires (with `reason=process_death`) instead of finishing silently.
+            if (savedInstanceState != null) {
+                try {
+                    AppDNA.track("paywall_dismissed", mapOf(
+                        "paywall_id" to paywallId,
+                        "reason" to "process_death",
+                    ))
+                    AppDNA.paywall.listener?.onPaywallDismissed(paywallId)
+                } catch (e: Throwable) {
+                    Log.warning { "Process-death recovery delegate fire failed: ${e.message}" }
+                }
+            }
             finish()
             return
         }

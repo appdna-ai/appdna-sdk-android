@@ -227,23 +227,46 @@ class ScreenManager private constructor() {
                 val result = ScreenResult(screenId = screenId)
                 callback?.invoke(result)
 
-                // SPEC-070-A G.8 — `screen_dismissed` matches iOS
-                // ScreenManager.swift:192 emitted on the dismiss completion
-                // path. Even though Android's current implementation
-                // completes synchronously without a real Activity launch, we
-                // emit the event so downstream analytics + delegate fan-out
-                // has full parity.
-                val durationMs = (System.currentTimeMillis() - startTime).toInt()
-                AppDNA.track("screen_dismissed", mapOf(
-                    "screen_id" to screenId,
-                    "screen_name" to capturedConfig.name,
-                    "duration_ms" to durationMs,
-                ))
-                fireOnScreenDismissed(
-                    screenId,
-                    ScreenResult(screenId = screenId, dismissed = true, durationMs = durationMs),
-                )
-                ai.appdna.sdk.core.PresentationCoordinator.shared.onDismissed()
+                // SPEC-070-A finalization (Lens B P0) — actually present
+                // the screen via [ScreenHostActivity]. iOS counterpart is
+                // ScreenPresenter.swift:7-55 which wraps the renderer in
+                // a UIHostingController and presents it. Without this Activity
+                // launch, hosts that called `AppDNA.showScreen("welcome")`
+                // got analytics-only behavior — the screen never rendered.
+                val appCtx = AppDNA.getApplicationContext()
+                if (appCtx != null) {
+                    ScreenHostActivity.launch(
+                        context = appCtx,
+                        screenId = screenId,
+                        config = capturedConfig,
+                        onDismiss = { dismissResult ->
+                            val durationMs = dismissResult.durationMs
+                                ?: (System.currentTimeMillis() - startTime).toInt()
+                            AppDNA.track("screen_dismissed", mapOf(
+                                "screen_id" to screenId,
+                                "screen_name" to capturedConfig.name,
+                                "duration_ms" to durationMs,
+                            ))
+                            fireOnScreenDismissed(screenId, dismissResult.copy(durationMs = durationMs))
+                            ai.appdna.sdk.core.PresentationCoordinator.shared.onDismissed()
+                        },
+                    )
+                } else {
+                    // Fallback: no application context (SDK not configured) — emit
+                    // synchronous dismiss so callers + analytics don't hang.
+                    val durationMs = (System.currentTimeMillis() - startTime).toInt()
+                    AppDNA.track("screen_dismissed", mapOf(
+                        "screen_id" to screenId,
+                        "screen_name" to capturedConfig.name,
+                        "duration_ms" to durationMs,
+                        "error" to "no_application_context",
+                    ))
+                    fireOnScreenDismissed(
+                        screenId,
+                        ScreenResult(screenId = screenId, dismissed = true, durationMs = durationMs),
+                    )
+                    ai.appdna.sdk.core.PresentationCoordinator.shared.onDismissed()
+                }
             }
         } finally {
             lock.lock()
