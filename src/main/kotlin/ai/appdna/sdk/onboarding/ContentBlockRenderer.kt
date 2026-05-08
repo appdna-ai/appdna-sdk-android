@@ -1619,8 +1619,14 @@ private fun LottieContentBlock(block: ContentBlock) {
             block = LottieBlock(
                 lottie_url = block.lottie_url,
                 lottie_json = block.lottie_json,
-                autoplay = block.lottie_autoplay ?: true,
-                loop = block.lottie_loop ?: true,
+                // SPEC-401-A R7 — iOS reads canonical `block.autoplay` /
+                // `block.loop` (ContentBlockRendererView.swift:595-597);
+                // Android historically only knew the prefixed
+                // `lottie_autoplay`/`lottie_loop`. Console writes the
+                // canonical names so authored `false` was silently
+                // ignored. Honour canonical first, legacy as fallback.
+                autoplay = block.autoplay ?: block.lottie_autoplay ?: true,
+                loop = block.loop ?: block.lottie_loop ?: true,
                 speed = block.lottie_speed ?: 1.0f,
                 width = block.lottie_width?.toFloat(),
                 height = (block.height ?: 160.0).toFloat(),
@@ -1645,6 +1651,12 @@ private fun RiveContentBlock(block: ContentBlock) {
                 // `rive_*` prefix.
                 artboard = block.artboard ?: block.rive_artboard,
                 state_machine = block.state_machine ?: block.rive_state_machine,
+                // SPEC-401-A R7 — forward canonical `autoplay` so authored
+                // `false` actually disables auto-play. iOS reads
+                // `block.autoplay` at ContentBlockRendererView.swift:621.
+                // Android previously omitted the arg, defaulting to true
+                // unconditionally.
+                autoplay = block.autoplay ?: true,
                 height = (block.height ?: 160.0).toFloat(),
                 alignment = block.icon_alignment ?: "center",
                 inputs = block.rive_inputs,
