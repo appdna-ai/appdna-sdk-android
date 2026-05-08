@@ -1311,12 +1311,16 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            // SPEC-401-A — iOS shows BOTH icon_emoji AND image_url
+            // when both are set (ContentBlockRendererView.swift:383-394).
+            // Android previously gated image_url on icon_emoji being
+            // null/empty, so authored buttons with both lost the image.
             block.icon_emoji?.let { emoji ->
                 if (emoji.isNotEmpty()) {
                     Text(emoji, modifier = Modifier.padding(end = 8.dp))
                 }
             }
-            if (block.icon_emoji.isNullOrEmpty() && !block.image_url.isNullOrEmpty()) {
+            if (!block.image_url.isNullOrEmpty()) {
                 ai.appdna.sdk.core.NetworkImage(
                     url = block.image_url,
                     modifier = Modifier.size(20.dp).padding(end = 8.dp),
