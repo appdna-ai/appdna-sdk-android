@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -21,6 +22,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImagePainter
 import coil.compose.SubcomposeAsyncImage
 import coil.compose.SubcomposeAsyncImageContent
@@ -182,7 +184,17 @@ private fun SvgNetworkImage(
                     modifier = Modifier.fillMaxSize(),
                 )
             }
-            failed -> Unit // placeholder background already drawn
+            failed -> {
+                // SPEC-401-A — render a broken-image glyph on failure
+                // (matches iOS `Image(systemName: "photo")` placeholder
+                // at ~50sp grey). Was an empty placeholder background
+                // which gave no visual hint that loading errored.
+                Text(
+                    text = "🖼",
+                    fontSize = 48.sp,
+                    color = Color.Gray.copy(alpha = 0.6f),
+                )
+            }
             else -> {
                 CircularProgressIndicator(
                     modifier = Modifier.fillMaxSize(0.3f),
