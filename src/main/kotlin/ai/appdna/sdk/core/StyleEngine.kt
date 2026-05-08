@@ -114,22 +114,41 @@ object StyleEngine {
      */
     fun applyTextStyle(base: TextStyle, config: TextStyleConfig?): TextStyle {
         if (config == null) return base
+        // SPEC-401-A R5 — preserve base's per-field defaults instead
+        // of clobbering with hardcoded 16sp / Normal / Start / 1.4 *
+        // 16. iOS resolves each field independently
+        // (ContentBlockRendererView.swift:274-275 / 944-959), so a
+        // partial `style: { color: "#000" }` keeps h1's 28sp/Bold
+        // and rich_text legal's 12sp/Center defaults instead of
+        // collapsing them to 16sp/Normal/Start.
+        val resolvedColor: Color = config.color?.let { c ->
+            val parsed = parseColor(c)
+            val opacity = config.opacity ?: 1.0
+            parsed.copy(alpha = parsed.alpha * opacity.toFloat())
+        } ?: base.color
+        val resolvedAlign: TextAlign = when (config.alignment) {
+            "center" -> TextAlign.Center
+            "right" -> TextAlign.End
+            "left" -> TextAlign.Start
+            "justify" -> TextAlign.Justify
+            null -> base.textAlign ?: TextAlign.Unspecified
+            else -> base.textAlign ?: TextAlign.Unspecified
+        }
+        val resolvedFamily = config.font_family?.let { FontResolver.resolve(it) } ?: base.fontFamily
+        val resolvedSize = config.font_size?.sp ?: base.fontSize
+        val resolvedWeight = config.font_weight?.let { FontResolver.fontWeight(it) } ?: base.fontWeight
+        val resolvedLineHeight = config.line_height
+            ?.let { ((it) * (config.font_size ?: base.fontSize.value.toDouble())).sp }
+            ?: base.lineHeight
+        val resolvedLetterSpacing = config.letter_spacing?.sp ?: base.letterSpacing
         return base.copy(
-            fontFamily = FontResolver.resolve(config.font_family),
-            fontSize = (config.font_size ?: 16.0).sp,
-            fontWeight = FontResolver.fontWeight(config.font_weight),
-            color = config.color?.let { c ->
-                val base = parseColor(c)
-                val opacity = config.opacity ?: 1.0
-                base.copy(alpha = base.alpha * opacity.toFloat())
-            } ?: Color.Unspecified,
-            textAlign = when (config.alignment) {
-                "center" -> TextAlign.Center
-                "right" -> TextAlign.End
-                else -> TextAlign.Start
-            },
-            lineHeight = ((config.line_height ?: 1.4) * (config.font_size ?: 16.0)).sp,
-            letterSpacing = (config.letter_spacing ?: 0.0).sp,
+            fontFamily = resolvedFamily,
+            fontSize = resolvedSize,
+            fontWeight = resolvedWeight,
+            color = resolvedColor,
+            textAlign = resolvedAlign,
+            lineHeight = resolvedLineHeight,
+            letterSpacing = resolvedLetterSpacing,
         )
     }
 
