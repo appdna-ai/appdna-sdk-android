@@ -311,6 +311,9 @@ data class ContentBlock(
     val level: Int? = null,
     val image_url: String? = null,
     val alt: String? = null,
+    // SPEC-401-A — `cover` (default) / `contain` / `fit` / `inside`
+    // / `none`. iOS toggles `.fill`/`.fit` on this token.
+    val image_fit: String? = null,
     val corner_radius: Double? = null,
     val height: Double? = null,
     val variant: String? = null,
@@ -1169,6 +1172,12 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
 
 @Composable
 private fun ImageBlock(block: ContentBlock) {
+    // SPEC-401-A — iOS no-render guard. iOS draws nothing when the
+    // url is missing/empty; Android previously fell into NetworkImage
+    // with a null URL which still rendered a fixed-height placeholder
+    // box. Match iOS behaviour.
+    if (block.image_url.isNullOrBlank()) return
+
     val cr = (block.corner_radius ?: 0.0)
     val isCircle = cr >= 9999
 
@@ -1181,13 +1190,25 @@ private fun ImageBlock(block: ContentBlock) {
         if (isCircle) Modifier.clip(CircleShape) else Modifier.clip(RoundedCornerShape(cr.dp))
     }
 
+    // SPEC-401-A — image_fit. iOS toggles `.fit`/`.fill` when fit is
+    // "contain"/"fit"; default is `.fill` (Crop). Match the toggle so
+    // authored portrait photos are no longer distorted by the fixed
+    // height + Crop combo.
+    val fit = block.image_fit ?: ""
+    val contentScale = when (fit) {
+        "contain", "fit" -> androidx.compose.ui.layout.ContentScale.Fit
+        "inside" -> androidx.compose.ui.layout.ContentScale.Inside
+        "none" -> androidx.compose.ui.layout.ContentScale.None
+        else -> androidx.compose.ui.layout.ContentScale.Crop
+    }
+
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
             .fillMaxWidth()
             .height((block.height ?: 200.0).dp)
             .then(shapeModifier),
-        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+        contentScale = contentScale,
         contentDescription = block.alt,
     )
 }
