@@ -1249,10 +1249,23 @@ internal fun OnboardingFlowHost(
                         // SPEC-083: Determine hook type — client delegate takes priority
                         if (delegate != null) {
                             // Client-side hook
+                            // SPEC-401-A R11 — match iOS 300ms grace window
+                            // (OnboardingRenderer.swift:483-503). iOS schedules a
+                            // DispatchWorkItem to flip isProcessing=true after
+                            // 300ms, cancelled if the hook returns first. Without
+                            // this, every <50ms hook flashes the dimmer + spinner.
                             loadingText = step.hook?.loading_text ?: "Processing..."
-                            isProcessing = true
+                            val hookFinished = java.util.concurrent.atomic.AtomicBoolean(false)
                             val startTime = System.currentTimeMillis()
                             trackHookEvent("onboarding_hook_started", step, mapOf("hook_type" to "client"))
+
+                            // Grace timer — only show spinner if hook hasn't returned within 300ms.
+                            coroutineScope.launch {
+                                kotlinx.coroutines.delay(300)
+                                if (!hookFinished.get()) {
+                                    isProcessing = true
+                                }
+                            }
 
                             coroutineScope.launch {
                                 val result = delegate.onBeforeStepAdvance(
@@ -1263,6 +1276,7 @@ internal fun OnboardingFlowHost(
                                     responses = responses.toMap(),
                                     stepData = data
                                 )
+                                hookFinished.set(true)
                                 val durationMs = System.currentTimeMillis() - startTime
                                 isProcessing = false
                                 trackHookEvent("onboarding_hook_completed", step, mapOf(
