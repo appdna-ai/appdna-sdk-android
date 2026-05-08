@@ -1552,7 +1552,17 @@ fun OnboardingStepView(
                 OnboardingStep.StepType.INFO,
                 OnboardingStep.StepType.PERMISSION -> CustomStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
-                OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(step = step, flowId = flowId, onNext = { data -> onNext(data) }, onSkip = { onSkip() })
+                OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(
+                    step = step,
+                    flowId = flowId,
+                    onNext = { data -> onNext(data) },
+                    onSkip = { onSkip() },
+                    // SPEC-401-A — pass prior step transcript so back-nav
+                    // restores chat bubbles + completion state. iOS does
+                    // the same via `savedTranscript: savedResponses` at
+                    // OnboardingRenderer.swift:1480.
+                    savedTranscript = savedResponses,
+                )
             }
 
             // Skip button

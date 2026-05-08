@@ -47,7 +47,13 @@ fun ChatStepComposable(
     step: OnboardingStep,
     flowId: String,
     onNext: (Map<String, Any>) -> Unit,
-    onSkip: () -> Unit
+    onSkip: () -> Unit,
+    // SPEC-401-A — saved transcript for back-nav restore. Mirrors
+    // iOS `ChatStepView.savedTranscript`. When the renderer was
+    // already completed once, the orchestrator passes the prior
+    // `responses[step.id]` map back in so the bubble history is
+    // rebuilt instead of replaying auto-messages from scratch.
+    savedTranscript: Map<String, Any>? = null,
 ) {
     val chatConfig = step.config.chat_config ?: return
     val style = chatConfig.style
@@ -56,12 +62,38 @@ fun ChatStepComposable(
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
 
+    // SPEC-401-A — restore from savedTranscript on first compose.
+    // We seed initial state with the saved values so LaunchedEffect
+    // never plays auto-messages when restoring.
+    val initialMessages: List<ChatMessage> = remember(savedTranscript) {
+        @Suppress("UNCHECKED_CAST")
+        (savedTranscript?.get("transcript") as? List<Map<String, Any>>)?.map { m ->
+            val role = (m["role"] as? String) ?: "ai"
+            val content = (m["content"] as? String).orEmpty()
+            val msgId = (m["id"] as? String) ?: java.util.UUID.randomUUID().toString()
+            val ts = (m["timestamp"] as? String)?.let { ts ->
+                runCatching { java.time.Instant.parse(ts).toEpochMilli() }.getOrNull()
+            } ?: System.currentTimeMillis()
+            ChatMessage(
+                id = msgId,
+                role = if (role == "user") ChatRole.USER else ChatRole.AI,
+                content = content,
+                timestamp = ts,
+            )
+        } ?: emptyList()
+    }
+    val initialUserTurnCount: Int = remember(savedTranscript) {
+        (savedTranscript?.get("user_turn_count") as? Number)?.toInt()
+            ?: initialMessages.count { it.role == ChatRole.USER }
+    }
+    val didRestore = savedTranscript != null && initialMessages.isNotEmpty()
+
     // State
-    var messages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    var messages by remember { mutableStateOf(initialMessages) }
     var inputText by remember { mutableStateOf("") }
     var isTyping by remember { mutableStateOf(false) }
-    var userTurnCount by remember { mutableIntStateOf(0) }
-    var isCompleted by remember { mutableStateOf(false) }
+    var userTurnCount by remember { mutableIntStateOf(initialUserTurnCount) }
+    var isCompleted by remember { mutableStateOf(didRestore) }
     var currentRating by remember { mutableStateOf<Int?>(null) }
     var dynamicQuickReplies by remember { mutableStateOf(chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()) }
     var webhookData by remember { mutableStateOf(mutableMapOf<String, Any>()) }
@@ -90,8 +122,11 @@ fun ChatStepComposable(
     val qrTextColor = hex(style?.quick_reply_text, "#E2E8F0")
     val typingDotColor = hex(style?.typing_indicator_color, "#6366F1")
 
-    // Auto-messages on appear
+    // Auto-messages on appear — SPEC-401-A skip when we restored
+    // a prior transcript so the user does not see the welcome
+    // sequence replay over the saved bubbles.
     LaunchedEffect(Unit) {
+        if (didRestore) return@LaunchedEffect
         val autoMsgs = chatConfig.auto_messages?.filter { it.turn == 0 } ?: emptyList()
         for ((i, autoMsg) in autoMsgs.withIndex()) {
             val delayMs = autoMsg.delay_ms ?: (500 + i * 1200)
