@@ -502,6 +502,20 @@ data class ContentBlock(
     // SPEC-089d Phase F: circular_gauge fields
     val gauge_value: Double? = null,
     val max_gauge_value: Double? = null,
+    // SPEC-401-A — iOS canonical name `max_value`. Console writes
+    // this; Android historically only knew `max_gauge_value` and so
+    // any console-authored max was silently dropped to default 100.
+    val max_value: Double? = null,
+    val gauge_variant: String? = null,
+    val gradient_start_color: String? = null,
+    val gradient_end_color: String? = null,
+    val arrow_color: String? = null,
+    val arrow_stroke_width: Double? = null,
+    val min_label: String? = null,
+    val max_label: String? = null,
+    val min_max_font_size: Double? = null,
+    val min_max_color: String? = null,
+    val percentage_location: String? = null,
     val sublabel: String? = null,
     val stroke_width: Double? = null,
     val label_color: String? = null,
@@ -2579,7 +2593,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
 @Composable
 private fun CircularGaugeBlock(block: ContentBlock) {
     val value = (block.gauge_value ?: block.default_value ?: 0.0).toFloat()
-    val maxVal = (block.max_gauge_value ?: 100.0).toFloat()
+    // SPEC-401-A — honour iOS canonical `max_value` first; legacy
+    // Android-only `max_gauge_value` falls back. Console writes the
+    // canonical name.
+    val maxVal = (block.max_value ?: block.max_gauge_value ?: 100.0).toFloat()
     val targetProgress = if (maxVal > 0f) (value / maxVal).coerceIn(0f, 1f) else 0f
     val size = (block.height ?: 120.0).dp
     val strokeW = (block.stroke_width ?: 10.0).toFloat()
