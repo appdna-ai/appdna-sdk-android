@@ -458,6 +458,9 @@ data class ContentBlock(
     // SPEC-089d: rich_text fields
     val content: String? = null,
     val base_style: TextStyleConfig? = null,
+    // SPEC-401-A — `legal` variant centres + uses caption font +
+    // secondary colour fallback (consent / privacy boilerplate).
+    val rich_text_variant: String? = null,
     val link_color: String? = null,
     val max_lines: Int? = null,
     // SPEC-089d: progress_bar fields
@@ -2062,13 +2065,27 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
     val linkColor = StyleEngine.parseColor(block.link_color ?: "#6366F1")
     val context = LocalContext.current
 
-    // Apply base_style if present
-    val baseTextStyle = if (block.base_style != null) {
-        StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp, color = Color.Unspecified), block.base_style)
-    } else if (block.style != null) {
-        StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp, color = Color.Unspecified), block.style)
+    // SPEC-401-A — `legal` variant defaults: caption font + centred
+    // alignment + secondary colour. Mirrors iOS
+    // ContentBlockRendererView.swift:932-980.
+    val isLegal = block.rich_text_variant == "legal"
+    val legalDefault = if (isLegal) {
+        TextStyle(
+            fontSize = 12.sp,
+            color = Color.Unspecified.copy(alpha = 0.7f),
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
     } else {
         TextStyle(fontSize = 16.sp, color = Color.Unspecified)
+    }
+
+    // Apply base_style if present
+    val baseTextStyle = if (block.base_style != null) {
+        StyleEngine.applyTextStyle(legalDefault, block.base_style)
+    } else if (block.style != null) {
+        StyleEngine.applyTextStyle(legalDefault, block.style)
+    } else {
+        legalDefault
     }
 
     val annotatedString = parseMarkdownToAnnotatedString(content, baseTextStyle, linkColor)
@@ -2104,9 +2121,12 @@ private fun parseMarkdownToAnnotatedString(
     baseStyle: TextStyle,
     linkColor: Color,
 ): androidx.compose.ui.text.AnnotatedString {
-    // Regex patterns (order matters: bold before italic to avoid ambiguity)
+    // Regex patterns (order matters: bold before italic to avoid ambiguity).
+    // SPEC-401-A — `++underline++` is the iOS custom marker mirrored
+    // here so the same Markdown source renders identically.
     val boldRegex = Regex("""\*\*(.+?)\*\*""")
     val italicRegex = Regex("""\*(.+?)\*""")
+    val underlineRegex = Regex("""\+\+(.+?)\+\+""")
     val linkRegex = Regex("""\[(.+?)]\((.+?)\)""")
 
     data class StyledRange(val start: Int, val end: Int, val style: SpanStyle, val tag: String? = null, val annotation: String? = null)
@@ -2124,6 +2144,7 @@ private fun parseMarkdownToAnnotatedString(
             // Find the earliest markdown match
             val linkMatch = linkRegex.find(remaining)
             val boldMatch = boldRegex.find(remaining)
+            val underlineMatch = underlineRegex.find(remaining)
             // Only match italic if it's not part of a bold marker
             val italicMatch = italicRegex.find(remaining)?.takeIf { m ->
                 val idx = m.range.first
@@ -2135,6 +2156,7 @@ private fun parseMarkdownToAnnotatedString(
             val matches = listOfNotNull(
                 linkMatch?.let { it to "link" },
                 boldMatch?.let { it to "bold" },
+                underlineMatch?.let { it to "underline" },
                 italicMatch?.let { it to "italic" },
             ).sortedBy { it.first.range.first }
 
@@ -2166,6 +2188,11 @@ private fun parseMarkdownToAnnotatedString(
                 }
                 "bold" -> {
                     withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                        append(match.groupValues[1])
+                    }
+                }
+                "underline" -> {
+                    withStyle(SpanStyle(textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)) {
                         append(match.groupValues[1])
                     }
                 }
