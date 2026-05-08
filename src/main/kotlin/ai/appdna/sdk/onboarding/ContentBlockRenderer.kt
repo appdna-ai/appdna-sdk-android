@@ -2771,21 +2771,48 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
  */
 @Composable
 private fun CircularGaugeBlock(block: ContentBlock) {
-    val value = (block.gauge_value ?: block.default_value ?: 0.0).toFloat()
-    // SPEC-401-A — honour iOS canonical `max_value` first; legacy
-    // Android-only `max_gauge_value` falls back. Console writes the
-    // canonical name.
+    val value = (block.gauge_value ?: block.progress_value ?: block.default_value ?: 0.0).toFloat()
+    val minVal = (block.min_value ?: 0.0).toFloat()
+    // SPEC-401-A R11 — full port of iOS `CircularGaugeBlockView`
+    // (ContentBlockStandaloneViews.swift:673-907). Variants: `arc`
+    // (default 200), `radial` (full ring), `speedometer` (220° sweep,
+    // min 240). Renders min/max labels, animated needle, gradient
+    // fill via Brush.sweepGradient, and per-anchor percentage
+    // (above/center/below/none).
     val maxVal = (block.max_value ?: block.max_gauge_value ?: 100.0).toFloat()
-    val targetProgress = if (maxVal > 0f) (value / maxVal).coerceIn(0f, 1f) else 0f
-    val size = (block.height ?: 120.0).dp
-    val strokeW = (block.stroke_width ?: 10.0).toFloat()
-    val fillColor = StyleEngine.parseColor(block.fill_color ?: block.active_color ?: "#6366F1")
+    val targetProgress = if ((maxVal - minVal) > 0f) ((value - minVal) / (maxVal - minVal)).coerceIn(0f, 1f) else 0f
+    val variant = block.gauge_variant ?: "arc"
+    val defaultSize = if (variant == "speedometer") 280.0 else 200.0
+    val rawSize = block.height ?: defaultSize
+    val sizePx = if (variant == "speedometer") maxOf(rawSize, 240.0) else rawSize
+    val size = sizePx.dp
+    val strokeW = (block.stroke_width ?: 14.0).toFloat()
+    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: block.active_color ?: "#6366F1")
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val labelColor = StyleEngine.parseColor(block.label_color ?: block.text_color ?: "#000000")
-    val labelFontSize = (block.label_font_size ?: block.font_size ?: 20.0).sp
+    val labelFontSize = (block.label_font_size ?: block.font_size ?: 24.0).sp
     val shouldAnimate = block.animate ?: true
     val animDurationMs = block.animation_duration_ms ?: 800
     val showPct = block.show_percentage ?: false
+    val pctLocation = block.percentage_location ?: "below"
+
+    // Gradient setup
+    val gradStartHex = block.gradient_start_color
+    val gradEndHex = block.gradient_end_color
+    val useGradient = !gradStartHex.isNullOrEmpty() && !gradEndHex.isNullOrEmpty()
+    val gradColors: List<Color> = if (useGradient) {
+        listOf(StyleEngine.parseColor(gradStartHex!!), StyleEngine.parseColor(gradEndHex!!))
+    } else {
+        listOf(fillColor, fillColor)
+    }
+
+    // Needle / min-max styling (speedometer)
+    val needleCol = StyleEngine.parseColor(block.arrow_color ?: block.label_color ?: "#1F2937")
+    val needleW = (block.arrow_stroke_width ?: 3.0).toFloat()
+    val minLabel = block.min_label ?: "${minVal.toInt()}"
+    val maxLabel = block.max_label ?: "${maxVal.toInt()}"
+    val minMaxFontSz = (block.min_max_font_size ?: 13.0).sp
+    val minMaxCol = StyleEngine.parseColor(block.min_max_color ?: block.label_color ?: "#000000")
 
     val animatedProgress by animateFloatAsState(
         targetValue = targetProgress,
@@ -2793,44 +2820,226 @@ private fun CircularGaugeBlock(block: ContentBlock) {
         label = "gauge_progress",
     )
 
-    Box(
+    val hasCenterText = !block.text.isNullOrEmpty()
+    val pctExplicitElsewhere = pctLocation == "above" || pctLocation == "below"
+    val shouldShowCenter = pctLocation == "center"
+        || hasCenterText
+        || (showPct && !pctExplicitElsewhere)
+
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
-        Box(
-            modifier = Modifier.size(size),
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                // Track
-                drawArc(
-                    color = trackColor,
-                    startAngle = 0f,
-                    sweepAngle = 360f,
-                    useCenter = false,
-                    style = Stroke(width = strokeW, cap = StrokeCap.Round),
-                )
-                // Filled arc
-                drawArc(
-                    color = fillColor,
-                    startAngle = -90f,
-                    sweepAngle = animatedProgress * 360f,
-                    useCenter = false,
-                    style = Stroke(width = strokeW, cap = StrokeCap.Round),
-                )
-            }
-            // Center label
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = if (showPct) "${(animatedProgress * 100).roundToInt()}%" else (block.text ?: "${value.roundToInt()}"),
-                    fontSize = labelFontSize,
-                    fontWeight = FontWeight.Bold,
-                    color = labelColor,
-                )
-                block.sublabel?.let {
-                    Text(text = it, fontSize = 12.sp, color = labelColor.copy(alpha = 0.7f))
+        if (showPct && pctLocation == "above") {
+            Text(
+                text = "${(animatedProgress * 100).roundToInt()}%",
+                fontSize = labelFontSize,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
+            )
+        }
+
+        when (variant) {
+            "speedometer" -> {
+                // 220° symmetric sweep around top (12 o'clock).
+                val sweepDeg = 220.0
+                val endpointRad = Math.toRadians(sweepDeg / 2.0)
+                val endpointSinX = kotlin.math.sin(endpointRad).toFloat()  // ≈ 0.94
+                val endpointCosY = kotlin.math.abs(kotlin.math.cos(endpointRad)).toFloat() // ≈ 0.34
+                val canvasH = (sizePx * 0.66).dp + minMaxFontSz.value.dp + 32.dp
+                Box(
+                    modifier = Modifier
+                        .size(width = size, height = canvasH)
+                        .padding(strokeW.dp / 2),
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val cx = this.size.width / 2f
+                        val radius = (this.size.width / 2f) - strokeW / 2f
+                        val cy = radius + strokeW / 2f
+                        // Speedometer angle math: SwiftUI Path arc uses iOS coordinate system;
+                        // Compose drawArc startAngle is measured from 3 o'clock (right) clockwise.
+                        // To replicate iOS sweep starting at 270° - sweep/2, we offset by -90.
+                        // iOS startAngle: 270° - sweep/2 → Compose: 180° - sweep/2
+                        val startAngle = 180f - (sweepDeg / 2.0).toFloat()
+                        val arcSize = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f)
+                        val arcOffset = androidx.compose.ui.geometry.Offset(cx - radius, cy - radius)
+                        // Track
+                        drawArc(
+                            color = trackColor,
+                            startAngle = startAngle,
+                            sweepAngle = sweepDeg.toFloat(),
+                            useCenter = false,
+                            style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                            topLeft = arcOffset,
+                            size = arcSize,
+                        )
+                        // Fill
+                        val fillSweep = sweepDeg.toFloat() * animatedProgress
+                        if (useGradient) {
+                            drawArc(
+                                brush = Brush.sweepGradient(gradColors, center = androidx.compose.ui.geometry.Offset(cx, cy)),
+                                startAngle = startAngle,
+                                sweepAngle = fillSweep,
+                                useCenter = false,
+                                style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                                topLeft = arcOffset,
+                                size = arcSize,
+                            )
+                        } else {
+                            drawArc(
+                                color = fillColor,
+                                startAngle = startAngle,
+                                sweepAngle = fillSweep,
+                                useCenter = false,
+                                style = Stroke(width = strokeW, cap = StrokeCap.Round),
+                                topLeft = arcOffset,
+                                size = arcSize,
+                            )
+                        }
+                        // Needle — rotated around (cx, cy).
+                        val needleLen = radius - strokeW / 2f - 12f
+                        val needleAngleFromUp = -sweepDeg / 2.0 + sweepDeg * animatedProgress
+                        // Convert "up = 0°" to Compose canvas: subtract 90° because Canvas
+                        // rotation is from 3 o'clock; so needle_angle_canvas = needleAngleFromUp - 90°
+                        val needleAngleRad = Math.toRadians(needleAngleFromUp - 90.0)
+                        val tipX = cx + (kotlin.math.cos(needleAngleRad) * needleLen).toFloat()
+                        val tipY = cy + (kotlin.math.sin(needleAngleRad) * needleLen).toFloat()
+                        drawLine(
+                            color = needleCol,
+                            start = androidx.compose.ui.geometry.Offset(cx, cy),
+                            end = androidx.compose.ui.geometry.Offset(tipX, tipY),
+                            strokeWidth = needleW,
+                            cap = StrokeCap.Round,
+                        )
+                        // Hub circle
+                        drawCircle(
+                            color = needleCol,
+                            radius = maxOf(6f, needleW * 1.75f),
+                            center = androidx.compose.ui.geometry.Offset(cx, cy),
+                        )
+                    }
+                    // Min/Max labels positioned at endpoint coordinates (relative to box).
+                    val density = LocalDensity.current
+                    val sizePxFloat = with(density) { size.toPx() }
+                    val cxPx = sizePxFloat / 2f
+                    val radiusPx = sizePxFloat / 2f - strokeW / 2f
+                    val cyPx = radiusPx + strokeW / 2f
+                    val endpointX = endpointSinX * radiusPx
+                    val endpointY = endpointCosY * radiusPx
+                    val labelOffsetXmin = with(density) { (cxPx - endpointX).toDp() }
+                    val labelOffsetXmax = with(density) { (cxPx + endpointX).toDp() }
+                    val labelOffsetY = with(density) { (cyPx + endpointY + strokeW).toDp() }
+                    Text(
+                        text = minLabel,
+                        fontSize = minMaxFontSz,
+                        fontWeight = FontWeight.Medium,
+                        color = minMaxCol,
+                        modifier = Modifier.absoluteOffset(x = labelOffsetXmin - 12.dp, y = labelOffsetY),
+                    )
+                    Text(
+                        text = maxLabel,
+                        fontSize = minMaxFontSz,
+                        fontWeight = FontWeight.Medium,
+                        color = minMaxCol,
+                        modifier = Modifier.absoluteOffset(x = labelOffsetXmax - 12.dp, y = labelOffsetY),
+                    )
+                    // Center value (positioned in the bowl below center).
+                    if (shouldShowCenter) {
+                        val centerY = with(density) { (cyPx + radiusPx * 0.5f).toDp() }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .absoluteOffset(y = centerY - labelFontSize.value.dp / 2),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                text = if (showPct) "${(animatedProgress * 100).roundToInt()}%"
+                                    else if (hasCenterText) block.text!!
+                                    else "${value.toInt()}",
+                                fontSize = labelFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = labelColor,
+                            )
+                            block.sublabel?.takeIf { it.isNotEmpty() }?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = (kotlin.math.min(labelFontSize.value * 0.5f, 13f)).sp,
+                                    color = labelColor.copy(alpha = 0.6f),
+                                )
+                            }
+                        }
+                    }
                 }
             }
+            else -> {
+                // arc / radial — full square Box with Canvas + center label.
+                val isRadial = variant == "radial"
+                val effectiveStroke = if (isRadial) strokeW * 2f else strokeW
+                Box(
+                    modifier = Modifier.size(size).padding((effectiveStroke / 2).dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        // Track
+                        drawArc(
+                            color = trackColor,
+                            startAngle = 0f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = effectiveStroke, cap = StrokeCap.Round),
+                        )
+                        // Fill — start at 12 o'clock (-90°)
+                        val fillSweep = animatedProgress * 360f
+                        if (useGradient) {
+                            drawArc(
+                                brush = Brush.sweepGradient(gradColors),
+                                startAngle = -90f,
+                                sweepAngle = fillSweep,
+                                useCenter = false,
+                                style = Stroke(width = effectiveStroke, cap = StrokeCap.Round),
+                            )
+                        } else {
+                            drawArc(
+                                color = fillColor,
+                                startAngle = -90f,
+                                sweepAngle = fillSweep,
+                                useCenter = false,
+                                style = Stroke(width = effectiveStroke, cap = StrokeCap.Round),
+                            )
+                        }
+                    }
+                    if (shouldShowCenter) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = if (showPct) "${(animatedProgress * 100).roundToInt()}%"
+                                    else if (hasCenterText) block.text!!
+                                    else "${value.toInt()}",
+                                fontSize = labelFontSize,
+                                fontWeight = FontWeight.Bold,
+                                color = labelColor,
+                            )
+                            block.sublabel?.takeIf { it.isNotEmpty() }?.let {
+                                Text(
+                                    text = it,
+                                    fontSize = 12.sp,
+                                    color = labelColor.copy(alpha = 0.7f),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (showPct && pctLocation == "below") {
+            Text(
+                text = "${(animatedProgress * 100).roundToInt()}%",
+                fontSize = labelFontSize,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
+            )
         }
     }
 }
