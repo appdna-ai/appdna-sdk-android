@@ -519,7 +519,16 @@ fun ChatStepComposable(
             val resolvedBg = btn?.bg_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleBg
             val resolvedText = btn?.text_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleTextColor
             val radius = (btn?.button_corner_radius ?: 14.0).dp
-            val height = (btn?.button_height ?: 52.0).dp
+            // SPEC-401-A — match iOS height behaviour. iOS uses
+            // height=nil → natural padding(14×2)≈46pt fallback when
+            // button_height is not configured (ChatStepView.swift:354,
+            // 374-375). Android previously forced 52.dp default making
+            // the CTA consistently taller. Use Modifier.heightIn that
+            // honours button_height when set, otherwise lets the
+            // intrinsic content+padding determine height.
+            val heightModifier = btn?.button_height
+                ?.let { androidx.compose.ui.Modifier.height(it.dp) }
+                ?: androidx.compose.ui.Modifier.defaultMinSize(minHeight = 46.dp)
             val fontSize = (btn?.style?.font_size ?: 17.0).sp
             val weight = when ((btn?.style?.font_weight ?: 600.0).toInt()) {
                 400 -> FontWeight.Normal
@@ -534,13 +543,13 @@ fun ChatStepComposable(
                     "text" -> {
                         TextButton(
                             onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
-                            modifier = Modifier.fillMaxWidth().height(height)
+                            modifier = Modifier.fillMaxWidth().then(heightModifier)
                         ) { Text(label, color = resolvedBg, fontWeight = weight, fontSize = fontSize) }
                     }
                     "outline" -> {
                         OutlinedButton(
                             onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
-                            modifier = Modifier.fillMaxWidth().height(height),
+                            modifier = Modifier.fillMaxWidth().then(heightModifier),
                             shape = RoundedCornerShape(radius),
                             border = androidx.compose.foundation.BorderStroke(2.dp, resolvedBg)
                         ) { Text(label, color = resolvedBg, fontWeight = weight, fontSize = fontSize) }
@@ -548,7 +557,7 @@ fun ChatStepComposable(
                     "secondary" -> {
                         Button(
                             onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
-                            modifier = Modifier.fillMaxWidth().height(height),
+                            modifier = Modifier.fillMaxWidth().then(heightModifier),
                             shape = RoundedCornerShape(radius),
                             colors = ButtonDefaults.buttonColors(containerColor = resolvedBg.copy(alpha = 0.15f))
                         ) { Text(label, color = resolvedText, fontWeight = weight, fontSize = fontSize) }
@@ -556,7 +565,7 @@ fun ChatStepComposable(
                     else -> { // primary
                         Button(
                             onClick = { onNext(buildTranscript(if (isCompleted) "max_turns" else "user_completed")) },
-                            modifier = Modifier.fillMaxWidth().height(height),
+                            modifier = Modifier.fillMaxWidth().then(heightModifier),
                             shape = RoundedCornerShape(radius),
                             colors = ButtonDefaults.buttonColors(containerColor = resolvedBg)
                         ) { Text(label, color = resolvedText, fontWeight = weight, fontSize = fontSize) }
