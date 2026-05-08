@@ -2268,6 +2268,20 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         modifier = Modifier.fillMaxWidth()
     ) {
         Spacer(Modifier.height(48.dp))
+        // SPEC-401-A — legacy step image_url. Mirrors iOS WelcomeStepView
+        // .swift:13-29 — 280×280dp rounded image when authored without
+        // content_blocks.
+        config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+            ai.appdna.sdk.core.NetworkImage(
+                url = url,
+                contentDescription = null,
+                modifier = androidx.compose.ui.Modifier
+                    .size(280.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
         config.title?.let {
             // SPEC-070-A J.11 — step title is the screen heading for a11y.
             Text(
@@ -2417,6 +2431,20 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
 @Composable
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+        // SPEC-401-A — legacy step image_url. Mirrors iOS CustomStepView
+        // .swift:29-41 — 280×280dp rounded image when authored without
+        // content_blocks. Affects custom/info/permission step types.
+        config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+            ai.appdna.sdk.core.NetworkImage(
+                url = url,
+                contentDescription = null,
+                modifier = androidx.compose.ui.Modifier
+                    .size(280.dp)
+                    .clip(RoundedCornerShape(16.dp)),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+            Spacer(Modifier.height(24.dp))
+        }
         config.title?.let {
             // SPEC-070-A J.11 — custom step title is the screen heading.
             Text(
