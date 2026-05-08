@@ -225,13 +225,25 @@ internal object NextStepRuleEvaluator {
             b.field_id == field && b.type.startsWith("input_")
         } ?: return emptyMap<String, String>() to emptyMap()
         val options = block.field_options ?: return emptyMap<String, String>() to emptyMap()
+        // SPEC-401-A R10 — read both `opt.id` and `opt.value` to build a
+        // real bidirectional alias map. iOS at OnboardingRenderer.swift:
+        // 961-980 maps `option.id ↔ option.value`. Previous Android impl
+        // collapsed to identity (v→v), so a console rule keyed on the
+        // string the user-facing value-rendered from `opt.id` couldn't
+        // match a response Android persisted as `opt.value`.
         val idToVal = mutableMapOf<String, String>()
         val valToId = mutableMapOf<String, String>()
         for (opt in options) {
-            val v = opt.value
-            if (v.isNotEmpty()) {
-                idToVal[v] = v
-                valToId[v] = v
+            val id = opt.id?.takeIf { it.isNotEmpty() }
+            val value = opt.value.takeIf { it.isNotEmpty() }
+            // Identity entries so the existing `aliasedEquals` shortcut
+            // still resolves a literal equal match.
+            id?.let { idToVal[it] = it; valToId[it] = it }
+            value?.let { idToVal[it] = it; valToId[it] = it }
+            // Cross-mappings when both id + value are present and differ.
+            if (id != null && value != null && id != value) {
+                idToVal[id] = value
+                valToId[value] = id
             }
         }
         return idToVal to valToId
@@ -315,4 +327,36 @@ internal fun upgradeToAnalyticsEventIfShortId(
     return if (nodeType == "analytics_event") {
         RuleTarget.AnalyticsEvent(classified.stepId)
     } else classified
+}
+
+/**
+ * SPEC-401-A R10 — short-id detector for paywall_trigger + end graph
+ * nodes. Console editor emits `paywall1` / `end1` instead of legacy
+ * `paywall_trigger_<ts>` / `end_<ts>`. iOS routes via dual prefix-or-
+ * nodeType detection at `OnboardingRenderer.swift:808,814`; Android
+ * `classifyRuleTarget` only matched the long prefix so a console-
+ * authored rule with a short ID fell into `RuleTarget.Step`, missed
+ * the step lookup, and either no-oped or natural-advanced. Combined
+ * with [upgradeToAnalyticsEventIfShortId] this covers all 3 graph-
+ * node short-id surfaces (analytics_event / paywall_trigger / end).
+ *
+ * Caller pattern (OnboardingActivity rule entry):
+ *
+ *     val classified = upgradeToShortIdRuleTarget(
+ *         classifyRuleTarget(rule.target_step_id),
+ *         flow.graph_nodes,
+ *     )
+ */
+internal fun upgradeToShortIdRuleTarget(
+    classified: RuleTarget,
+    graphNodes: Map<String, Any?>?,
+): RuleTarget {
+    if (classified !is RuleTarget.Step) return classified
+    val nodeData = graphNodes?.get(classified.stepId) as? Map<*, *> ?: return classified
+    return when (nodeData["type"] as? String) {
+        "analytics_event" -> RuleTarget.AnalyticsEvent(classified.stepId)
+        "paywall_trigger" -> RuleTarget.PaywallTrigger(classified.stepId)
+        "end" -> RuleTarget.EndFlow
+        else -> classified
+    }
 }

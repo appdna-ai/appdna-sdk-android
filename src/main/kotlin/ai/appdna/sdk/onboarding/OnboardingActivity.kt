@@ -791,7 +791,13 @@ internal fun OnboardingFlowHost(
                 // re-classify from RuleTarget.Step → RuleTarget.AnalyticsEvent.
                 @Suppress("UNCHECKED_CAST")
                 val rawClassified = classifyRuleTarget(rule.target_step_id)
-                when (val classified = upgradeToAnalyticsEventIfShortId(rawClassified, flow.graph_nodes as? Map<String, Any?>)) {
+                // SPEC-401-A R10 — also upgrade short-id paywall_trigger /
+                // end graph nodes (`paywall1` / `end1`) at the entry-point
+                // classification, mirroring iOS dual prefix-or-nodeType
+                // detection at OnboardingRenderer.swift:808,814. Without
+                // this the editor's short-id targets fell into
+                // `RuleTarget.Step` and silently no-oped.
+                when (val classified = upgradeToShortIdRuleTarget(rawClassified, flow.graph_nodes as? Map<String, Any?>)) {
                     is RuleTarget.Empty -> continue
                     is RuleTarget.PaywallTrigger -> {
                         presentPaywallTriggerNode(classified.rawTarget)
@@ -2426,7 +2432,11 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
             onClick = { onNext(null) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
             shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            // SPEC-401-A R10 — match iOS WelcomeStepView.swift:55 fixed
+            // indigo `#6366F1` so the same flow renders the same CTA
+            // color on both natives, regardless of host's Material theme
+            // primary override.
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
         ) {
             Text(text = (config.cta_text ?: "Get Started").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
