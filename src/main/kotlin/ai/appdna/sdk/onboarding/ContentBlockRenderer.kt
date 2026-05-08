@@ -2157,12 +2157,17 @@ private fun RatingBlock(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Optional label — iOS reads `rating_label ?? label`.
+        // SPEC-401-A R11 — match iOS `Text(label).foregroundColor(.primary)`
+        // (ContentBlockStandaloneViews.swift:21-25) — theme-aware text
+        // colour, NOT a hardcoded gray. Previous Color.Gray made the
+        // label read as dim secondary text on Android while iOS rendered
+        // it as primary body text.
         (block.rating_label ?: block.label)?.let { label ->
             val displayLabel = loc?.invoke("block.${block.id}.label", label) ?: label
             Text(
                 text = displayLabel,
                 fontSize = 14.sp,
-                color = Color.Gray,
+                color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
