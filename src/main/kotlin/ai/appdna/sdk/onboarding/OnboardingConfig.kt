@@ -362,6 +362,29 @@ data class FormFieldConfig(
 )
 
 @Immutable
+/**
+ * SPEC-401-A — per-field style envelope (mirrors `FormFieldStyleSchema`
+ * in `flow.schema.ts:101-109`). Authors set these in the console; the
+ * renderer applies them to Material3 widgets where applicable:
+ *   - `corner_radius` → `OutlinedTextField` shape, button corners
+ *   - `border_color` / `focus_border_color` → `OutlinedTextField.colors`
+ *   - `background_color` → toggle's `checkedTrackColor`, container fills
+ *   - `error_style.color` (free-form input_style/error_style) → error tint
+ *
+ * `label_style` / `input_style` / `error_style` are typed as free-form
+ * maps because the schema treats them as opaque records — authors may
+ * pass any sub-keys (e.g. `font_size`, `font_weight`, `color`).
+ */
+data class FormFieldStyle(
+    val label_style: Map<String, Any>? = null,
+    val input_style: Map<String, Any>? = null,
+    val error_style: Map<String, Any>? = null,
+    val corner_radius: Double? = null,
+    val border_color: String? = null,
+    val focus_border_color: String? = null,
+    val background_color: String? = null,
+)
+
 data class FormField(
     val id: String,
     val type: FormFieldType,
@@ -371,7 +394,8 @@ data class FormField(
     val validation: FormFieldValidation? = null,
     val options: ImmutableList<FormFieldOption>? = null,
     val config: FormFieldConfig? = null,
-    val depends_on: FormFieldDependency? = null
+    val depends_on: FormFieldDependency? = null,
+    val style: FormFieldStyle? = null,
 )
 
 // MARK: - Async Step Hook Types (SPEC-083)
@@ -667,6 +691,23 @@ internal object OnboardingConfigParser {
                         value = d["value"]
                     )
                 }
+                // SPEC-401-A — parse the per-field `style` envelope from the
+                // schema's `FormFieldStyleSchema`. Renderer reads it for
+                // toggle track tint, OutlinedTextField border colors, and
+                // corner radius.
+                @Suppress("UNCHECKED_CAST")
+                val styleMap = fm["style"] as? Map<String, Any>
+                val fieldStyle = styleMap?.let { sm ->
+                    FormFieldStyle(
+                        label_style = sm["label_style"] as? Map<String, Any>,
+                        input_style = sm["input_style"] as? Map<String, Any>,
+                        error_style = sm["error_style"] as? Map<String, Any>,
+                        corner_radius = (sm["corner_radius"] as? Number)?.toDouble(),
+                        border_color = sm["border_color"] as? String,
+                        focus_border_color = sm["focus_border_color"] as? String,
+                        background_color = sm["background_color"] as? String,
+                    )
+                }
                 FormField(
                     id = fm["id"] as? String ?: "",
                     type = FormFieldType.fromString(fm["type"] as? String ?: "text"),
@@ -676,7 +717,8 @@ internal object OnboardingConfigParser {
                     validation = fieldValidation,
                     options = fieldOptions,
                     config = fieldConfig,
-                    depends_on = dependency
+                    depends_on = dependency,
+                    style = fieldStyle,
                 )
             } else null
         }?.toImmutableList()

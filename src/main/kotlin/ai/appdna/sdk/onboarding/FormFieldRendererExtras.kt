@@ -77,6 +77,8 @@ internal fun PasswordField(
     var visible by rememberSaveable { mutableStateOf(false) }
     val text = values[field.id]?.toString() ?: ""
     val maxLen = field.config?.max_length
+    val colors = passwordTextFieldColors(field)
+    val shape = passwordTextFieldShape(field)
 
     OutlinedTextField(
         value = text,
@@ -104,6 +106,8 @@ internal fun PasswordField(
             }
         },
         isError = errors.containsKey(field.id),
+        shape = shape,
+        colors = colors,
     )
 }
 
@@ -134,6 +138,45 @@ internal fun UrlField(
             imeAction = ImeAction.Done,
         ),
         isError = errors.containsKey(field.id),
+        shape = passwordTextFieldShape(field),
+        colors = passwordTextFieldColors(field),
+    )
+}
+
+/**
+ * SPEC-401-A — local copy of `textFieldShapeFor` / `textFieldColorsFor`
+ * from `FormStepComposable.kt`. Inlined here so this file stays
+ * self-contained and the two private helpers in FormStepComposable.kt
+ * don't have to be promoted to module-internal. Both renderers honour
+ * the same `field.style` envelope.
+ */
+@Composable
+private fun passwordTextFieldShape(field: FormField): androidx.compose.ui.graphics.Shape {
+    val radius = field.style?.corner_radius?.toFloat() ?: return OutlinedTextFieldDefaults.shape
+    return RoundedCornerShape(radius.dp)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun passwordTextFieldColors(field: FormField): TextFieldColors {
+    val style = field.style ?: return OutlinedTextFieldDefaults.colors()
+    val parse: (String?) -> Color? = { hex ->
+        hex?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+    }
+    val border = parse(style.border_color)
+    val focusedBorder = parse(style.focus_border_color)
+    val container = parse(style.background_color)
+    val errorHex = (style.error_style?.get("color") as? String)
+        ?: (style.error_style?.get("border_color") as? String)
+    val errorBorder = parse(errorHex)
+    return OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = focusedBorder ?: MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = border ?: MaterialTheme.colorScheme.outline,
+        errorBorderColor = errorBorder ?: MaterialTheme.colorScheme.error,
+        focusedContainerColor = container ?: Color.Transparent,
+        unfocusedContainerColor = container ?: Color.Transparent,
+        disabledContainerColor = container ?: Color.Transparent,
+        errorContainerColor = container ?: Color.Transparent,
     )
 }
 

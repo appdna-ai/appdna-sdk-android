@@ -250,7 +250,9 @@ private fun FormFieldControl(
                     capitalization = resolveCapitalization(field),
                 ),
                 isError = errors.containsKey(field.id),
-                singleLine = true
+                singleLine = true,
+                shape = textFieldShapeFor(field),
+                colors = textFieldColorsFor(field),
             )
         }
 
@@ -275,6 +277,8 @@ private fun FormFieldControl(
                 isError = errors.containsKey(field.id),
                 minLines = minLines,
                 maxLines = 8,
+                shape = textFieldShapeFor(field),
+                colors = textFieldColorsFor(field),
             )
         }
 
@@ -298,7 +302,9 @@ private fun FormFieldControl(
                         imeAction = ImeAction.Done,
                     ),
                     isError = errors.containsKey(field.id),
-                    singleLine = true
+                    singleLine = true,
+                    shape = textFieldShapeFor(field),
+                    colors = textFieldColorsFor(field),
                 )
                 field.config?.unit?.let { unit ->
                     Spacer(Modifier.width(8.dp))
@@ -367,22 +373,28 @@ private fun FormFieldControl(
         FormFieldType.SIGNATURE -> SignatureField(field, values, errors)
 
         FormFieldType.TOGGLE -> {
+            // SPEC-401-A — `field.style.background_color` (or input_style.fill_color
+            // sub-key) maps to the Switch's `checkedTrackColor`. Mirrors iOS
+            // `Toggle.tint`. Thumb-on stays the Material standard (white)
+            // because that's the Material idiom — author-overriding it would
+            // make the toggle look non-Android.
+            val trackColorHex: String? = field.style?.background_color
+                ?: (field.style?.input_style?.get("fill_color") as? String)
+                ?: (field.style?.input_style?.get("background_color") as? String)
+            val checkedTrackColor = trackColorHex?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                ?: MaterialTheme.colorScheme.primary
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(field.label.interpolated(), fontSize = 16.sp)
-                // SPEC-401-A B3 P2 — Material primary on the track is the
-                // natural Android Switch colour. iOS `Toggle.tint` applies
-                // to the thumb-on; Android M3 applies the equivalent to
-                // the track. The `field_style.fill_color` config field
-                // belongs on a per-block style envelope (FormFieldStyle
-                // wrapper) and would need a schema-level wiring before
-                // it can flow here — left for a follow-up.
                 Switch(
                     checked = values[field.id] as? Boolean ?: false,
                     onCheckedChange = { values[field.id] = it },
+                    colors = SwitchDefaults.colors(
+                        checkedTrackColor = checkedTrackColor,
+                    ),
                 )
             }
         }
@@ -620,6 +632,51 @@ private fun TimeField(
 }
 
 /**
+ * SPEC-401-A — derive Material3 `OutlinedTextFieldColors` from the
+ * per-field `style` envelope. Authors set `border_color`,
+ * `focus_border_color`, `background_color` directly, or stuff a
+ * sub-color into the free-form `error_style.color` map for the error
+ * tint. Falls back to Material3 defaults so no styling means stock
+ * appearance.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun textFieldColorsFor(field: FormField): TextFieldColors {
+    val style = field.style ?: return OutlinedTextFieldDefaults.colors()
+    val parse: (String?) -> androidx.compose.ui.graphics.Color? = { hex ->
+        hex?.takeIf { it.isNotBlank() }?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+    }
+    val border = parse(style.border_color)
+    val focusedBorder = parse(style.focus_border_color)
+    val container = parse(style.background_color)
+    val errorHex = (style.error_style?.get("color") as? String)
+        ?: (style.error_style?.get("border_color") as? String)
+    val errorBorder = parse(errorHex)
+
+    return OutlinedTextFieldDefaults.colors(
+        focusedBorderColor = focusedBorder ?: MaterialTheme.colorScheme.primary,
+        unfocusedBorderColor = border ?: MaterialTheme.colorScheme.outline,
+        errorBorderColor = errorBorder ?: MaterialTheme.colorScheme.error,
+        focusedContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
+        unfocusedContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
+        disabledContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
+        errorContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
+    )
+}
+
+/**
+ * SPEC-401-A — derive a [Shape] from the per-field `style.corner_radius`
+ * with a sensible default (Material3 OutlinedTextField default = 4.dp,
+ * iOS `.roundedBorder` ≈ 5pt; we use 8.dp for visual harmony with
+ * other Material3 surfaces).
+ */
+@Composable
+private fun textFieldShapeFor(field: FormField): androidx.compose.ui.graphics.Shape {
+    val radius = field.style?.corner_radius?.toFloat() ?: return OutlinedTextFieldDefaults.shape
+    return RoundedCornerShape(radius.dp)
+}
+
+/**
  * SPEC-401-A B3 P2 — autocorrect default per field type. Email/phone/url/
  * password switch autocorrect off (matches iOS implicit behaviour and
  * prevents the IME from "correcting" structured text). Other text types
@@ -718,6 +775,8 @@ private fun SelectField(
                 placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                 isError = errors.containsKey(field.id),
+                shape = textFieldShapeFor(field),
+                colors = textFieldColorsFor(field),
             )
             ExposedDropdownMenu(
                 expanded = expanded,
