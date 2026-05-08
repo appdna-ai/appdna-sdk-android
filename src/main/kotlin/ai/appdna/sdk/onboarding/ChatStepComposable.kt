@@ -232,10 +232,24 @@ fun ChatStepComposable(
             step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
             if (persona?.name != null && persona.role != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Avatar: initial-based circle
-                    persona?.name?.firstOrNull()?.let { initial ->
-                        Box(modifier = Modifier.size(28.dp).clip(CircleShape).background(hex(style?.ai_bubble_bg, "#1E293B")), contentAlignment = Alignment.Center) {
-                            Text(initial.toString(), color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    // SPEC-401-A — render `persona.avatar_url` when set, else
+                    // fall back to the initial-based circle. Mirrors iOS
+                    // ChatStepView.swift:149,173 which loads via BundledAsyncImage.
+                    val initial = persona?.name?.firstOrNull()?.toString() ?: "A"
+                    val avatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
+                    Box(
+                        modifier = Modifier.size(28.dp).clip(CircleShape).background(hex(style?.ai_bubble_bg, "#1E293B")),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (avatarUrl != null) {
+                            ai.appdna.sdk.core.NetworkImage(
+                                url = avatarUrl,
+                                modifier = Modifier.size(28.dp).clip(CircleShape),
+                                contentDescription = persona.name,
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            )
+                        } else {
+                            Text(initial, color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Text("${persona.name} - ${persona.role}", color = Color.Gray, fontSize = 12.sp)
@@ -254,9 +268,20 @@ fun ChatStepComposable(
                 when (msg.role) {
                     ChatRole.AI -> {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                            // Avatar
+                            // SPEC-401-A — load persona.avatar_url for AI message
+                            // bubbles, fallback to initial circle.
+                            val msgAvatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
                             Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(aiBubbleBg), contentAlignment = Alignment.Center) {
-                                Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                if (msgAvatarUrl != null) {
+                                    ai.appdna.sdk.core.NetworkImage(
+                                        url = msgAvatarUrl,
+                                        modifier = Modifier.size(32.dp).clip(CircleShape),
+                                        contentDescription = persona?.name,
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                    )
+                                } else {
+                                    Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                             Text(
                                 msg.content, color = aiBubbleTextColor, fontSize = 14.sp,
@@ -283,9 +308,20 @@ fun ChatStepComposable(
             // Typing indicator
             if (isTyping) {
                 item {
+                    // SPEC-401-A — same persona avatar fallback as message bubbles.
+                    val typingAvatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(aiBubbleBg), contentAlignment = Alignment.Center) {
-                            Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            if (typingAvatarUrl != null) {
+                                ai.appdna.sdk.core.NetworkImage(
+                                    url = typingAvatarUrl,
+                                    modifier = Modifier.size(32.dp).clip(CircleShape),
+                                    contentDescription = persona?.name,
+                                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                )
+                            } else {
+                                Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
                         }
                         // SPEC-401-A — animated typing indicator (3 dots
                         // pulsing alpha 0.3 → 1.0 with 0.2s stagger).
