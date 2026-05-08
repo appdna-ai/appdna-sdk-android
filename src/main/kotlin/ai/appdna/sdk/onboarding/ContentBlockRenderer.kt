@@ -1116,6 +1116,21 @@ private fun RenderBlockContent(
     }
 }
 
+/**
+ * SPEC-401-A — translate `horizontal_align` token into Compose
+ * [TextAlign]. Mirrors iOS `multilineTextAlignment(...)` on text/
+ * heading blocks. iOS accepts `leading`/`start`/`left`,
+ * `trailing`/`end`/`right`, `center`. Unknown values fall through
+ * to platform default (Start).
+ */
+private fun horizontalTextAlign(token: String?): androidx.compose.ui.text.style.TextAlign? = when (token) {
+    "left", "start", "leading" -> androidx.compose.ui.text.style.TextAlign.Start
+    "right", "end", "trailing" -> androidx.compose.ui.text.style.TextAlign.End
+    "center" -> androidx.compose.ui.text.style.TextAlign.Center
+    "justify" -> androidx.compose.ui.text.style.TextAlign.Justify
+    else -> null
+}
+
 @Composable
 private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
     val text = block.text ?: ""
@@ -1125,9 +1140,11 @@ private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)?
         color = Color.Unspecified,
     )
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
+    val styleWithAlign = horizontalTextAlign(block.horizontal_align)
+        ?.let { effectiveStyle.copy(textAlign = it) } ?: effectiveStyle
     Text(
         text = loc?.invoke("block.${block.id}.text", text) ?: text,
-        style = effectiveStyle,
+        style = styleWithAlign,
         // SPEC-070-A J.11 — heading content blocks announce as a heading
         // to screen readers, matching iOS `accessibilityAddTraits(.isHeader)`.
         modifier = Modifier
@@ -1141,9 +1158,11 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
     val text = block.text ?: ""
     val baseStyle = TextStyle(fontSize = 16.sp, color = Color.Unspecified)
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
+    val styleWithAlign = horizontalTextAlign(block.horizontal_align)
+        ?.let { effectiveStyle.copy(textAlign = it) } ?: effectiveStyle
     Text(
         text = loc?.invoke("block.${block.id}.text", text) ?: text,
-        style = effectiveStyle,
+        style = styleWithAlign,
         modifier = Modifier.fillMaxWidth(),
     )
 }
