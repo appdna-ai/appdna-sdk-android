@@ -52,6 +52,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -3826,7 +3828,12 @@ private fun FormInputRatingBlock(
     val fieldId = block.field_id ?: block.id
     val maxStars = block.max_stars ?: 5
     val starSize = (block.star_size ?: 32.0).sp
-    val filledCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_rating_color ?: "#FBBF24")
+    // SPEC-401-A B2 P1 — DTO field-name + priority parity with iOS.
+    // iOS reads `filled_color ?? field_style.fill_color`, Android was
+    // reversed (field_style.fill_color first). Console can author either
+    // — sample author writes `filled_color` so iOS picked it up but
+    // Android ignored it whenever both were set.
+    val filledCol = StyleEngine.parseColor(block.active_rating_color ?: block.field_style?.fill_color ?: "#FBBF24")
     val emptyCol = StyleEngine.parseColor(block.inactive_rating_color ?: "#D1D5DB")
     // OB-6 audit follow-up — restore saved value on back nav.
     var selectedRating by remember {
@@ -4409,16 +4416,22 @@ private fun FormInputSignatureBlock(
                     )
                 },
         ) {
+            // SPEC-401-A B2 P1 \u2014 theme-aware stroke colour + 2.dp width
+            // matching iOS `FormInputBlockViews.swift:1780-1789` (which uses
+            // `.color(.primary)` and `lineWidth: 2`). Was hardcoded
+            // `Color.Black` + 4f (twice as thick + invisible in dark mode).
+            val strokeColor = MaterialTheme.colorScheme.onSurface
+            val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val allLines = lines.toList() + listOf(currentLine)
                 allLines.forEach { line ->
                     if (line.size > 1) {
                         for (i in 0 until line.size - 1) {
                             drawLine(
-                                color = Color.Black,
+                                color = strokeColor,
                                 start = line[i],
                                 end = line[i + 1],
-                                strokeWidth = 4f,
+                                strokeWidth = strokePx,
                                 cap = StrokeCap.Round,
                             )
                         }
@@ -4426,29 +4439,38 @@ private fun FormInputSignatureBlock(
                 }
             }
 
-            // Clear button
+            // SPEC-401-A B3 P2 \u2014 clear button is now an icon-only Material
+            // `IconButton` (Material trailing-action pattern). iOS uses an
+            // SF Symbol icon button \u2014 Android equivalent is `Icons.Filled.Close`.
             if (lines.isNotEmpty()) {
-                Text(
-                    text = "\u2715 Clear",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
+                IconButton(
+                    onClick = {
+                        lines.clear()
+                        currentLine = emptyList()
+                        inputValues.remove(fieldId)
+                    },
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clickable {
-                            lines.clear()
-                            currentLine = emptyList()
-                            inputValues.remove(fieldId)
-                        },
-                )
-            } else {
-                Text(
-                    text = "Draw your signature here",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.align(Alignment.Center),
-                )
+                        .padding(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Clear signature",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                }
             }
+        }
+        // SPEC-401-A B3 P2 \u2014 placeholder caption now sits BELOW the canvas
+        // (iOS standard form-field empty-state) rather than centred inside.
+        // Inside-canvas placeholder was less discoverable when the user
+        // started drawing.
+        if (lines.isEmpty() && currentLine.isEmpty()) {
+            Text(
+                text = "Draw your signature here",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
         }
     }
 }

@@ -501,6 +501,25 @@ private fun DateField(
     val context = LocalContext.current
     val dateStr = values[field.id]?.toString() ?: ""
 
+    // SPEC-401-A — display string honours config.date_format if author
+    // supplied one (e.g. "MMM d, yyyy"). Otherwise locale-aware short
+    // form (`SimpleDateFormat.getDateInstance(SHORT, Locale.getDefault())`)
+    // so dates feel native in any region. ISO submission stays Locale.US.
+    val displayFormatter = remember(field.config?.date_format) {
+        try {
+            field.config?.date_format?.takeIf { it.isNotBlank() }?.let { SimpleDateFormat(it, Locale.getDefault()) }
+                ?: SimpleDateFormat.getDateInstance(SimpleDateFormat.SHORT, Locale.getDefault()) as SimpleDateFormat
+        } catch (_: Exception) {
+            SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        }
+    }
+    val displayText: String = remember(dateStr) {
+        if (dateStr.isEmpty()) "" else try {
+            val parsed = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(dateStr)
+            if (parsed != null) displayFormatter.format(parsed) else dateStr
+        } catch (_: Exception) { dateStr }
+    }
+
     OutlinedButton(
         onClick = {
             val cal = Calendar.getInstance()
@@ -542,7 +561,7 @@ private fun DateField(
         shape = RoundedCornerShape(4.dp)
     ) {
         Text(
-            text = dateStr.ifEmpty { field.placeholder ?: "Select date" },
+            text = displayText.ifEmpty { field.placeholder ?: "Select date" },
             color = if (dateStr.isEmpty())
                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
             else
