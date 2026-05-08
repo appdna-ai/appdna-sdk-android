@@ -1842,7 +1842,16 @@ private fun SocialLoginBlock(
             val providerBorderWidth = (provider.border_width ?: 1f).dp
 
             val providerIcon = when (provider.type) {
-                "apple" -> "\uF8FF"  // Apple logo placeholder
+                // SPEC-401-A R11 \u2014 `\uF8FF` is in Apple's Private-Use range
+                // and renders as a tofu box on every Android device (NotoSans
+                // has no Apple glyph). iOS uses `Image(systemName:"applelogo")`
+                // SF Symbol which Android cannot replicate without an asset
+                // import. Pragmatic fallback: red apple emoji `\uD83C\uDF4E` \u2014
+                // universally renders on Android, conveys "Apple" in the
+                // sign-in row even if it's not the official logo. Replace
+                // with a bundled Apple Sign-In branded vector drawable in a
+                // follow-up if HIG-strict branding is required.
+                "apple" -> "\uD83C\uDF4E"
                 "google" -> "G"
                 "email" -> "\u2709"
                 "facebook" -> "f"

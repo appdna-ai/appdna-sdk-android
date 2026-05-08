@@ -1649,6 +1649,9 @@ fun OnboardingStepView(
             // SPEC-401-A R11 — flow visibility-eval data through.
             responses = accumulatedResponses,
             hookData = hookData,
+            // SPEC-401-A R11 — identity for auth-action analytics emit.
+            flowId = flowId,
+            stepId = step.id,
         )
     } else {
         // Legacy rendering
@@ -1822,6 +1825,14 @@ private fun emitAuthAction(
     inputValues: Map<String, Any>,
     onNext: (Map<String, Any>?) -> Unit,
     blocks: List<ContentBlock> = emptyList(),
+    // SPEC-401-A R11 — context for the analytics fire on the no-delegate
+    // gate. iOS handleStepCompleted (OnboardingRenderer.swift:444-446)
+    // fires `onboarding_step_completed` BEFORE the requiresDelegate gate;
+    // Android previously returned early without emitting, so warehouse
+    // queries on auth attempts saw the event on iOS but not Android.
+    flowId: String? = null,
+    stepId: String? = null,
+    stepIndex: Int? = null,
 ) {
     // SPEC-070-A finalization OB-4 — auth-action delegate gate. If the
     // host has not registered an AppDNAOnboardingDelegate (which is the
@@ -1834,6 +1845,26 @@ private fun emitAuthAction(
     if (action in AUTH_ACTIONS_REQUIRING_DELEGATE) {
         val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
         if (!hasDelegate) {
+            // SPEC-401-A R11 — fire `onboarding_step_completed` analytics
+            // BEFORE the early return, mirroring iOS handleStepCompleted
+            // pre-gate emit. Hosts looking at warehouse data for "user
+            // attempted login but flow misconfigured" now see the same
+            // event on both platforms.
+            if (flowId != null && stepId != null && stepIndex != null) {
+                val data = mutableMapOf<String, Any>().also { d ->
+                    d.putAll(inputValues)
+                    for ((k, v) in toggleValues) d["toggle_$k"] = v
+                    d["action"] = action
+                    if (actionValue != null) d["action_value"] = actionValue
+                }
+                ai.appdna.sdk.AppDNA.track("onboarding_step_completed", mapOf(
+                    "flow_id" to flowId,
+                    "step_id" to stepId,
+                    "step_index" to stepIndex,
+                    "selection_data" to data,
+                    "blocked_reason" to "no_delegate",
+                ))
+            }
             ai.appdna.sdk.Log.warning(
                 "Auth action `$action` was triggered but no AppDNAOnboardingDelegate " +
                 "is registered. Register via AppDNA.onboarding.setDelegate(...) and " +
@@ -2137,6 +2168,11 @@ private fun BlockBasedStepView(
     // (OnboardingRenderer.swift:1452-1460).
     responses: Map<String, Any> = emptyMap(),
     hookData: Map<String, Any>? = null,
+    // SPEC-401-A R11 — flowId/stepId so the auth-action no-delegate
+    // path can fire `onboarding_step_completed` analytics with the
+    // correct identity (matches iOS handleStepCompleted pre-gate emit).
+    flowId: String = "",
+    stepId: String = "",
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
@@ -2265,7 +2301,10 @@ private fun BlockBasedStepView(
             // Account lifecycle:
             "logout", "change_password", "set_new_password",
             "delete_account", "update_profile" -> {
-                emitAuthAction(rawAction, actionValue, toggleValues, inputValues, onNext, blocks)
+                emitAuthAction(
+                    rawAction, actionValue, toggleValues, inputValues, onNext, blocks,
+                    flowId = flowId, stepId = stepId, stepIndex = currentStepIndex,
+                )
             }
             // SPEC-070-A C.1 — `permission` is a SPEC-086 hook site. For now
             // advance as safe fallback so existing hosts don't get stuck on

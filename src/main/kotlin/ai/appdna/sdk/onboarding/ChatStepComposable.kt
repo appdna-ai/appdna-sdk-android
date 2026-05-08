@@ -139,27 +139,45 @@ fun ChatStepComposable(
     LaunchedEffect(Unit) {
         if (didRestore) return@LaunchedEffect
         val autoMsgs = chatConfig.auto_messages?.filter { it.turn == 0 } ?: emptyList()
+        // SPEC-401-A R11 — match iOS ABSOLUTE scheduling at
+        // ChatStepView.swift:614-633. iOS calls
+        // `DispatchQueue.main.asyncAfter(deadline: .now() + delay)` for
+        // each message, where `delay = delay_ms ?? (500 + i * 1200)` is
+        // measured from the moment playAutoMessages was invoked — so
+        // default 500/1700/2900ms places msg 0/1/2 at ~0.5/1.7/2.9s
+        // (typing finishes 0.8s after each).
+        // Android previously did `delay(delayMs) + delay(800)`
+        // sequentially, which RE-INTERPRETED `delay_ms` as a between-
+        // message gap. Same default config showed msg 2 at ~7.5s on
+        // Android while iOS rendered it at ~3.7s — chat header sequence
+        // visibly dragged. Fix: launch each message in its own coroutine
+        // with its own absolute `delay(delay_ms)` from the same start.
+        // The shared `isTyping` toggle is reference-counted via an
+        // AtomicInteger so overlapping typing dots don't flicker off
+        // when one message ends but another is still typing.
+        val playStart = System.currentTimeMillis()
+        val typingDepth = java.util.concurrent.atomic.AtomicInteger(0)
+        val msgsCompleted = java.util.concurrent.atomic.AtomicInteger(0)
         for ((i, autoMsg) in autoMsgs.withIndex()) {
-            // SPEC-401-A — match iOS cadence: silent for `delay_ms`,
-            // then `isTyping=true` for ~0.8s, then message. Android
-            // previously held isTyping for the full delay, so dots
-            // ran noticeably longer (especially for early messages
-            // where delay defaults to 500/1700/2900ms).
             val delayMs = autoMsg.delay_ms ?: (500 + i * 1200)
-            delay(delayMs.toLong())
-            isTyping = true
-            delay(800)
-            isTyping = false
-            messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
+            launch {
+                delay(delayMs.toLong())
+                if (typingDepth.incrementAndGet() == 1) isTyping = true
+                delay(800)
+                if (typingDepth.decrementAndGet() == 0) isTyping = false
+                messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
+                if (msgsCompleted.incrementAndGet() == autoMsgs.size) {
+                    // SPEC-401-A R5 — load turn-0 quick replies AFTER
+                    // ALL auto-messages have finished. Mirrors iOS
+                    // playAutoMessages tail callback.
+                    dynamicQuickReplies = chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
+                }
+            }
         }
-        // SPEC-401-A R5 — load turn-0 quick replies AFTER auto-messages
-        // finish playing. Mirrors iOS ChatStepView.swift:614-637 which
-        // calls loadQuickReplies(forTurn: 0) at the end of
-        // playAutoMessages. Without this the QR chips appeared while
-        // the welcome sequence was still typing.
-        if (autoMsgs.isNotEmpty()) {
-            dynamicQuickReplies = chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
-        }
+        // Keep playStart referenced so a future tracker can compute
+        // total auto-sequence duration if needed (see iOS: stored as
+        // `playAutoMessages` start in ChatStepView@614).
+        @Suppress("UNUSED_VARIABLE") val _start = playStart
     }
 
     // Scroll to bottom on new message
