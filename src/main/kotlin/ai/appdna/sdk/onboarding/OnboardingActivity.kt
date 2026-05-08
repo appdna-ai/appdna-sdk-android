@@ -572,11 +572,12 @@ internal fun OnboardingFlowHost(
                         } else {
                             val tIdx = flow.steps.indexOfFirst { it.id == edgeTarget }
                             if (tIdx >= 0) {
-                                // SPEC-070-A finalization P0 audit-8 D1 —
-                                // push the leaving step before paywall-routed
-                                // navigation so destination's previous_step_*
-                                // rules see the correct prevId.
-                                flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
+                                // SPEC-401-A R3 — DO NOT push history here.
+                                // advanceOrComplete already pushed the leaving
+                                // step before invoking presentPaywallTriggerNode
+                                // (line 711). Pushing again caused back-nav to
+                                // consume two history entries to move one step
+                                // back.
                                 currentIndex = tIdx
                             }
                             else {
@@ -610,11 +611,11 @@ internal fun OnboardingFlowHost(
                         // Treat as a step ID — navigate.
                         val tIdx = flow.steps.indexOfFirst { it.id == chosen }
                         if (tIdx >= 0) {
-                            // SPEC-070-A finalization P0 audit-8 D1 —
-                            // push the leaving step before paywall-routed
-                            // navigation so destination's previous_step_*
-                            // rules see the correct prevId.
-                            flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
+                            // SPEC-401-A R3 — DO NOT push history here.
+                            // advanceOrComplete already pushed the leaving
+                            // step (line 711) before invoking
+                            // presentPaywallTriggerNode. Pushing again
+                            // caused double-pop on back-nav.
                             currentIndex = tIdx
                         } else {
                             // Unknown target — complete the flow as the safest fallback.
@@ -819,7 +820,11 @@ internal fun OnboardingFlowHost(
                         if (!nextTarget.isNullOrBlank()) {
                             val tIdx = flow.steps.indexOfFirst { it.id == nextTarget }
                             if (tIdx >= 0) {
-                                flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
+                                // SPEC-401-A R3 — DO NOT push history here.
+                                // advanceOrComplete already pushed the
+                                // leaving step at line 711 before reaching
+                                // this analytics_event branch. Pushing again
+                                // caused double-pop on back-nav.
                                 currentIndex = tIdx
                                 return
                             }
@@ -1063,16 +1068,26 @@ internal fun OnboardingFlowHost(
                             // SPEC-070-A J.2 — back navigation reuses
                             // `on_step_advance` haptic style.
                             HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
-                            // SPEC-070-A finalization P0 audit-7 — back nav
-                            // POPs navigationHistory so `previous_step_*`
-                            // rules on the destination step see what the
-                            // user actually came FROM (i.e. the step they
-                            // entered the current step FROM, not the step
-                            // they're now leaving via back).
+                            // SPEC-401-A R3 — jump to the popped step's
+                            // index, NOT currentIndex-1. iOS uses the popped
+                            // index (OnboardingRenderer.swift:259-262) so
+                            // non-linear flows (rule-skip, paywall continue,
+                            // analytics→target) back-nav lands on the step
+                            // the user actually came FROM. The old
+                            // `currentIndex--` path landed on whatever step
+                            // sat at index-1 even if the user had skipped
+                            // over it. Android tracks step IDs (not Ints)
+                            // so we look up the index by id; if the id no
+                            // longer resolves (e.g. flow rebuilt), fall
+                            // back to currentIndex-1.
+                            val previousId = navigationHistory.lastOrNull()
+                            val previousIndex = previousId
+                                ?.let { id -> flow.steps.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
+                                ?: maxOf(currentIndex - 1, 0)
                             if (navigationHistory.isNotEmpty()) {
                                 navigationHistory.removeAt(navigationHistory.lastIndex)
                             }
-                            currentIndex--
+                            currentIndex = previousIndex
                         },
                         enabled = !isProcessing,
                         // SPEC-070-A J.11 — back arrow rendered as Text glyph
