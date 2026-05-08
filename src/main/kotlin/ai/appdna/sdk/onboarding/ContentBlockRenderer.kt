@@ -419,6 +419,15 @@ data class ContentBlock(
     // SPEC-089d: progress_bar fields
     val segment_count: Int? = null,
     val active_segments: Int? = null,
+    // SPEC-401-A — iOS canon `filled_segments` field-name parity.
+    // Android historically only knew `active_segments`; backend writes
+    // both. Honour `filled_segments` first, fall back to `active_segments`.
+    val filled_segments: Int? = null,
+    val total_segments: Int? = null,
+    val progress_value: Double? = null,
+    val progress_variant: String? = null,
+    val bar_color: String? = null,
+    val bar_height: Double? = null,
     val fill_color: String? = null,
     val track_color: String? = null,
     val segment_gap: Double? = null,
@@ -2077,15 +2086,20 @@ private fun parseMarkdownToAnnotatedString(
  */
 @Composable
 private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> String)? = null, currentStepIndex: Int = 0, totalSteps: Int = 1) {
-    val variant = block.variant ?: "continuous"
+    // SPEC-401-A — iOS field-name parity. iOS uses `progress_variant` /
+    // `total_segments` / `filled_segments` / `bar_color` / `bar_height`.
+    // Older Android-only payloads still set `variant` / `segment_count` /
+    // `active_segments` / `fill_color` / `height` so honour both.
+    val variant = block.progress_variant ?: block.variant ?: "continuous"
     // AC-021: Auto-bind to step index when no explicit values set
-    val segmentCount = block.segment_count ?: totalSteps
-    val activeSegments = if (block.active_segments != null) block.active_segments
-        else if (block.fill_color != null && block.segment_count != null) 1
+    val segmentCount = block.total_segments ?: block.segment_count ?: totalSteps
+    val explicitFilled = block.filled_segments ?: block.active_segments
+    val activeSegments = if (explicitFilled != null) explicitFilled
+        else if ((block.bar_color != null || block.fill_color != null) && segmentCount > 0) 1
         else currentStepIndex + 1  // Auto-bind: 1-based fill
-    val fillColor = StyleEngine.parseColor(block.fill_color ?: "#6366F1")
+    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: "#6366F1")
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
-    val barHeight = (block.height ?: 6.0).dp
+    val barHeight = (block.bar_height ?: block.height ?: 6.0).dp
     val cornerRadius = (block.corner_radius ?: 3.0).dp
     val segmentGap = (block.segment_gap ?: 4.0).dp
     val showLabel = block.show_label ?: false
