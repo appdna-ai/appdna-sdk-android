@@ -154,7 +154,19 @@ fun ChatStepComposable(
                     context = webhookData.toMap(),
                 )
                 isTyping = false
-                if (response != null) {
+                if (response == null) {
+                    // SPEC-401-A — surface non-2xx HTTP / null webhook
+                    // response as a system message in the transcript +
+                    // event-track. iOS ChatStepView.swift:496-507 does the
+                    // same; Android was silent on HTTP errors which made
+                    // failed webhooks invisible to the user.
+                    val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong."
+                    messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
+                    ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
+                        "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
+                        "error" to "http_non_2xx_or_null",
+                    ))
+                } else {
                     ai.appdna.sdk.AppDNA.track("chat_message_received", mapOf(
                         "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
                         "message_count" to (response.messages?.size ?: 0)
