@@ -137,7 +137,15 @@ data class OnboardingStep(
         VALUE_PROP("value_prop"),
         CUSTOM("custom"),
         FORM("form"),
-        INTERACTIVE_CHAT("interactive_chat");
+        INTERACTIVE_CHAT("interactive_chat"),
+        // SPEC-401-A — `info` and `permission` are author-friendly step
+        // types declared in `flow.schema.ts STEP_TYPES`. iOS routes both
+        // through CustomStepView (OnboardingRenderer.swift:1497). Adding
+        // explicit cases here lets Android dispatch route them through
+        // CustomStep so configured title/subtitle/cta render rather than
+        // silently falling back via `fromString` else clause.
+        INFO("info"),
+        PERMISSION("permission");
 
         companion object {
             fun fromString(value: String): StepType {

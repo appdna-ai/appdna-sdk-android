@@ -1543,7 +1543,14 @@ fun OnboardingStepView(
                 OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
-                OnboardingStep.StepType.CUSTOM -> CustomStep(effectiveConfig, onNext)
+                // SPEC-401-A — `info` + `permission` mirror iOS
+                // OnboardingRenderer.swift:1497 routing through
+                // CustomStepView. Authored content-blocks render via the
+                // block-based path; this handles the no-blocks fallback so
+                // configured title/subtitle/cta still appear.
+                OnboardingStep.StepType.CUSTOM,
+                OnboardingStep.StepType.INFO,
+                OnboardingStep.StepType.PERMISSION -> CustomStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
                 OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(step = step, flowId = flowId, onNext = { data -> onNext(data) }, onSkip = { onSkip() })
             }
