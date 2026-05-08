@@ -1835,31 +1835,37 @@ private fun SocialLoginBlock(
                 }
             }
 
-            // Insert divider between providers if show_divider is true and not after last
-            if (showDivider && index < providers.size - 1) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(1.dp)
-                            .background(Color.Gray.copy(alpha = 0.3f)),
-                    )
-                    Text(
-                        text = loc?.invoke("block.${block.id}.divider", dividerText) ?: dividerText,
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        modifier = Modifier.padding(horizontal = 12.dp),
-                    )
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(1.dp)
-                            .background(Color.Gray.copy(alpha = 0.3f)),
-                    )
-                }
+            // SPEC-401-A — divider moved out of the per-provider loop.
+            // iOS renders the "or" divider ONCE at the bottom of the
+            // social-login block (ContentBlockRendererView.swift:709-717).
+            // The old per-provider divider gave a column of repeating
+            // "or" rows which doesn't exist on iOS at all.
+        }
+        // SPEC-401-A — single bottom divider gated on show_divider,
+        // matching iOS placement.
+        if (showDivider) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color.Gray.copy(alpha = 0.3f)),
+                )
+                Text(
+                    text = loc?.invoke("block.${block.id}.divider", dividerText) ?: dividerText,
+                    fontSize = 14.sp,
+                    color = Color.Gray,
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                )
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(1.dp)
+                        .background(Color.Gray.copy(alpha = 0.3f)),
+                )
             }
         }
     }
