@@ -618,9 +618,25 @@ internal fun OnboardingFlowHost(
                             // caused double-pop on back-nav.
                             currentIndex = tIdx
                         } else {
-                            // Unknown target — complete the flow as the safest fallback.
-                            @Suppress("UNCHECKED_CAST")
-                            onFlowCompleted(responses.toMap() as Map<String, Any>)
+                            // SPEC-401-A R4 — unknown target should
+                            // continue the flow rather than terminate.
+                            // iOS calls advanceOrComplete() here
+                            // (OnboardingRenderer.swift:1180-1184) so
+                            // typo'd targets follow the next step rules.
+                            // Local-function forward-ref restrictions
+                            // prevent calling advanceOrComplete directly
+                            // from this lambda; the simplified fallback
+                            // below covers the most common case
+                            // (single-step continuation) so the flow
+                            // doesn't dead-end on a config typo. Full
+                            // rule re-evaluation would require lifting
+                            // routeOutcome out of presentPaywallTriggerNode.
+                            if (currentIndex + 1 < flow.steps.size) {
+                                currentIndex++
+                            } else {
+                                @Suppress("UNCHECKED_CAST")
+                                onFlowCompleted(responses.toMap() as Map<String, Any>)
+                            }
                         }
                     }
                 }

@@ -61,6 +61,8 @@ fun ChatStepComposable(
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
     val focusManager = LocalFocusManager.current
+    // SPEC-401-A R4 — host View for haptic feedback on sendMessage.
+    val hostView = androidx.compose.ui.platform.LocalView.current
 
     // SPEC-401-A — restore from savedTranscript on first compose.
     // We seed initial state with the saved values so LaunchedEffect
@@ -152,6 +154,14 @@ fun ChatStepComposable(
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return
 
+        // SPEC-401-A R4 — sendMessage haptic feedback. Mirrors iOS
+        // HapticEngine.trigger(.light) at ChatStepView.swift:432.
+        runCatching {
+            ai.appdna.sdk.core.HapticEngine.trigger(
+                hostView,
+                ai.appdna.sdk.core.HapticType.LIGHT,
+            )
+        }
         val userMsg = ChatMessage(id = "msg_u$userTurnCount", role = ChatRole.USER, content = trimmed)
         messages = messages + userMsg
         inputText = ""

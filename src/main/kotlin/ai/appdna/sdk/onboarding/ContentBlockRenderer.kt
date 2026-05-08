@@ -465,6 +465,11 @@ data class ContentBlock(
     val rating_label: String? = null,
     // SPEC-089d: rich_text fields
     val content: String? = null,
+    // SPEC-401-A R4 — iOS canonical name `markdown_content`; the
+    // console writes this. Previously Android only knew `content` so
+    // any console-authored markdown body silently dropped to plain
+    // `text` fallback.
+    val markdown_content: String? = null,
     val base_style: TextStyleConfig? = null,
     // SPEC-401-A — `legal` variant centres + uses caption font +
     // secondary colour fallback (consent / privacy boilerplate).
@@ -2126,7 +2131,9 @@ private fun RatingBlock(
  */
 @Composable
 private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
-    val rawContent = block.content ?: block.text ?: ""
+    // SPEC-401-A R4 — iOS canonical `markdown_content` first, then
+    // `content`, then plain `text`. Console writes markdown_content.
+    val rawContent = block.markdown_content ?: block.content ?: block.text ?: ""
     val content = loc?.invoke("block.${block.id}.content", rawContent) ?: rawContent
     val linkColor = StyleEngine.parseColor(block.link_color ?: "#6366F1")
     val context = LocalContext.current
@@ -2536,7 +2543,12 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        when (variant) {
+        // SPEC-401-A R4 — `orbiting_icons` variant falls back to
+        // circular indicator until the radial-icon renderer is
+        // ported. Without this branch Android dropped through to
+        // the checklist default, which made the loading state
+        // inconsistent with iOS.
+        when (if (variant == "orbiting_icons") "circular" else variant) {
             "circular" -> {
                 Box(contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
