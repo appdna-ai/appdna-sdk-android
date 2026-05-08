@@ -507,6 +507,9 @@ data class ContentBlock(
     val total_duration_ms: Int? = null,
     val auto_advance: Boolean? = null,
     val show_percentage: Boolean? = null,
+    // SPEC-401-A R3 — iOS canonical `loading_variant` (circular, linear,
+    // checklist). Android historically only read top-level `variant`.
+    val loading_variant: String? = null,
     // SPEC-089d Phase F: circular_gauge fields
     val gauge_value: Double? = null,
     val max_gauge_value: Double? = null,
@@ -2469,7 +2472,11 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
  */
 @Composable
 private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit) {
-    val variant = block.variant ?: "checklist"
+    // SPEC-401-A R3 — iOS canonical field name `loading_variant`
+    // (ContentBlockTypes.swift:1019); Android historically only read
+    // the generic `variant` so console-authored loading_variant was
+    // silently dropped. Honour both.
+    val variant = block.loading_variant ?: block.variant ?: "checklist"
     val items = block.loading_items ?: emptyList()
     val progressColor = StyleEngine.parseColor(block.progress_color ?: "#6366F1")
     val checkColor = StyleEngine.parseColor(block.check_color ?: "#22C55E")
@@ -3178,7 +3185,10 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        block.label?.let { label ->
+        // SPEC-401-A R3 — wheel_picker label: iOS reads
+        // `rating_label ?? text ?? label`; Android only knew `label`
+        // so console-authored labels via either field were lost.
+        (block.rating_label ?: block.text ?: block.label)?.let { label ->
             Text(text = label, fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
         }
 
