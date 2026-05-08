@@ -435,7 +435,13 @@ fun ChatStepComposable(
         // 5-star row with `sendRatingEvent` emit. The composable uses a
         // simple unicode star (★/☆) instead of Material icons to avoid
         // pulling icon deps inside the chat composable.
-        currentRating?.let { ratingState ->
+        // SPEC-401-A — rating prompt only visible while currentRating == 0
+        // (the "shown but unanswered" sentinel). Once user taps a star,
+        // currentRating > 0 → row hides. Mirrors iOS ChatStepView.swift:71.
+        currentRating?.takeIf { it == 0 }?.let { ratingState ->
+            // SPEC-401-A — honour style.rating_star_color (was hardcoded
+            // amber #FBBF24). Mirrors iOS ChatStepView.swift:315.
+            val starColor = hex(style?.rating_star_color, "#FBBF24")
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.Center
@@ -444,7 +450,7 @@ fun ChatStepComposable(
                     val filled = ratingState >= star
                     Text(
                         text = if (filled) "★" else "☆", // ★ vs ☆
-                        color = if (filled) Color(0xFFFBBF24) else Color(0xFF94A3B8),
+                        color = if (filled) starColor else Color(0xFF94A3B8),
                         fontSize = 24.sp,
                         modifier = Modifier
                             .padding(horizontal = 4.dp)
