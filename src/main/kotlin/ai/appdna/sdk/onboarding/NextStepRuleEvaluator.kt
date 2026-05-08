@@ -135,20 +135,28 @@ internal object NextStepRuleEvaluator {
             }
 
             "not_empty" -> {
+                // SPEC-401-A R8 — match iOS OnboardingRenderer.swift:1057-1064
+                // exactly: only String and nil are checked; any other
+                // value (List, Map, scalar) returns true. Previous Android
+                // impl explicitly checked List emptiness, so a multi-select
+                // answer of `[]` was treated as `not_empty=false` here while
+                // iOS treats it as `not_empty=true`. That silently reversed
+                // the rule outcome on every multi-select branch.
                 val actual = responses[field]
                 when (actual) {
                     is String -> actual.isNotEmpty()
-                    is List<*> -> actual.isNotEmpty()
                     null -> false
                     else -> true
                 }
             }
 
             "empty" -> {
+                // SPEC-401-A R8 — same iOS-parity correction as `not_empty`
+                // above: only String + nil are inspected; any other type
+                // is treated as non-empty (returns false here).
                 val actual = responses[field]
                 when (actual) {
                     is String -> actual.isEmpty()
-                    is List<*> -> actual.isEmpty()
                     null -> true
                     else -> false
                 }

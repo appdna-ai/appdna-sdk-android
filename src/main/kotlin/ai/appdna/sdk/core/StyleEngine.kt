@@ -121,11 +121,19 @@ object StyleEngine {
         // partial `style: { color: "#000" }` keeps h1's 28sp/Bold
         // and rich_text legal's 12sp/Center defaults instead of
         // collapsing them to 16sp/Normal/Start.
+        // SPEC-401-A R8 — apply `opacity` even when `color` is null.
+        // iOS adds `.opacity(s.opacity ?? 1.0)` as an always-on view
+        // modifier; Android previously only multiplied opacity into
+        // resolvedColor.alpha when config.color was set, so
+        // `{ opacity: 0.5 }` payloads with no color rendered fully
+        // opaque. Now: if a color is authored, multiply opacity into
+        // its alpha; otherwise multiply opacity into the base color's
+        // alpha.
+        val opacityFactor = (config.opacity ?: 1.0).toFloat()
         val resolvedColor: Color = config.color?.let { c ->
             val parsed = parseColor(c)
-            val opacity = config.opacity ?: 1.0
-            parsed.copy(alpha = parsed.alpha * opacity.toFloat())
-        } ?: base.color
+            parsed.copy(alpha = parsed.alpha * opacityFactor)
+        } ?: if (opacityFactor < 1f) base.color.copy(alpha = base.color.alpha * opacityFactor) else base.color
         val resolvedAlign: TextAlign = when (config.alignment) {
             "center" -> TextAlign.Center
             "right" -> TextAlign.End

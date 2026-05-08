@@ -7,6 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -34,6 +36,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 // SPEC-070-A J.11 — accessibility string resources for onboarding chrome
@@ -1181,8 +1184,14 @@ internal fun OnboardingFlowHost(
                 AnimatedContent<Int>(
                     targetState = currentIndex,
                     transitionSpec = {
-                        (slideInHorizontally { it } + fadeIn()) togetherWith
-                            (slideOutHorizontally { -it } + fadeOut())
+                        // SPEC-401-A R8 — match iOS step transition: pure
+                        // horizontal slide with `easeInOut(0.25s)` curve.
+                        // Previous Compose default added cross-dissolve
+                        // (fadeIn/fadeOut) and used a 300ms FastOutSlowIn
+                        // tween, both visible side-by-side with iOS.
+                        val spec = tween<IntOffset>(durationMillis = 250, easing = FastOutSlowInEasing)
+                        slideInHorizontally(animationSpec = spec) { it } togetherWith
+                            slideOutHorizontally(animationSpec = spec) { -it }
                     },
                     label = "step_transition",
                     modifier = Modifier.weight(1f).fillMaxWidth(),

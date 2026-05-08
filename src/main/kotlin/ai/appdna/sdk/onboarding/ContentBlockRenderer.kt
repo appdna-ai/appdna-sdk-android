@@ -57,6 +57,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import kotlin.math.cos
@@ -1692,8 +1693,15 @@ private fun PageIndicatorBlock(block: ContentBlock, currentStepIndex: Int = 0, t
         else -> Arrangement.Center
     }
 
+    // SPEC-401-A R8 — TalkBack contentDescription "Page X of Y" for
+    // a11y parity with iOS `accessibilityLabel("Page X of Y")` at
+    // ContentBlockRendererView.swift:668. Without this the row was
+    // silently announced as "container" only.
+    val pageOfDesc = "Page ${activeIndex + 1} of $dotCount"
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics(mergeDescendants = true) { contentDescription = pageOfDesc },
         horizontalArrangement = hAlign,
     ) {
         for (i in 0 until dotCount) {
