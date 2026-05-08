@@ -129,9 +129,15 @@ fun ChatStepComposable(
         if (didRestore) return@LaunchedEffect
         val autoMsgs = chatConfig.auto_messages?.filter { it.turn == 0 } ?: emptyList()
         for ((i, autoMsg) in autoMsgs.withIndex()) {
+            // SPEC-401-A — match iOS cadence: silent for `delay_ms`,
+            // then `isTyping=true` for ~0.8s, then message. Android
+            // previously held isTyping for the full delay, so dots
+            // ran noticeably longer (especially for early messages
+            // where delay defaults to 500/1700/2900ms).
             val delayMs = autoMsg.delay_ms ?: (500 + i * 1200)
-            isTyping = true
             delay(delayMs.toLong())
+            isTyping = true
+            delay(800)
             isTyping = false
             messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
         }
