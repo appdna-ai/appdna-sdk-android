@@ -133,13 +133,16 @@ fun LocationFieldComposable(
         )
 
         if (showSuggestions) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFFF9FAFB))
-                    .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(8.dp)),
-            ) {
+            // SPEC-401-A B2 P1 — Material3 Card elevation replaces the
+            // 1px border. Elevation is the natural Android cue for a
+            // floating menu, matching iOS `LocationFieldView.swift:55`'s
+            // shadow + stroke combo.
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(8.dp),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            ) { Column(modifier = Modifier.fillMaxWidth()) {
                 suggestions.forEachIndexed { index, suggestion ->
                     // SPEC-401-A B1.5 — Material3 ListItem primary/secondary
                     // text hierarchy parity with iOS LocationFieldView's
@@ -211,7 +214,7 @@ fun LocationFieldComposable(
                         Divider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
                     }
                 }
-            }
+            } }
         }
     }
 }

@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -208,6 +209,7 @@ fun FormStep(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FormFieldControl(
     field: FormField,
@@ -236,9 +238,16 @@ private fun FormFieldControl(
                 // SPEC-070-A I.5b — `imeAction = Done` so the soft keyboard
                 // shows a "Done" key that dismisses the IME. Mirrors iOS
                 // `submitLabel(.done)`.
+                // SPEC-401-A B3 P2 — autocaps + autocorrect now respect the
+                // field config and the field type. Email/phone disable both
+                // (matching iOS implicit behavior); text fields default to
+                // sentences capitalisation + autocorrect on; `autocorrect`
+                // and `autocapitalize` config fields override.
                 keyboardOptions = KeyboardOptions(
                     keyboardType = keyboardType,
                     imeAction = ImeAction.Done,
+                    autoCorrect = resolveAutocorrect(field),
+                    capitalization = resolveCapitalization(field),
                 ),
                 isError = errors.containsKey(field.id),
                 singleLine = true
@@ -364,9 +373,16 @@ private fun FormFieldControl(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(field.label.interpolated(), fontSize = 16.sp)
+                // SPEC-401-A B3 P2 — Material primary on the track is the
+                // natural Android Switch colour. iOS `Toggle.tint` applies
+                // to the thumb-on; Android M3 applies the equivalent to
+                // the track. The `field_style.fill_color` config field
+                // belongs on a per-block style envelope (FormFieldStyle
+                // wrapper) and would need a schema-level wiring before
+                // it can flow here — left for a follow-up.
                 Switch(
                     checked = values[field.id] as? Boolean ?: false,
-                    onCheckedChange = { values[field.id] = it }
+                    onCheckedChange = { values[field.id] = it },
                 )
             }
         }
@@ -397,13 +413,24 @@ private fun FormFieldControl(
                     Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(16.dp))
-                Text(
-                    text = "${formatNumber(current, decimalPlaces)}${field.config?.unit?.let { " $it" } ?: ""}",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.widthIn(min = 48.dp)
-                )
+                // SPEC-401-A B3 P2 — animate value transition on
+                // increment/decrement. iOS `Stepper` springs implicitly;
+                // Compose AnimatedContent with the default fade transition
+                // gives the same visual cue ("the number changed") without
+                // depending on `togetherWith` (only available in
+                // compose-animation 1.7+; we're on BoM 2024.02.02).
+                androidx.compose.animation.AnimatedContent(
+                    targetState = current,
+                    label = "stepper_value",
+                ) { displayed ->
+                    Text(
+                        text = "${formatNumber(displayed, decimalPlaces)}${field.config?.unit?.let { " $it" } ?: ""}",
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.widthIn(min = 48.dp)
+                    )
+                }
                 Spacer(Modifier.width(16.dp))
                 IconButton(
                     onClick = {
@@ -433,32 +460,31 @@ private fun FormFieldControl(
             )
         }
         FormFieldType.SEGMENTED -> {
+            // SPEC-401-A B2 P1 — replaced custom `OutlinedButton` loop with
+            // Material3 `SingleChoiceSegmentedButtonRow` + `SegmentedButton`.
+            // The Material3 component handles per-position shape, selection
+            // animation, RTL, and accessibility automatically — what we
+            // hand-rolled before. Typography uses `labelMedium` (Material3
+            // standard) instead of the previous hardcoded 13.sp.
             val options = field.options ?: emptyList()
             val selected = values[field.id]?.toString() ?: options.firstOrNull()?.id ?: ""
             if (options.isNotEmpty()) {
-                Row(
+                SingleChoiceSegmentedButtonRow(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(0.dp)
                 ) {
                     options.forEachIndexed { index, option ->
-                        val isSelected = selected == option.id
-                        val shape = when {
-                            options.size == 1 -> RoundedCornerShape(8.dp)
-                            index == 0 -> RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp)
-                            index == options.size - 1 -> RoundedCornerShape(topEnd = 8.dp, bottomEnd = 8.dp)
-                            else -> RoundedCornerShape(0.dp)
-                        }
-                        OutlinedButton(
+                        SegmentedButton(
+                            selected = selected == option.id,
                             onClick = { values[field.id] = option.id },
-                            modifier = Modifier.weight(1f),
-                            shape = shape,
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-                                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
-                            )
-                        ) {
-                            Text(option.label.interpolated(), fontSize = 13.sp, maxLines = 1)
-                        }
+                            shape = SegmentedButtonDefaults.itemShape(index = index, count = options.size),
+                            label = {
+                                Text(
+                                    text = option.label.interpolated(),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                )
+                            },
+                        )
                     }
                 }
             }
@@ -571,6 +597,44 @@ private fun TimeField(
             else
                 MaterialTheme.colorScheme.onSurface
         )
+    }
+}
+
+/**
+ * SPEC-401-A B3 P2 — autocorrect default per field type. Email/phone/url/
+ * password switch autocorrect off (matches iOS implicit behaviour and
+ * prevents the IME from "correcting" structured text). Other text types
+ * default to autocorrect on. The `autocorrect` config field overrides.
+ */
+private fun resolveAutocorrect(field: FormField): Boolean {
+    field.config?.autocorrect?.let { return it }
+    return when (field.type) {
+        FormFieldType.EMAIL, FormFieldType.PHONE, FormFieldType.URL,
+        FormFieldType.PASSWORD -> false
+        else -> true
+    }
+}
+
+/**
+ * SPEC-401-A B3 P2 — KeyboardCapitalization default per field type +
+ * config-overridable. iOS implicit defaults are: email/phone/url/password →
+ * none; text → sentences. The `autocapitalize` config field accepts the
+ * same vocabulary as the schema enum (`none`/`words`/`sentences`/`characters`).
+ */
+private fun resolveCapitalization(field: FormField): KeyboardCapitalization {
+    field.config?.autocapitalize?.lowercase()?.let { override ->
+        when (override) {
+            "none" -> return KeyboardCapitalization.None
+            "words" -> return KeyboardCapitalization.Words
+            "sentences" -> return KeyboardCapitalization.Sentences
+            "characters" -> return KeyboardCapitalization.Characters
+            else -> { /* fall through to type-based default */ }
+        }
+    }
+    return when (field.type) {
+        FormFieldType.EMAIL, FormFieldType.PHONE, FormFieldType.URL,
+        FormFieldType.PASSWORD -> KeyboardCapitalization.None
+        else -> KeyboardCapitalization.Sentences
     }
 }
 
@@ -708,6 +772,24 @@ private fun SelectField(
             options.forEach { option ->
                 DropdownMenuItem(
                     text = { Text(option.label.interpolated()) },
+                    // SPEC-401-A B2 P1 — render `option.icon` as a leading
+                    // image when set. Schema field has been there since
+                    // SPEC-082 but Android dropdown was text-only. Treats
+                    // values starting with "http" as a URL (Coil) and
+                    // everything else as text — emoji works too.
+                    leadingIcon = option.icon?.let { iconStr ->
+                        {
+                            if (iconStr.startsWith("http", ignoreCase = true)) {
+                                ai.appdna.sdk.core.NetworkImage(
+                                    url = iconStr,
+                                    modifier = Modifier.size(20.dp),
+                                    contentDescription = null,
+                                )
+                            } else {
+                                Text(text = iconStr, fontSize = 16.sp)
+                            }
+                        }
+                    },
                     onClick = {
                         values[field.id] = option.id
                         errors.remove(field.id)
