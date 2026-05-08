@@ -442,6 +442,13 @@ data class ContentBlock(
     val spacing: Double? = null,
     val show_divider: Boolean? = null,
     val divider_text: String? = null,
+    // SPEC-401-A R13 — match iOS ContentBlockTypes.swift:964-965.
+    // `with_providers` (default) renders providers in author order;
+    // `below_inputs` extracts the email provider, renders it FIRST,
+    // then a clear spacer of `email_cta_spacing_below` (px), then
+    // the remaining providers below.
+    val email_login_placement: String? = null,
+    val email_cta_spacing_below: Double? = null,
     // SPEC-089d: countdown_timer fields
     val target_type: String? = null,
     val duration_seconds: Int? = null,
@@ -1801,11 +1808,31 @@ private fun SocialLoginBlock(
     val showDivider = block.show_divider ?: false
     val dividerText = block.divider_text ?: "or"
 
+    // SPEC-401-A R13 — match iOS ContentBlockRendererView.swift:684-715
+    // `email_login_placement: "below_inputs"`: pull the email provider
+    // out of the array, render it FIRST, insert a clear spacer of
+    // (email_cta_spacing_below - spacing), then render the remaining
+    // providers below. Default `with_providers` keeps author order.
+    val placement = block.email_login_placement ?: "with_providers"
+    val emailSpacer = (block.email_cta_spacing_below ?: 16.0).dp
+    val (topGroup, bottomGroup) = run {
+        if (placement == "below_inputs") {
+            val emailIdx = providers.indexOfFirst { it.type == "email" }
+            if (emailIdx >= 0) {
+                val list = providers.toMutableList()
+                val email = list.removeAt(emailIdx)
+                Pair(listOf(email), list.toList())
+            } else Pair(providers, emptyList())
+        } else Pair(providers, emptyList())
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(spacing),
     ) {
-        providers.forEachIndexed { index, provider ->
+        // Local helper closes over block/loc/buttonStyle/etc to keep
+        // the per-provider rendering identical in both groups.
+        val renderProvider: @androidx.compose.runtime.Composable (Int, SocialProvider) -> Unit = renderer@ { index, provider ->
             val label = provider.label ?: when (provider.type) {
                 "apple" -> "Continue with Apple"
                 "google" -> "Continue with Google"
@@ -1946,6 +1973,22 @@ private fun SocialLoginBlock(
             // The old per-provider divider gave a column of repeating
             // "or" rows which doesn't exist on iOS at all.
         }
+
+        // SPEC-401-A R13 — render top group (email-first when
+        // `below_inputs` placement, full author-order list otherwise),
+        // then optional spacer, then the remaining providers below.
+        topGroup.forEachIndexed { idx, provider -> renderProvider(idx, provider) }
+        if (placement == "below_inputs" && bottomGroup.isNotEmpty()) {
+            // Column already inserts `spacing` between adjacent items
+            // via verticalArrangement, so the additional gap to add is
+            // `email_cta_spacing_below - spacing` (matches iOS
+            // ContentBlockRendererView.swift:707).
+            Spacer(modifier = Modifier.height(maxOf(0.dp, emailSpacer - spacing)))
+        }
+        bottomGroup.forEachIndexed { idx, provider ->
+            renderProvider(topGroup.size + idx, provider)
+        }
+
         // SPEC-401-A — single bottom divider gated on show_divider,
         // matching iOS placement.
         if (showDivider) {
@@ -3811,27 +3854,46 @@ fun EntranceAnimationWrapper(
     }
 
     val durationMs = animation.duration_ms
-    val easingSpec: androidx.compose.animation.core.FiniteAnimationSpec<Float> = when (animation.easing) {
-        "spring" -> androidx.compose.animation.core.spring(
-            dampingRatio = (animation.spring_damping ?: 0.7).toFloat()
-        )
-        else -> tween(durationMillis = durationMs)
+    // SPEC-401-A R13 — match iOS swiftUIAnimation easing map
+    // (ContentBlockTypes.swift:618-633). Compose's `tween(d)` defaults
+    // to `FastOutSlowInEasing` (≈ ease_in_out), but iOS default is
+    // `.linear`. Without explicit mapping, `linear`/`ease_in`/`ease_out`
+    // collapse to the same Material curve and look visibly different
+    // from iOS in side-by-side comparison.
+    val resolvedEasing: androidx.compose.animation.core.Easing = when (animation.easing) {
+        "ease_in" -> androidx.compose.animation.core.FastOutLinearInEasing
+        "ease_out" -> androidx.compose.animation.core.LinearOutSlowInEasing
+        "ease_in_out", "ease" -> androidx.compose.animation.core.FastOutSlowInEasing
+        else -> androidx.compose.animation.core.LinearEasing // iOS default
     }
+    val tweenSpec = tween<Float>(durationMillis = durationMs, easing = resolvedEasing)
+    val tweenIntOffset = tween<androidx.compose.ui.unit.IntOffset>(durationMillis = durationMs, easing = resolvedEasing)
+    val springFloatSpec = androidx.compose.animation.core.spring<Float>(
+        dampingRatio = (animation.spring_damping ?: 0.7).toFloat()
+    )
+    val springIntOffsetSpec = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(
+        dampingRatio = (animation.spring_damping ?: 0.7).toFloat()
+    )
+    val isSpring = animation.easing == "spring"
 
     val enterTransition: androidx.compose.animation.EnterTransition = when (animation.type) {
-        "fade_in" -> androidx.compose.animation.fadeIn(tween(durationMs))
-        "slide_up" -> androidx.compose.animation.slideInVertically(tween(durationMs)) { it }
-        "slide_down" -> androidx.compose.animation.slideInVertically(tween(durationMs)) { -it }
-        "slide_left" -> androidx.compose.animation.slideInHorizontally(tween(durationMs)) { -it }
-        "slide_right" -> androidx.compose.animation.slideInHorizontally(tween(durationMs)) { it }
-        "scale_up" -> androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 0.5f)
-        "scale_down" -> androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 1.5f)
+        "fade_in" -> androidx.compose.animation.fadeIn(if (isSpring) springFloatSpec else tweenSpec)
+        "slide_up" -> androidx.compose.animation.slideInVertically(if (isSpring) springIntOffsetSpec else tweenIntOffset) { it }
+        "slide_down" -> androidx.compose.animation.slideInVertically(if (isSpring) springIntOffsetSpec else tweenIntOffset) { -it }
+        "slide_left" -> androidx.compose.animation.slideInHorizontally(if (isSpring) springIntOffsetSpec else tweenIntOffset) { -it }
+        "slide_right" -> androidx.compose.animation.slideInHorizontally(if (isSpring) springIntOffsetSpec else tweenIntOffset) { it }
+        "scale_up" -> androidx.compose.animation.scaleIn(if (isSpring) springFloatSpec else tweenSpec, initialScale = 0.5f)
+        "scale_down" -> androidx.compose.animation.scaleIn(if (isSpring) springFloatSpec else tweenSpec, initialScale = 1.5f)
+        // SPEC-401-A R13 — bounce previously always used spring,
+        // ignoring `duration_ms`. iOS resolves bounce via swiftUIAnimation
+        // which honors `duration_ms` for any non-spring easing — so when
+        // `easing != "spring"` use the duration tween instead.
         "bounce" -> androidx.compose.animation.scaleIn(
-            androidx.compose.animation.core.spring(dampingRatio = (animation.spring_damping ?: 0.7).toFloat()),
+            if (isSpring) springFloatSpec else tweenSpec,
             initialScale = 0.3f,
         )
-        "flip" -> androidx.compose.animation.fadeIn(tween(durationMs)) +
-            androidx.compose.animation.scaleIn(tween(durationMs), initialScale = 0.0f)
+        "flip" -> androidx.compose.animation.fadeIn(if (isSpring) springFloatSpec else tweenSpec) +
+            androidx.compose.animation.scaleIn(if (isSpring) springFloatSpec else tweenSpec, initialScale = 0.0f)
         else -> androidx.compose.animation.EnterTransition.None
     }
 

@@ -2273,6 +2273,24 @@ private fun BlockBasedStepView(
                 // for `request_otp`/`login`/`register` etc.
                 val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
                 if (!hasDelegate) {
+                    // SPEC-401-A R13 — fire onboarding_step_completed BEFORE
+                    // early return, mirroring the emitAuthAction pre-gate
+                    // pattern + iOS handleStepCompleted (OnboardingRenderer
+                    // .swift:440-468). Without this hosts running BigQuery
+                    // queries on misconfigured social-login attempts see
+                    // hits on iOS but blanks on Android.
+                    val data = mutableMapOf<String, Any>(
+                        "provider" to (actionValue ?: "unknown"),
+                        "action" to "social_login",
+                    )
+                    data.putAll(inputValues)
+                    ai.appdna.sdk.AppDNA.track("onboarding_step_completed", mapOf(
+                        "flow_id" to flowId,
+                        "step_id" to stepId,
+                        "step_index" to currentStepIndex,
+                        "selection_data" to data,
+                        "blocked_reason" to "no_delegate",
+                    ))
                     ai.appdna.sdk.Log.warning(
                         "social_login button tapped but no AppDNAOnboardingDelegate is " +
                         "registered. Register via AppDNA.onboarding.setDelegate(...) and " +
@@ -2312,14 +2330,13 @@ private fun BlockBasedStepView(
             // advance as safe fallback so existing hosts don't get stuck on
             // a permission-tagged button without a runtime permission infra
             // wired up. Mirrors iOS `OnboardingRenderer.swift:1525-1529`.
-            "permission" -> {
-                val data = mutableMapOf<String, Any>(
-                    "action" to "permission",
-                )
-                if (actionValue != null) data["permission_type"] = actionValue
-                data.putAll(inputValues)
-                onNext(data)
-            }
+            // SPEC-401-A R13 — pass `null` to match iOS exactly. iOS emits
+            // `onNext(nil)` so `responses[step.id]` is never written and
+            // hosts switching on `data["action"]` don't see a populated
+            // map only on Android. Defer the typed payload (action/
+            // permission_type) to SPEC-086 when runtime permission infra
+            // ships and gets explicit spec approval.
+            "permission" -> onNext(null)
             else -> onNext(null)
         }
     }
