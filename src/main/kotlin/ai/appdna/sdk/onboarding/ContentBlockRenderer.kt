@@ -455,6 +455,14 @@ data class ContentBlock(
     val inactive_rating_color: String? = null,
     val allow_half: Boolean? = null,
     val label: String? = null,
+    // SPEC-401-A R3 — iOS canonical field names for the rating
+    // standalone block. Console writes these; Android only knew the
+    // `*_rating_color` form and `default_value`/`label` so authored
+    // values silently dropped. Honour both with iOS canon first.
+    val filled_color: String? = null,
+    val empty_color: String? = null,
+    val default_rating: Double? = null,
+    val rating_label: String? = null,
     // SPEC-089d: rich_text fields
     val content: String? = null,
     val base_style: TextStyleConfig? = null,
@@ -2030,20 +2038,29 @@ private fun RatingBlock(
 ) {
     val maxStars = block.max_stars ?: 5
     val starSize = (block.star_size ?: 32.0).dp
-    val activeColor = StyleEngine.parseColor(block.active_rating_color ?: block.active_color ?: "#FBBF24")
-    val inactiveColor = StyleEngine.parseColor(block.inactive_rating_color ?: block.inactive_color ?: "#D1D5DB")
+    // SPEC-401-A R3 — iOS canonical field names first, fall back to
+    // legacy Android names so old + new payloads both render.
+    val activeColor = StyleEngine.parseColor(
+        block.filled_color ?: block.active_rating_color ?: block.active_color ?: "#FBBF24"
+    )
+    val inactiveColor = StyleEngine.parseColor(
+        block.empty_color ?: block.inactive_rating_color ?: block.inactive_color ?: "#D1D5DB"
+    )
     val fieldId = block.field_id ?: block.id
+    val allowHalf = block.allow_half == true
 
-    var selectedRating by remember {
-        mutableIntStateOf((block.default_value?.toInt() ?: (inputValues[fieldId] as? Number)?.toInt()) ?: 0)
-    }
+    // SPEC-401-A R3 — `default_rating` (iOS canon) / `default_value`
+    // (legacy) honoured.
+    val initial = (block.default_rating ?: block.default_value
+        ?: (inputValues[fieldId] as? Number)?.toDouble()) ?: 0.0
+    var selectedRating by remember { mutableStateOf(initial) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Optional label
-        block.label?.let { label ->
+        // Optional label — iOS reads `rating_label ?? label`.
+        (block.rating_label ?: block.label)?.let { label ->
             val displayLabel = loc?.invoke("block.${block.id}.label", label) ?: label
             Text(
                 text = displayLabel,
@@ -2058,16 +2075,29 @@ private fun RatingBlock(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             for (i in 1..maxStars) {
-                val filled = i <= selectedRating
+                // SPEC-401-A R3 — half-star rendering when allow_half:
+                // value >= i fills, value >= i-0.5 half-fills, else empty.
+                val full = selectedRating >= i
+                val half = !full && allowHalf && selectedRating >= i - 0.5
                 Icon(
-                    imageVector = if (filled) Icons.Filled.Star else Icons.Outlined.Star,
+                    imageVector = when {
+                        full -> Icons.Filled.Star
+                        half -> androidx.compose.material.icons.Icons.Filled.StarHalf
+                        else -> Icons.Outlined.Star
+                    },
                     contentDescription = "Star $i",
-                    tint = if (filled) activeColor else inactiveColor,
+                    tint = if (full || half) activeColor else inactiveColor,
                     modifier = Modifier
                         .size(starSize)
                         .clickable {
-                            selectedRating = i
-                            inputValues[fieldId] = i
+                            // Toggle half ↔ full when allow_half on
+                            // a re-tap of the currently-filled star.
+                            val tapped = i.toDouble()
+                            selectedRating = when {
+                                allowHalf && full && (selectedRating - tapped).let { it >= 0 && it < 0.5 } -> tapped - 0.5
+                                else -> tapped
+                            }
+                            inputValues[fieldId] = selectedRating
                         },
                 )
             }
@@ -3337,7 +3367,18 @@ private fun PricingCardBlock(
                 selectedPlanId = plan.id
                 inputValues["selected_plan_id"] = plan.id
                 inputValues["selected_plan_label"] = plan.label
-                onAction("select_plan:${plan.id}")
+                // SPEC-401-A R3 — match iOS contract:
+                // onAction("select_plan", planId) — host parses an
+                // ACTION + VALUE, NOT a colon-embedded string. The
+                // generic onAction(String) only carries action; we
+                // emit a separate "select_plan_id:<planId>" sentinel
+                // so existing hosts that don't grok the dual-arg form
+                // can still recover the planId. Hosts implementing the
+                // canonical contract should listen for "select_plan"
+                // first and inspect the planId from the most-recent
+                // event sequence (mirrors iOS pattern).
+                onAction("select_plan")
+                onAction("select_plan_id:${plan.id}")
             },
             modifier = modifier
                 .border(
