@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarHalf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
@@ -1306,7 +1307,16 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (block.list_style) {
                     "numbered" -> Text("${index + 1}.", fontWeight = FontWeight.SemiBold, color = Color.Gray)
-                    "check" -> Text("\u2713", color = Color(0xFF22C55E), fontSize = 16.sp)
+                    // SPEC-401-A \u2014 render `check` marker as Material
+                    // CheckCircle icon (mirrors iOS `checkmark.circle.fill`).
+                    // Was a plain Unicode glyph at 16sp which looked like
+                    // a typo on Android.
+                    "check" -> Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = StyleEngine.parseColor(block.text_color ?: "#22C55E"),
+                        modifier = Modifier.size(16.dp),
+                    )
                     else -> Box(
                         modifier = Modifier
                             .size(6.dp)
@@ -1338,6 +1348,10 @@ private fun DividerBlock(block: ContentBlock) {
 @Composable
 private fun BadgeBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
     val text = block.badge_text ?: ""
+    // SPEC-401-A — read block.badge_corner_radius (defaults to 999 for
+    // capsule). iOS FormInputBlockViews.swift:481-490 honours the field
+    // similarly; Android was hardcoded to 999, ignoring author overrides.
+    val badgeRadius = (block.badge_corner_radius ?: 999.0).dp
     Text(
         text = loc?.invoke("block.${block.id}.badge", text) ?: text,
         fontSize = 12.sp,
@@ -1346,7 +1360,7 @@ private fun BadgeBlock(block: ContentBlock, loc: ((String, String) -> String)? =
         modifier = Modifier
             .background(
                 StyleEngine.parseColor(block.badge_bg_color ?: "#6366F1"),
-                RoundedCornerShape(999.dp),
+                RoundedCornerShape(badgeRadius),
             )
             .padding(horizontal = 12.dp, vertical = 4.dp),
     )
