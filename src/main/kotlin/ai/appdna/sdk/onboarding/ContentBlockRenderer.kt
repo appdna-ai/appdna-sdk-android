@@ -481,6 +481,12 @@ data class ContentBlock(
     val row_direction: String? = null,       // horizontal (default), vertical
     val row_distribution: String? = null,    // start, center, end, space-between, space-around, space-evenly
     val row_child_fill: Boolean? = null,     // true (default) — each child gets weight(1f)
+    // SPEC-401-A — proportional column widths. iOS reads
+    // `field_config["column_ratios"]` first then falls back to
+    // top-level `column_ratios` (e.g. "1:2"). Android historically
+    // ignored both → equal-weight rows even when authoring asks for
+    // 1/3-2/3 splits. Honour both paths.
+    val column_ratios: String? = null,
     // SPEC-089d Phase F: custom_view fields
     val view_key: String? = null,
     val custom_config: Map<String, Any>? = null,
@@ -2669,80 +2675,174 @@ private fun RowBlock(
     val distribution = block.row_distribution ?: "start"
     val childFill = block.row_child_fill ?: true
 
-    val hasOverflowChild = childBlocks.any { it.overflow == "visible" }
+    // SPEC-401-A — column ratios (e.g. "1:2") for proportional widths.
+    // iOS prefers field_config["column_ratios"] then top-level
+    // column_ratios; Android matches.
+    val ratioStr = (block.field_config?.get("column_ratios") as? String) ?: block.column_ratios
+    val ratios: List<Float> = ratioStr
+        ?.split(":")
+        ?.mapNotNull { it.trim().toFloatOrNull()?.takeIf { v -> v > 0f } }
+        ?: emptyList()
 
-    if (direction == "vertical") {
-        // Vertical layout
-        val vArrangement = when (distribution) {
-            "center" -> Arrangement.Center
-            "end" -> Arrangement.Bottom
-            "space-between", "space_between" -> Arrangement.SpaceBetween
-            "space-around", "space_around" -> Arrangement.SpaceAround
-            "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
-            else -> Arrangement.Top
+    // SPEC-401-A — row container styling (info-card pattern). All
+    // values flow through field_config because the row block is reused
+    // for many layouts; only when authored do we wrap.
+    val cfg = block.field_config
+    val rowBgCol = (cfg?.get("bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val rowBorderW = ((cfg?.get("border_width") as? Number)?.toFloat() ?: 0f).dp
+    val rowBorderCol = (cfg?.get("border_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val rowCornerR = ((cfg?.get("corner_radius") as? Number)?.toFloat() ?: 0f).dp
+    val rowBgOpacity = ((cfg?.get("background_opacity") as? Number)?.toFloat() ?: 1f)
+    val rowUseBlur = (cfg?.get("blur_background") as? Boolean) == true
+
+    // SPEC-401-A — leading-icon slot. Mirrors iOS rowLeadingIconView
+    // (info-card pattern: circle bg + icon).
+    val leadingIcon = cfg?.get("leading_icon") as? String
+    val leadingIconSize = ((cfg?.get("leading_icon_size") as? Number)?.toFloat() ?: 24f).dp
+    val leadingIconColor = (cfg?.get("leading_icon_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val leadingIconBgColor = (cfg?.get("leading_icon_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val leadingIconBgSize = ((cfg?.get("leading_icon_bg_size") as? Number)?.toFloat()
+        ?: (leadingIconSize.value + 16f)).dp
+
+    val hasOverflowChild = childBlocks.any { it.overflow == "visible" }
+    val hasContainerStyling = rowBgCol != null || rowBorderW.value > 0f || rowUseBlur
+
+    @Composable
+    fun LeadingIconSlot() {
+        if (leadingIcon == null) return
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(leadingIconBgSize)) {
+            if (leadingIconBgColor != null) {
+                Box(
+                    modifier = Modifier
+                        .size(leadingIconBgSize)
+                        .clip(CircleShape)
+                        .background(leadingIconBgColor.copy(alpha = 0.15f)),
+                )
+            }
+            Text(
+                text = leadingIcon,
+                fontSize = (leadingIconSize.value * 0.6f).sp,
+                color = leadingIconColor ?: Color.Unspecified,
+            )
         }
-        val columnModifier = if (hasOverflowChild) {
-            Modifier.fillMaxWidth().graphicsLayer { clip = false }
-        } else {
-            Modifier.fillMaxWidth()
-        }
-        Column(
-            modifier = columnModifier,
-            verticalArrangement = if (rowGap.value > 0 && distribution == "start") Arrangement.spacedBy(rowGap) else vArrangement,
-        ) {
-            childBlocks.forEach { child ->
-                val childMod = if (childFill) Modifier.fillMaxWidth() else Modifier
-                val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                Box(modifier = overflowMod) {
-                    RenderBlock(
-                        block = child,
-                        onAction = onAction,
-                        toggleValues = toggleValues,
-                        inputValues = inputValues,
-                        loc = loc,
-                    )
+    }
+
+    @Composable
+    fun RowChildren(modifier: Modifier = Modifier) {
+        if (direction == "vertical") {
+            // Vertical layout
+            val vArrangement = when (distribution) {
+                "center" -> Arrangement.Center
+                "end" -> Arrangement.Bottom
+                "space-between", "space_between" -> Arrangement.SpaceBetween
+                "space-around", "space_around" -> Arrangement.SpaceAround
+                "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
+                else -> Arrangement.Top
+            }
+            val baseMod = if (hasOverflowChild) {
+                Modifier.fillMaxWidth().graphicsLayer { clip = false }
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            Column(
+                modifier = modifier.then(baseMod),
+                verticalArrangement = if (rowGap.value > 0 && distribution == "start") Arrangement.spacedBy(rowGap) else vArrangement,
+            ) {
+                LeadingIconSlot()
+                childBlocks.forEach { child ->
+                    val childMod = if (childFill) Modifier.fillMaxWidth() else Modifier
+                    val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
+                    Box(modifier = overflowMod) {
+                        RenderBlock(
+                            block = child,
+                            onAction = onAction,
+                            toggleValues = toggleValues,
+                            inputValues = inputValues,
+                            loc = loc,
+                        )
+                    }
                 }
             }
+        } else {
+            // Horizontal layout (default)
+            val hArrangement = when (distribution) {
+                "center" -> Arrangement.Center
+                "end" -> Arrangement.End
+                "space-between", "space_between" -> Arrangement.SpaceBetween
+                "space-around", "space_around" -> Arrangement.SpaceAround
+                "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
+                else -> Arrangement.spacedBy(rowGap)
+            }
+            val vAlignment = when (block.align_items) {
+                "top" -> Alignment.Top
+                "bottom" -> Alignment.Bottom
+                else -> Alignment.CenterVertically
+            }
+            val baseMod = if (hasOverflowChild) {
+                Modifier.fillMaxWidth().graphicsLayer { clip = false }
+            } else {
+                Modifier.fillMaxWidth()
+            }
+            Row(
+                modifier = modifier.then(baseMod),
+                horizontalArrangement = hArrangement,
+                verticalAlignment = vAlignment,
+            ) {
+                LeadingIconSlot()
+                if (ratios.isNotEmpty()) {
+                    // SPEC-401-A — proportional weights from column_ratios.
+                    // Children map 1:1 to ratios; extra children get
+                    // the average weight (mirrors iOS allocate()).
+                    val avg = ratios.sum() / ratios.size
+                    childBlocks.forEachIndexed { idx, child ->
+                        val w = if (idx < ratios.size) ratios[idx] else avg
+                        val childMod = Modifier.weight(w)
+                        val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
+                        Box(modifier = overflowMod) {
+                            RenderBlock(
+                                block = child,
+                                onAction = onAction,
+                                toggleValues = toggleValues,
+                                inputValues = inputValues,
+                                loc = loc,
+                            )
+                        }
+                    }
+                } else {
+                    childBlocks.forEach { child ->
+                        val childMod = if (childFill) Modifier.weight(1f) else Modifier
+                        val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
+                        Box(modifier = overflowMod) {
+                            RenderBlock(
+                                block = child,
+                                onAction = onAction,
+                                toggleValues = toggleValues,
+                                inputValues = inputValues,
+                                loc = loc,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // SPEC-401-A — wrap with container styling when authored. Mirrors
+    // iOS `.if(rowBgCol != nil || rowBorderW > 0 || rowUseBlur) { … }`.
+    if (hasContainerStyling) {
+        val shape = RoundedCornerShape(rowCornerR)
+        var containerMod: Modifier = Modifier
+        if (rowBgCol != null) {
+            containerMod = containerMod.background(rowBgCol.copy(alpha = rowBgOpacity), shape)
+        }
+        if (rowBorderW.value > 0f && rowBorderCol != null) {
+            containerMod = containerMod.border(rowBorderW, rowBorderCol, shape)
+        }
+        Box(modifier = containerMod.padding(if (rowBorderW.value > 0f) 12.dp else 0.dp)) {
+            RowChildren()
         }
     } else {
-        // Horizontal layout (default)
-        val hArrangement = when (distribution) {
-            "center" -> Arrangement.Center
-            "end" -> Arrangement.End
-            "space-between", "space_between" -> Arrangement.SpaceBetween
-            "space-around", "space_around" -> Arrangement.SpaceAround
-            "space-evenly", "space_evenly" -> Arrangement.SpaceEvenly
-            else -> Arrangement.spacedBy(rowGap)
-        }
-        val vAlignment = when (block.align_items) {
-            "top" -> Alignment.Top
-            "bottom" -> Alignment.Bottom
-            else -> Alignment.CenterVertically
-        }
-        val rowModifier = if (hasOverflowChild) {
-            Modifier.fillMaxWidth().graphicsLayer { clip = false }
-        } else {
-            Modifier.fillMaxWidth()
-        }
-        Row(
-            modifier = rowModifier,
-            horizontalArrangement = hArrangement,
-            verticalAlignment = vAlignment,
-        ) {
-            childBlocks.forEach { child ->
-                val childMod = if (childFill) Modifier.weight(1f) else Modifier
-                val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                Box(modifier = overflowMod) {
-                    RenderBlock(
-                        block = child,
-                        onAction = onAction,
-                        toggleValues = toggleValues,
-                        inputValues = inputValues,
-                        loc = loc,
-                    )
-                }
-            }
-        }
+        RowChildren()
     }
 }
 
