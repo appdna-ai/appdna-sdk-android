@@ -50,6 +50,7 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarHalf
 import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -3835,10 +3836,13 @@ private fun FormInputRatingBlock(
     // Android ignored it whenever both were set.
     val filledCol = StyleEngine.parseColor(block.active_rating_color ?: block.field_style?.fill_color ?: "#FBBF24")
     val emptyCol = StyleEngine.parseColor(block.inactive_rating_color ?: "#D1D5DB")
-    // OB-6 audit follow-up — restore saved value on back nav.
+    val allowHalf = block.allow_half == true
+    // SPEC-401-A — promote selectedRating to Double for half-star round-trip.
+    // Mirrors iOS FormInputBlockViews.swift:1106 which already supports
+    // half-stars when block.allow_half is true.
     var selectedRating by remember {
         mutableStateOf(
-            (inputValues[fieldId] as? Number)?.toInt() ?: (block.default_value ?: 0.0).toInt()
+            (inputValues[fieldId] as? Number)?.toDouble() ?: (block.default_value ?: 0.0)
         )
     }
 
@@ -3850,16 +3854,33 @@ private fun FormInputRatingBlock(
 
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             for (i in 1..maxStars) {
-                val isFilled = i <= selectedRating
+                val starState: Double = when {
+                    selectedRating >= i -> 1.0
+                    allowHalf && selectedRating >= i - 0.5 -> 0.5
+                    else -> 0.0
+                }
+                // SPEC-401-A — repeat-tap toggle for half-stars. Compose
+                // `clickable` doesn't expose tap coordinates; the toggle
+                // pattern (full → .5 → full) reaches every 0.5 step iOS
+                // reaches via tap-location math, without `pointerInput`.
                 Icon(
-                    imageVector = if (isFilled) Icons.Filled.Star else Icons.Outlined.Star,
-                    contentDescription = "$i stars",
-                    tint = if (isFilled) filledCol else emptyCol,
+                    imageVector = when (starState) {
+                        1.0 -> Icons.Filled.Star
+                        0.5 -> Icons.Filled.StarHalf
+                        else -> Icons.Outlined.Star
+                    },
+                    contentDescription = if (starState >= 1.0) "$i stars" else if (starState > 0.0) "${i - 0.5} stars" else "$i stars (empty)",
+                    tint = if (starState > 0.0) filledCol else emptyCol,
                     modifier = Modifier
                         .size(starSize.value.dp)
                         .clickable {
-                            selectedRating = i
-                            inputValues[fieldId] = i.toDouble()
+                            val newRating: Double = if (allowHalf && selectedRating == i.toDouble()) {
+                                (i - 0.5).coerceAtLeast(0.5)
+                            } else {
+                                i.toDouble()
+                            }
+                            selectedRating = if (allowHalf) newRating else newRating.toInt().toDouble()
+                            inputValues[fieldId] = selectedRating
                         },
                 )
             }
