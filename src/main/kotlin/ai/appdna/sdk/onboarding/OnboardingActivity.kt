@@ -581,8 +581,26 @@ internal fun OnboardingFlowHost(
                                 currentIndex = tIdx
                             }
                             else {
-                                @Suppress("UNCHECKED_CAST")
-                                onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                // SPEC-401-A R6 — same fallback as the
+                                // sibling "chosen" branch: unknown
+                                // edgeTarget continues the flow rather
+                                // than terminating. iOS
+                                // navigateToTarget(edge) falls through
+                                // to advanceOrComplete()
+                                // (OnboardingRenderer.swift:1166-1184),
+                                // re-running step rules. Android cannot
+                                // call advanceOrComplete from this
+                                // lambda due to local-fun forward-ref
+                                // scoping; simplified single-step
+                                // continuation covers the most common
+                                // case so a stale/typo'd next_target
+                                // doesn't collapse the whole flow.
+                                if (currentIndex + 1 < flow.steps.size) {
+                                    currentIndex++
+                                } else {
+                                    @Suppress("UNCHECKED_CAST")
+                                    onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                }
                             }
                         }
                     } else {

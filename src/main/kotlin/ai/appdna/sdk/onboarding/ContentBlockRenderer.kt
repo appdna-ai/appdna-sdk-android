@@ -1444,10 +1444,17 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                     // CheckCircle icon (mirrors iOS `checkmark.circle.fill`).
                     // Was a plain Unicode glyph at 16sp which looked like
                     // a typo on Android.
+                    // SPEC-401-A R6 — match iOS hardcoded #6366F1
+                    // indigo (ContentBlockRendererView.swift:460-463).
+                    // iOS ignores text_color on the check marker;
+                    // Android previously defaulted to #22C55E green
+                    // and accepted text_color, so the same authored
+                    // payload rendered different colors across
+                    // platforms.
                     "check" -> Icon(
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = null,
-                        tint = StyleEngine.parseColor(block.text_color ?: "#22C55E"),
+                        tint = StyleEngine.parseColor("#6366F1"),
                         modifier = Modifier.size(16.dp),
                     )
                     else -> Box(
