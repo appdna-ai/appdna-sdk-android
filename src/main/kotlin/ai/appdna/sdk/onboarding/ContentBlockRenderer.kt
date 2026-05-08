@@ -33,6 +33,7 @@ import ai.appdna.sdk.Log
 import ai.appdna.sdk.LogLevel
 import ai.appdna.sdk.core.StyleEngine
 import ai.appdna.sdk.core.TextStyleConfig
+import ai.appdna.sdk.core.applyTransform
 import ai.appdna.sdk.core.LottieBlock
 import ai.appdna.sdk.core.LottieBlockView
 import ai.appdna.sdk.core.RiveBlock
@@ -385,6 +386,14 @@ data class ContentBlock(
     val play_on_tap: Boolean? = null,
     val color_overrides: Map<String, String>? = null,
     val lottie_width: Double? = null,
+    /**
+     * SPEC-401-A R10 — iOS canonical Lottie-specific height field
+     * (ContentBlockRendererView.swift:599 `block.lottie_height ?? block.height ?? 160`).
+     * When both `lottie_height` and a generic `height` are authored,
+     * lottie_height takes precedence so the same payload renders the
+     * same vertical dimension on both natives.
+     */
+    val lottie_height: Double? = null,
     val rive_url: String? = null,
     val rive_artboard: String? = null,
     val rive_state_machine: String? = null,
@@ -1220,8 +1229,12 @@ private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)?
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     val styleWithAlign = horizontalTextAlign(block.horizontal_align)
         ?.let { effectiveStyle.copy(textAlign = it) } ?: effectiveStyle
+    val resolved = loc?.invoke("block.${block.id}.text", text) ?: text
     Text(
-        text = loc?.invoke("block.${block.id}.text", text) ?: text,
+        // SPEC-401-A R10 — apply `style.text_transform` (uppercase/lowercase).
+        // iOS does this via `.textCase` in StyleEngine.swift:194-198. Compose
+        // has no equivalent TextStyle modifier so we transform the string.
+        text = block.style.applyTransform(resolved),
         style = styleWithAlign,
         // SPEC-070-A J.11 — heading content blocks announce as a heading
         // to screen readers, matching iOS `accessibilityAddTraits(.isHeader)`.
@@ -1238,8 +1251,10 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     val styleWithAlign = horizontalTextAlign(block.horizontal_align)
         ?.let { effectiveStyle.copy(textAlign = it) } ?: effectiveStyle
+    val resolved = loc?.invoke("block.${block.id}.text", text) ?: text
     Text(
-        text = loc?.invoke("block.${block.id}.text", text) ?: text,
+        // SPEC-401-A R10 — apply `style.text_transform` (uppercase/lowercase).
+        text = block.style.applyTransform(resolved),
         style = styleWithAlign,
         modifier = Modifier.fillMaxWidth(),
     )
@@ -1665,7 +1680,10 @@ private fun LottieContentBlock(block: ContentBlock) {
                 loop = block.loop ?: block.lottie_loop ?: true,
                 speed = block.lottie_speed ?: 1.0f,
                 width = block.lottie_width?.toFloat(),
-                height = (block.height ?: 160.0).toFloat(),
+                // SPEC-401-A R10 — match iOS field-name precedence at
+                // ContentBlockRendererView.swift:599. Authored `lottie_height`
+                // overrides generic `height`; both fall through to 160 default.
+                height = (block.lottie_height ?: block.height ?: 160.0).toFloat(),
                 alignment = block.icon_alignment ?: "center",
                 play_on_scroll = block.play_on_scroll,
                 play_on_tap = block.play_on_tap,
@@ -2203,11 +2221,19 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
     // SPEC-401-A — `legal` variant defaults: caption font + centred
     // alignment + secondary colour. Mirrors iOS
     // ContentBlockRendererView.swift:932-980.
+    // SPEC-401-A R10 — `legal` secondary color. iOS uses
+    // `.foregroundColor(.secondary)` (theme-aware system label-secondary,
+    // ~UIColor.secondaryLabel). Compose's `Color.Unspecified.copy(alpha=…)`
+    // is a sentinel-on-sentinel hack that produces an unreliable color in
+    // some Compose builds. Use MaterialTheme.colorScheme.onBackground at
+    // 60% alpha so the same payload renders dim grey on both platforms,
+    // and adapts to dark mode through the Material theme.
     val isLegal = block.rich_text_variant == "legal"
+    val secondaryColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
     val legalDefault = if (isLegal) {
         TextStyle(
             fontSize = 12.sp,
-            color = Color.Unspecified.copy(alpha = 0.7f),
+            color = secondaryColor,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     } else {
@@ -2360,10 +2386,14 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     val variant = block.progress_variant ?: block.variant ?: "continuous"
     // AC-021: Auto-bind to step index when no explicit values set
     val segmentCount = block.total_segments ?: block.segment_count ?: totalSteps
+    // SPEC-401-A R10 — match iOS auto-bind exactly. iOS only checks
+    // `filled_segments`; when null it always falls through to
+    // `currentStepIndex+1`. Android previously also short-circuited to
+    // `1` whenever `bar_color`/`fill_color` was authored, which froze
+    // the bar at 1/total even for multi-step flows where iOS would
+    // advance. ContentBlockRendererView.swift:1051-1056.
     val explicitFilled = block.filled_segments ?: block.active_segments
-    val activeSegments = if (explicitFilled != null) explicitFilled
-        else if ((block.bar_color != null || block.fill_color != null) && segmentCount > 0) 1
-        else currentStepIndex + 1  // Auto-bind: 1-based fill
+    val activeSegments = explicitFilled ?: (currentStepIndex + 1)
     val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: "#6366F1")
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val barHeight = (block.bar_height ?: block.height ?: 6.0).dp

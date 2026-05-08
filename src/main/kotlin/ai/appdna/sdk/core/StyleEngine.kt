@@ -32,7 +32,28 @@ data class TextStyleConfig(
     val line_height: Double? = null,
     val letter_spacing: Double? = null,
     val opacity: Double? = null,
+    /**
+     * SPEC-401-A R10 — iOS canonical `text_transform` from
+     * applyTextStyleDecorations. Values: `"uppercase"`, `"lowercase"`.
+     * Applied at the Compose Text composition site (cannot live inside
+     * the TextStyle copy because Compose has no text-case modifier on
+     * TextStyle itself; consumers must read `style.applyTransform(...)`
+     * on the rendered string instead).
+     */
+    val text_transform: String? = null,
 )
+
+/**
+ * SPEC-401-A R10 — apply iOS-style `text_transform` to a raw string.
+ * Mirrors SwiftUI `.textCase(.uppercase|.lowercase)` from
+ * `Core/StyleEngine.swift:194-198`. Returns the input untouched when
+ * the field is null/unrecognised.
+ */
+fun TextStyleConfig?.applyTransform(input: String): String = when (this?.text_transform) {
+    "uppercase" -> input.uppercase()
+    "lowercase" -> input.lowercase()
+    else -> input
+}
 
 data class BackgroundStyleConfig(
     val type: String? = null,
