@@ -423,6 +423,14 @@ internal class PaywallManager(
                 )
                 listener?.onPaywallRestoreCompleted(paywallId = paywallId, productIds = productIds)
                 Log.info("Restore completed for paywall $paywallId with ${productIds.size} products")
+                // SPEC-401 R3 audit Lens A/B — clear the public
+                // `skipNextAutoDismissOnRestore` flag on EVERY restore
+                // terminal event (success-with-products, empty-success,
+                // and the failure path below) so the one-shot flag can't
+                // leak from one paywall presentation into the next.
+                // Captured outside the early-return below.
+                val hostRequestedSkip = AppDNA.paywall.skipNextAutoDismissOnRestore
+                AppDNA.paywall.skipNextAutoDismissOnRestore = false
                 // SPEC-401 Fix 1C — auto-dismiss the live PaywallActivity
                 // when restore actually found entitlements. The delegate
                 // forward above runs FIRST so a host that wants to handle
@@ -432,15 +440,8 @@ internal class PaywallManager(
                 // but user has no entitlements to restore" — leave paywall
                 // up so user can either close manually or attempt a fresh
                 // purchase.
-                if (productIds.isNotEmpty()) {
-                    // SPEC-401 R2 audit Lens B P0 — read the public host
-                    // opt-out flag (one-shot: read + clear). Skips the
-                    // auto-dismiss for THIS restore only.
-                    if (AppDNA.paywall.skipNextAutoDismissOnRestore) {
-                        AppDNA.paywall.skipNextAutoDismissOnRestore = false
-                    } else {
-                        PaywallActivity.activeInstance(paywallId)?.dismissAfterRestore()
-                    }
+                if (productIds.isNotEmpty() && !hostRequestedSkip) {
+                    PaywallActivity.activeInstance(paywallId)?.dismissAfterRestore()
                 }
             } catch (e: Exception) {
                 eventTracker.track(
@@ -451,6 +452,10 @@ internal class PaywallManager(
                     ),
                 )
                 listener?.onPaywallRestoreFailed(paywallId = paywallId, error = e)
+                // SPEC-401 R3 audit — symmetric clear on failure too so
+                // a host who set the flag for a restore that errored
+                // doesn't carry the flag into the next paywall's restore.
+                AppDNA.paywall.skipNextAutoDismissOnRestore = false
                 Log.error("Restore failed: ${e.message}")
             }
         }

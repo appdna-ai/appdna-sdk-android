@@ -106,10 +106,22 @@ class PaywallActivity : ComponentActivity() {
      * `onPaywallRestoreCompleted(productIds)` fires with non-empty products.
      * No-ops if the user already dismissed (`dispatchedDismiss`) or if the
      * host requested to keep the paywall up ([skipSDKAutoDismiss]).
+     *
+     * SPEC-401 R3 audit Lens D P1 — also no-op when the Activity is
+     * mid-lifecycle (`isFinishing` or `isChangingConfigurations`). If the
+     * user rotates the device during a restore call, the BillingClient
+     * coroutine continuation lands here on the OLD Activity instance via
+     * the WeakReference registry. Calling `finish()` + firing
+     * `snapshotOnDismiss` on a config-changing Activity races with the
+     * new Activity's onCreate and corrupts dismiss routing. Bridge state
+     * (`didPurchase=true`) survives in OnboardingActivity, so when the
+     * recreated PaywallActivity comes up and the user taps X, the
+     * dismiss-time routing still lands on `on_success_target` correctly.
      */
     internal fun dismissAfterRestore() {
         if (dispatchedDismiss) return
         if (skipSDKAutoDismiss) return
+        if (isFinishing || isChangingConfigurations) return
         dispatchedDismiss = true
         // Surface the dismiss reason on the captured `onDismiss` slot so
         // the onboarding bridge / host can route via `on_success_target`
