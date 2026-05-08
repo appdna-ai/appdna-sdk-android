@@ -1,6 +1,7 @@
 package ai.appdna.sdk.onboarding
 
 import android.util.Log
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -286,12 +287,36 @@ fun ChatStepComposable(
                         Box(modifier = Modifier.size(32.dp).clip(CircleShape).background(aiBubbleBg), contentAlignment = Alignment.Center) {
                             Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
+                        // SPEC-401-A — animated typing indicator (3 dots
+                        // pulsing alpha 0.3 → 1.0 with 0.2s stagger).
+                        // Mirrors iOS ChatStepView.swift:223 0.6s easing curve.
+                        // Static dots looked broken — pulsing tells the user
+                        // the assistant is actively responding.
+                        val infiniteTx = androidx.compose.animation.core.rememberInfiniteTransition(label = "typing")
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                             modifier = Modifier.background(aiBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
                         ) {
-                            repeat(3) {
-                                Box(modifier = Modifier.size(8.dp).clip(CircleShape).background(typingDotColor.copy(alpha = 0.6f)))
+                            for (dotIndex in 0..2) {
+                                val alpha by infiniteTx.animateFloat(
+                                    initialValue = 0.3f,
+                                    targetValue = 1.0f,
+                                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                                        animation = androidx.compose.animation.core.tween(
+                                            durationMillis = 600,
+                                            delayMillis = dotIndex * 200,
+                                            easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                                        ),
+                                        repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                                    ),
+                                    label = "typing_dot_$dotIndex",
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(8.dp)
+                                        .clip(CircleShape)
+                                        .background(typingDotColor.copy(alpha = alpha)),
+                                )
                             }
                         }
                     }
