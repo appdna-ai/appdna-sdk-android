@@ -1348,7 +1348,15 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                 }
                 // No auto-advance — mirrors iOS InAppBrowser.present semantics.
             }
-            "permission" -> onAction("next")
+            // SPEC-401-A R14 — was `onAction("next")` which rewrote the
+            // action before reaching the canonical handleAction switch.
+            // R13 added a `"permission" -> onNext(null)` branch in
+            // OnboardingActivity (matching iOS OnboardingRenderer.swift
+            // :1525-1529), but block-authored permission buttons (the
+            // only path the console emits today) never reached it
+            // because of this rewrite. Forwarding the original action
+            // keeps the iOS-canonical behavior as the single source.
+            "permission" -> onAction("permission")
             else -> onAction(action)
         }
     }
