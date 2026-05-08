@@ -511,6 +511,25 @@ fun ChatStepComposable(
 
         // Input or CTA
         if (isCompleted || (turnsRemaining <= 0 && chatConfig.isHardLimit)) {
+            // SPEC-401-A R3 — fire chat_completed (reason=max_turns) the
+            // first time the hard-limit branch triggers. iOS does this in
+            // ChatStepView.swift:107-109 via `.onAppear { completeChat(...) }`
+            // as a safety net when turnsRemaining<=0 && hardLimit but
+            // isCompleted hasn't been set (e.g. saved transcript with
+            // stale state). Android previously rendered the CTA without
+            // ever tracking the completion event for this code path.
+            LaunchedEffect(turnsRemaining, chatConfig.isHardLimit, isCompleted) {
+                if (!isCompleted && turnsRemaining <= 0 && chatConfig.isHardLimit) {
+                    isCompleted = true
+                    ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
+                        "flow_id" to flowId,
+                        "step_id" to step.id,
+                        "reason" to "max_turns",
+                        "turns" to userTurnCount,
+                        "duration_ms" to (System.currentTimeMillis() - startTime),
+                    ))
+                }
+            }
             // Completion CTA — styling mirrors the normal CTA button block.
             // Any unset field in completion_button falls back to the chat
             // theme's user bubble colors so existing flows render unchanged.
