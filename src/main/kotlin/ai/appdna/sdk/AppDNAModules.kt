@@ -416,6 +416,26 @@ class PaywallModule internal constructor() {
     internal var manager: PaywallManager? = null
     internal var listener: ai.appdna.sdk.paywalls.AppDNAPaywallDelegate? = null
 
+    /**
+     * SPEC-401 Fix 1C — host opt-out for SDK auto-dismiss-on-restore-success.
+     *
+     * When set to `true`, the next successful Restore tap on a presented
+     * paywall will fire `onPaywallRestoreCompleted` to the delegate as
+     * usual, but the SDK will NOT auto-finish the PaywallActivity. The
+     * host owns dismissal in this case (typical pattern: show a
+     * "Restored — tap continue when ready" overlay, then call
+     * `activity.finish()` from a button tap).
+     *
+     * One-shot: PaywallManager.handleRestore reads + clears this flag
+     * each time it processes a restore. After the next restore (success
+     * or failure), the flag resets to `false` so subsequent paywall
+     * presentations get the default auto-dismiss behavior.
+     *
+     * Mirrors iOS `AppDNA.paywall.skipNextAutoDismissOnRestore`.
+     */
+    @Volatile
+    var skipNextAutoDismissOnRestore: Boolean = false
+
     /** Present a paywall. */
     fun present(
         activity: Activity,

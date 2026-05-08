@@ -426,13 +426,21 @@ internal class PaywallManager(
                 // SPEC-401 Fix 1C — auto-dismiss the live PaywallActivity
                 // when restore actually found entitlements. The delegate
                 // forward above runs FIRST so a host that wants to handle
-                // dismiss itself can flip `skipSDKAutoDismiss` synchronously
-                // inside its delegate body before we reach this line. Empty
-                // restored array = "restore call worked but user has no
-                // entitlements to restore" — leave paywall up so user can
-                // either close manually or attempt a fresh purchase.
+                // dismiss itself can flip `skipNextAutoDismissOnRestore`
+                // synchronously inside its delegate body before we reach
+                // this line. Empty restored array = "restore call worked
+                // but user has no entitlements to restore" — leave paywall
+                // up so user can either close manually or attempt a fresh
+                // purchase.
                 if (productIds.isNotEmpty()) {
-                    PaywallActivity.activeInstance(paywallId)?.dismissAfterRestore()
+                    // SPEC-401 R2 audit Lens B P0 — read the public host
+                    // opt-out flag (one-shot: read + clear). Skips the
+                    // auto-dismiss for THIS restore only.
+                    if (AppDNA.paywall.skipNextAutoDismissOnRestore) {
+                        AppDNA.paywall.skipNextAutoDismissOnRestore = false
+                    } else {
+                        PaywallActivity.activeInstance(paywallId)?.dismissAfterRestore()
+                    }
                 }
             } catch (e: Exception) {
                 eventTracker.track(
