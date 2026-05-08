@@ -1216,6 +1216,11 @@ internal fun OnboardingFlowHost(
                     step = step,
                     effectiveConfig = effectiveConfig,
                     flowId = flow.id,
+                    // SPEC-401-A R11 — pass accumulated responses (immutable
+                    // snapshot of the host's SnapshotStateMap) so block-level
+                    // `visibility_condition` operators evaluate against real
+                    // user answers, not an empty map.
+                    accumulatedResponses = responses.toMap(),
                     // SPEC-070-A finalization B4 P1 — when revisiting a step
                     // via back navigation, restore previously-entered field
                     // values. Mirrors iOS OnboardingStepRouter savedResponses
@@ -1587,6 +1592,11 @@ fun OnboardingStepView(
      * (OnboardingRenderer.swift:1316,1448).
      */
     savedResponses: Map<String, Any>? = null,
+    // SPEC-401-A R11 — accumulated `responses` (across all prior steps)
+    // and per-step `hookData` propagated down to the visibility-condition
+    // evaluator. iOS plumbs through OnboardingStepView → ThreeZoneStepLayout.
+    accumulatedResponses: Map<String, Any> = emptyMap(),
+    hookData: Map<String, Any>? = null,
 ) {
     // SPEC-070-A finalization B4 P1 — pre-populate from savedResponses on
     // first composition. `step.id` keying the remember ensures a fresh
@@ -1622,6 +1632,9 @@ fun OnboardingStepView(
             modifier = modifier,
             currentStepIndex = currentStepIndex,
             totalSteps = totalSteps,
+            // SPEC-401-A R11 — flow visibility-eval data through.
+            responses = accumulatedResponses,
+            hookData = hookData,
         )
     } else {
         // Legacy rendering
@@ -1867,16 +1880,35 @@ private fun ThreeZoneBlockLayout(
     loc: ((String, String) -> String)?,
     currentStepIndex: Int,
     totalSteps: Int,
+    // SPEC-401-A R11 — `responses` + `hookData` flow into the visibility
+    // filter. iOS threads these through ThreeZoneStepLayout
+    // (ThreeZoneStepLayout.swift:13-14, 23-26); without them every
+    // `visibility_condition` operator (when_equals / when_not_empty /
+    // when_gt / when_lt) silently evaluates against an empty map,
+    // breaking conditional content rendering on Android.
+    responses: Map<String, Any> = emptyMap(),
+    hookData: Map<String, Any>? = null,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
 ) {
-    val anyZoned = blocks.any { !it.zone.isNullOrBlank() }
+    // SPEC-401-A R11 — apply `visibility_condition` BEFORE partitioning,
+    // mirroring iOS at ThreeZoneStepLayout.swift:23-26. Previously Android
+    // partitioned ALL blocks first (visible + hidden) and the inner
+    // ContentBlockRendererView filtered per-zone, so the
+    // `onlyCenterContent` decision used the unfiltered top count and
+    // took the wrong layout branch when a top block was hidden.
+    val visibleBlocks = blocks.filter { block ->
+        evaluateVisibilityCondition(block.visibility_condition, responses = responses, hookData = hookData)
+    }
+    val anyZoned = visibleBlocks.any { !it.zone.isNullOrBlank() }
     if (!anyZoned) {
         ContentBlockRendererView(
-            blocks = blocks,
+            blocks = visibleBlocks,
             onAction = onAction,
             toggleValues = toggleValues,
             inputValues = inputValues,
             loc = loc,
+            responses = responses,
+            hookData = hookData,
             currentStepIndex = currentStepIndex,
             totalSteps = totalSteps,
         )
@@ -1891,7 +1923,7 @@ private fun ThreeZoneBlockLayout(
     val top = mutableListOf<ContentBlock>()
     val center = mutableListOf<ContentBlock>()
     val bottom = mutableListOf<ContentBlock>()
-    for (block in blocks) {
+    for (block in visibleBlocks) {
         val effectiveZone = (block.zone ?: block.vertical_align ?: "top").lowercase()
         when (effectiveZone) {
             "center" -> center.add(block)
@@ -1929,6 +1961,8 @@ private fun ThreeZoneBlockLayout(
                     toggleValues = toggleValues,
                     inputValues = inputValues,
                     loc = loc,
+                    responses = responses,
+                    hookData = hookData,
                     currentStepIndex = currentStepIndex,
                     totalSteps = totalSteps,
                 )
@@ -1959,6 +1993,8 @@ private fun ThreeZoneBlockLayout(
                         toggleValues = toggleValues,
                         inputValues = inputValues,
                         loc = loc,
+                        responses = responses,
+                        hookData = hookData,
                         currentStepIndex = currentStepIndex,
                         totalSteps = totalSteps,
                     )
@@ -1998,6 +2034,8 @@ private fun ThreeZoneBlockLayout(
                     toggleValues = toggleValues,
                     inputValues = inputValues,
                     loc = loc,
+                    responses = responses,
+                    hookData = hookData,
                     currentStepIndex = currentStepIndex,
                     totalSteps = totalSteps,
                 )
@@ -2078,6 +2116,13 @@ private fun BlockBasedStepView(
     modifier: Modifier = Modifier,
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
+    // SPEC-401-A R11 — flow `responses` + `hookData` through to the
+    // ThreeZoneBlockLayout / ContentBlockRendererView so authored
+    // `visibility_condition` operators evaluate against real responses
+    // instead of an empty map. Mirrors iOS BlockBasedStepView path
+    // (OnboardingRenderer.swift:1452-1460).
+    responses: Map<String, Any> = emptyMap(),
+    hookData: Map<String, Any>? = null,
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
@@ -2301,7 +2346,7 @@ private fun BlockBasedStepView(
                         verticalArrangement = Arrangement.Bottom,
                     ) {
                         Spacer(Modifier.height(200.dp))
-                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -2320,7 +2365,7 @@ private fun BlockBasedStepView(
                             .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
-                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     }
                 }
             }
@@ -2331,7 +2376,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                     Spacer(Modifier.height(16.dp))
                     ai.appdna.sdk.core.NetworkImage(
                         url = effectiveConfig.image_url,
@@ -2353,7 +2398,7 @@ private fun BlockBasedStepView(
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                     Spacer(Modifier.height(16.dp))
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
             else -> { // no_image
@@ -2363,7 +2408,7 @@ private fun BlockBasedStepView(
                         .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
                 }
             }
         }
