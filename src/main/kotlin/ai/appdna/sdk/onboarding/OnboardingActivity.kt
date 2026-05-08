@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
@@ -1704,24 +1706,20 @@ private fun emitAuthAction(
 }
 
 // SPEC-070-A finalization OB-8 — three-zone block layout helper.
+// SPEC-401-A revised — full parity with iOS `ThreeZoneStepLayout.swift`:
+//   - Top + center are scrollable together (iOS line 40: `ScrollView`)
+//   - Bottom is sticky / keyboard-aware (iOS line 80: `.safeAreaInset(edge: .bottom)`
+//     + `.ignoresSafeArea(.keyboard, edges: .bottom)`)
+//   - Default unzoned blocks go to TOP, not center (iOS line 118: `default: top.append`)
+//   - Tap on empty area dismisses keyboard (iOS line 53: `resignFirstResponder`)
+//   - Responsive horizontal padding `max(24dp, screenWidth * 8%)` (iOS line 106)
+//   - Zone top paddings: 16dp top + 20dp center (iOS lines 44, 48)
+//   - "only-center" path centers a lone center block vertically (iOS lines 30-37)
 //
-// iOS partitions content_blocks by `block.zone` ("top" / "center" /
-// "bottom") into a 3-row Column where Spacer.weight(1f) between each
-// zone makes top blocks stick to top, bottom blocks stick to bottom,
-// and center blocks fill the remaining space (`ThreeZoneStepLayout.swift`
-// + `ContentBlockRendererView.swift:1421-1431`). Without this, the CTA
-// authored at the bottom of a step + footer-pinned legal text scrolled
-// inline with the question content, making every step's vertical
-// rhythm wrong vs iOS.
-//
-// Behavior:
-//   - If at least one block declares zone, partition by zone and render
-//     three Columns with weight(1f) Spacer separators between non-empty
-//     zones. Center is the default for blocks without a zone.
-//   - If NO block declares a zone, fall through to a single Column —
-//     legacy / unzoned content keeps its existing render shape.
-//
-// Mirrors iOS' implicit center default at ThreeZoneStepLayout.swift:38-50.
+// Without these, the CTA authored at the bottom of a step + footer-pinned
+// legal text scrolled inline with the question content, making every step's
+// vertical rhythm wrong vs iOS. The keyboard would also push the CTA off
+// the screen on Android, while iOS pinned it via safeAreaInset.
 @androidx.compose.runtime.Composable
 private fun ThreeZoneBlockLayout(
     blocks: List<ContentBlock>,
@@ -1746,53 +1744,126 @@ private fun ThreeZoneBlockLayout(
         )
         return
     }
-    val top = blocks.filter { it.zone?.lowercase() == "top" }
-    val bottom = blocks.filter { it.zone?.lowercase() == "bottom" }
-    // SPEC-070-A finalization P0 audit-6 MED-1 — center is the CATCH-ALL,
-    // not an allowlist of {null, blank, "center"}. iOS partition does
-    // `if zone == "top" { topBucket } else if zone == "bottom" { bottomBucket }
-    // else { centerBucket }` — any unknown / future / legacy value
-    // (e.g. "header", "middle", "footer") lands in center on iOS but
-    // would silently vanish on Android with the original allowlist.
-    val center = blocks.filter {
-        val z = it.zone?.lowercase()
-        z != "top" && z != "bottom"
+    // SPEC-401-A — iOS partition (`ThreeZoneStepLayout.swift:113-119`)
+    // routes UNKNOWN/empty zones to TOP via `default: top.append(block)`,
+    // not center. Earlier Android comment was factually wrong about iOS.
+    // Fixing makes the same flow render with the same vertical rhythm
+    // on both platforms (was P0: a block authored without an explicit
+    // zone landed in different parts of the screen on each native).
+    val top = mutableListOf<ContentBlock>()
+    val center = mutableListOf<ContentBlock>()
+    val bottom = mutableListOf<ContentBlock>()
+    for (block in blocks) {
+        val effectiveZone = (block.zone ?: block.vertical_align ?: "top").lowercase()
+        when (effectiveZone) {
+            "center" -> center.add(block)
+            "bottom" -> bottom.add(block)
+            else -> top.add(block)
+        }
     }
-    Column(modifier = modifier.fillMaxSize()) {
-        if (top.isNotEmpty()) {
-            ContentBlockRendererView(
-                blocks = top,
-                onAction = onAction,
-                toggleValues = toggleValues,
-                inputValues = inputValues,
-                loc = loc,
-                currentStepIndex = currentStepIndex,
-                totalSteps = totalSteps,
-            )
+    val onlyCenterContent = top.isEmpty() && center.isNotEmpty()
+
+    val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+    // SPEC-401-A — iOS uses `max(24, screenWidth * 0.08)` for responsive
+    // horizontal margins (`ThreeZoneStepLayout.swift:106`). Mirror the
+    // formula in dp so wider screens (foldables, tablets) get proportional
+    // breathing room and small phones stay at the 24dp floor.
+    val horizontalPadding = maxOf(24, (configuration.screenWidthDp * 0.08).toInt()).dp
+
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
+
+    androidx.compose.foundation.layout.Box(modifier = modifier.fillMaxSize()) {
+        // ── TOP + CENTER (scrollable, keyboard-aware) ─────────────────────
+        if (onlyCenterContent) {
+            // Only center content (e.g. loading spinner) — vertically center it.
+            // Mirrors iOS `ThreeZoneStepLayout.swift:30-37`.
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = horizontalPadding)
+                    .padding(bottom = if (bottom.isNotEmpty()) 80.dp else 0.dp),
+                verticalArrangement = Arrangement.Center,
+            ) {
+                ContentBlockRendererView(
+                    blocks = center,
+                    onAction = onAction,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    loc = loc,
+                    currentStepIndex = currentStepIndex,
+                    totalSteps = totalSteps,
+                )
+            }
+        } else {
+            // Normal: top scrolls with center; tap empty area dismisses
+            // keyboard; bottom zone leaves room via padding(bottom = 80dp)
+            // (iOS uses safeAreaInset with intrinsic height — 80dp covers
+            // the typical CTA + small footer).
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(bottom = if (bottom.isNotEmpty()) 80.dp else 0.dp)
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = horizontalPadding)
+                    .pointerInput(Unit) {
+                        detectTapGestures {
+                            keyboardController?.hide()
+                            focusManager.clearFocus()
+                        }
+                    },
+            ) {
+                if (top.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    ContentBlockRendererView(
+                        blocks = top,
+                        onAction = onAction,
+                        toggleValues = toggleValues,
+                        inputValues = inputValues,
+                        loc = loc,
+                        currentStepIndex = currentStepIndex,
+                        totalSteps = totalSteps,
+                    )
+                }
+                if (center.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    ContentBlockRendererView(
+                        blocks = center,
+                        onAction = onAction,
+                        toggleValues = toggleValues,
+                        inputValues = inputValues,
+                        loc = loc,
+                        currentStepIndex = currentStepIndex,
+                        totalSteps = totalSteps,
+                    )
+                }
+            }
         }
-        Spacer(modifier = Modifier.weight(1f))
-        if (center.isNotEmpty()) {
-            ContentBlockRendererView(
-                blocks = center,
-                onAction = onAction,
-                toggleValues = toggleValues,
-                inputValues = inputValues,
-                loc = loc,
-                currentStepIndex = currentStepIndex,
-                totalSteps = totalSteps,
-            )
-        }
-        Spacer(modifier = Modifier.weight(1f))
+
+        // ── BOTTOM (sticky, keyboard-aware) ──────────────────────────────
+        // SPEC-401-A — iOS pins the CTA via `safeAreaInset(edge: .bottom)`
+        // and explicitly calls `ignoresSafeArea(.keyboard, edges: .bottom)`
+        // so the IME doesn't push it. Compose's `Modifier.imePadding()`
+        // is the standard Android idiom for the same behavior.
         if (bottom.isNotEmpty()) {
-            ContentBlockRendererView(
-                blocks = bottom,
-                onAction = onAction,
-                toggleValues = toggleValues,
-                inputValues = inputValues,
-                loc = loc,
-                currentStepIndex = currentStepIndex,
-                totalSteps = totalSteps,
-            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = horizontalPadding)
+                    .padding(bottom = 8.dp)
+                    .imePadding(),
+            ) {
+                ContentBlockRendererView(
+                    blocks = bottom,
+                    onAction = onAction,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    loc = loc,
+                    currentStepIndex = currentStepIndex,
+                    totalSteps = totalSteps,
+                )
+            }
         }
     }
 }
