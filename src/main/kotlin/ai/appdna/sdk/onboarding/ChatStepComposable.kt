@@ -295,10 +295,33 @@ fun ChatStepComposable(
                                     Text((persona?.name?.take(1) ?: "A"), color = aiBubbleTextColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
-                            Text(
-                                msg.content, color = aiBubbleTextColor, fontSize = 14.sp,
-                                modifier = Modifier.weight(1f, fill = false).background(aiBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
-                            )
+                            // SPEC-401-A — render text + optional inline image
+                            // media bubble below it. iOS draws an image
+                            // BundledAsyncImage when `media.type == "image"`
+                            // and a non-empty url; Android previously dropped
+                            // the media field on the floor.
+                            Column(
+                                modifier = Modifier.weight(1f, fill = false),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                if (msg.content.isNotBlank()) {
+                                    Text(
+                                        msg.content, color = aiBubbleTextColor, fontSize = 14.sp,
+                                        modifier = Modifier.background(aiBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
+                                    )
+                                }
+                                msg.media?.takeIf { it.type == "image" && !it.url.isNullOrBlank() }?.let { media ->
+                                    ai.appdna.sdk.core.NetworkImage(
+                                        url = media.url!!,
+                                        contentDescription = media.alt_text,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(max = 220.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                    )
+                                }
+                            }
                             Spacer(Modifier.width(40.dp))
                         }
                     }
