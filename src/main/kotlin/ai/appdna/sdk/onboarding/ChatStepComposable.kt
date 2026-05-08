@@ -303,7 +303,12 @@ fun ChatStepComposable(
                 }
             } catch (e: Exception) {
                 isTyping = false
-                val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong."
+                // SPEC-401-A R12 — match iOS catch-default at
+                // ChatStepView.swift:518 ("Sorry, something went wrong. Please
+                // try again."). Previous Android catch dropped "Please try
+                // again." so the same caught network error rendered shorter
+                // on Android than iOS.
+                val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong. Please try again."
                 messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
                 ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
                     "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount, "error" to (e.message ?: "unknown")
@@ -601,8 +606,24 @@ fun ChatStepComposable(
             // theme's user bubble colors so existing flows render unchanged.
             val btn = chatConfig.completion_button
             val variant = btn?.variant ?: "primary"
-            val resolvedBg = btn?.bg_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleBg
-            val resolvedText = btn?.text_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() } ?: userBubbleTextColor
+            val customBg = btn?.bg_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+            val resolvedBg = customBg ?: userBubbleBg
+            // SPEC-401-A R12 — match iOS contrast fallback at
+            // ChatStepView.swift:346-352. When bg_color is authored
+            // but text_color is empty, derive black/white from bg
+            // luminance instead of the chat theme default — without
+            // this, white-on-white renders for dark-text themes.
+            val explicitText = btn?.text_color?.takeIf { it.isNotEmpty() }?.let { runCatching { Color(android.graphics.Color.parseColor(it)) }.getOrNull() }
+            val resolvedText = when {
+                explicitText != null -> explicitText
+                customBg != null -> {
+                    // Match iOS Color.isLightHex luminance threshold
+                    // (PaywallHelperViews.swift:120 — 0.2126·R + 0.7152·G + 0.0722·B ≥ 0.6).
+                    val l = 0.2126 * customBg.red + 0.7152 * customBg.green + 0.0722 * customBg.blue
+                    if (l >= 0.6) Color.Black else Color.White
+                }
+                else -> userBubbleTextColor
+            }
             val radius = (btn?.button_corner_radius ?: 14.0).dp
             // SPEC-401-A — match iOS height behaviour. iOS uses
             // height=nil → natural padding(14×2)≈46pt fallback when

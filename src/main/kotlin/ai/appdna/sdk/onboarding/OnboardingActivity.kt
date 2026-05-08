@@ -2052,6 +2052,8 @@ private fun ThreeZoneBlockLayout(
                         toggleValues = toggleValues,
                         inputValues = inputValues,
                         loc = loc,
+                        responses = responses,
+                        hookData = hookData,
                         currentStepIndex = currentStepIndex,
                         totalSteps = totalSteps,
                     )
@@ -2654,7 +2656,11 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
         Button(
             onClick = { onNext(null) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(14.dp)
+            shape = RoundedCornerShape(14.dp),
+            // SPEC-401-A R12 — match iOS ValuePropStepView.swift:51 fixed
+            // indigo `#6366F1` so flows render the same CTA color on both
+            // natives regardless of host's MaterialTheme primary override.
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
@@ -2697,7 +2703,10 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         Button(
             onClick = { onNext(null) },
             modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(14.dp)
+            shape = RoundedCornerShape(14.dp),
+            // SPEC-401-A R12 — match iOS CustomStepView.swift:51 fixed
+            // indigo `#6366F1`. Affects custom/info/permission steps.
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
