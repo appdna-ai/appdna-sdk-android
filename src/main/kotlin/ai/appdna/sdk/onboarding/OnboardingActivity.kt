@@ -1603,6 +1603,42 @@ fun OnboardingStepView(
         )
     } else {
         // Legacy rendering
+        // SPEC-401-A R7 P0 — chat step contains a LazyColumn that
+        // crashes inside a verticalScroll-wrapping parent
+        // ("Vertically scrollable component was measured with an
+        // infinity maximum height constraints"). iOS uses a plain
+        // VStack at OnboardingRenderer.swift:1466-1490 with no
+        // ScrollView, so ChatStepView's own ScrollView lays out
+        // fine. On Android, branch the wrapper: chat gets a
+        // non-scrolling Column with fillMaxSize so its internal
+        // LazyColumn measures correctly. Other step types keep the
+        // verticalScroll fallback for long-content overflow.
+        if (step.type == OnboardingStep.StepType.INTERACTIVE_CHAT) {
+            Column(
+                modifier = modifier
+                    .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
+                    .fillMaxSize(),
+            ) {
+                ChatStepComposable(
+                    step = step,
+                    flowId = flowId,
+                    onNext = { data -> onNext(data) },
+                    onSkip = { onSkip() },
+                    // SPEC-401-A — pass prior step transcript so back-nav
+                    // restores chat bubbles + completion state. iOS does
+                    // the same via `savedTranscript: savedResponses` at
+                    // OnboardingRenderer.swift:1480.
+                    savedTranscript = savedResponses,
+                )
+                // Skip button
+                if (step.config.skip_enabled == true) {
+                    TextButton(onClick = onSkip, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                        Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                    }
+                }
+            }
+            return
+        }
         Column(
             modifier = modifier
                 .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
@@ -1624,17 +1660,8 @@ fun OnboardingStepView(
                 OnboardingStep.StepType.INFO,
                 OnboardingStep.StepType.PERMISSION -> CustomStep(effectiveConfig, onNext)
                 OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
-                OnboardingStep.StepType.INTERACTIVE_CHAT -> ChatStepComposable(
-                    step = step,
-                    flowId = flowId,
-                    onNext = { data -> onNext(data) },
-                    onSkip = { onSkip() },
-                    // SPEC-401-A — pass prior step transcript so back-nav
-                    // restores chat bubbles + completion state. iOS does
-                    // the same via `savedTranscript: savedResponses` at
-                    // OnboardingRenderer.swift:1480.
-                    savedTranscript = savedResponses,
-                )
+                // INTERACTIVE_CHAT handled via the early return above.
+                OnboardingStep.StepType.INTERACTIVE_CHAT -> Unit
             }
 
             // Skip button
