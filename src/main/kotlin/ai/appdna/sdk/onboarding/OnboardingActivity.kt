@@ -191,8 +191,15 @@ class OnboardingActivity : ComponentActivity() {
         }
         @Suppress("DEPRECATION")
         super.onBackPressed()
+        // SPEC-401-A R9 — report the currently-visible step (matches iOS
+        // OnboardingRenderer.swift:280-281 which uses `currentStep`/
+        // `currentIndex`). Previously reported `steps.first()` + index 0
+        // which broke `onOnboardingDismissed(atStep:)` semantics and
+        // corrupted dismiss analytics for any flow with >1 step.
         flow?.let { f ->
-            viewModel.onFlowDismissed?.invoke(f.steps.firstOrNull()?.id ?: "", 0)
+            val idx = viewModel.currentIndex.intValue.coerceIn(0, (f.steps.size - 1).coerceAtLeast(0))
+            val stepId = f.steps.getOrNull(idx)?.id ?: ""
+            viewModel.onFlowDismissed?.invoke(stepId, idx)
         }
         cleanup()
     }
@@ -2409,7 +2416,12 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
             Spacer(Modifier.height(12.dp))
             Text(text = it.interpolated(), fontSize = 16.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
         }
-        Spacer(Modifier.height(48.dp))
+        // SPEC-401-A R9 — match iOS WelcomeStepView.swift:10,47 vertical
+        // distribution: `Spacer()` top + `Spacer()` bottom so content
+        // vertically centers on tall screens. Previous Android layout
+        // used a single top weight + fixed gaps; on tablets the title
+        // group sat top-heavy with a wide gap between CTA and bottom edge.
+        Spacer(Modifier.weight(1f))
         Button(
             onClick = { onNext(null) },
             modifier = Modifier.fillMaxWidth().height(52.dp),

@@ -1036,8 +1036,18 @@ fun ContentBlockRendererView(
                 && animationCount < 10  // Max 10 animated blocks per step
             if (shouldAnimate) animationCount++
 
-            // SPEC-089d §6.7: Apply relative sizing
-            val sizingModifier = Modifier.applyRelativeSizing(block.element_width, block.element_height)
+            // SPEC-089d §6.7: Apply relative sizing.
+            // SPEC-401-A R9 — skip `element_height` for input_* blocks,
+            // mirroring iOS ContentBlockRendererView.swift:58-62 which
+            // explicitly passes `nil` height for inputs so e.g. a
+            // 60dp text field inside a `element_height: 280dp` row
+            // doesn't render a tall empty wrapper around it. iOS also
+            // sets `useMinHeight=true` for `input_select` so the
+            // dropdown can grow; Compose's relative sizing equivalent
+            // already lets dropdowns expand, so we only need the skip.
+            val isInputBlock = block.type.startsWith("input_")
+            val effectiveHeight = if (isInputBlock) null else block.element_height
+            val sizingModifier = Modifier.applyRelativeSizing(block.element_width, effectiveHeight)
 
             if (shouldAnimate) {
                 block.entrance_animation?.let { anim ->
@@ -1257,11 +1267,16 @@ private fun ImageBlock(block: ContentBlock) {
         else -> androidx.compose.ui.layout.ContentScale.Crop
     }
 
+    // SPEC-401-A R9 — iOS uses `.frame(maxHeight: imgHeight)` at
+    // ContentBlockRendererView.swift:338,344. Android previously hard-set
+    // `.height(...)` so portrait/landscape assets with `image_fit="contain"`
+    // were forced to that exact pixel height instead of shrinking to
+    // intrinsic size. `heightIn(max=)` matches iOS behaviour.
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
             .fillMaxWidth()
-            .height((block.height ?: 200.0).dp)
+            .heightIn(max = (block.height ?: 200.0).dp)
             .then(shapeModifier),
         contentScale = contentScale,
         contentDescription = block.alt,
@@ -1547,12 +1562,22 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
                 text = loc?.invoke("block.${block.id}.label", label) ?: label,
                 modifier = Modifier.weight(1f),
             )
+            // SPEC-401-A R9 — match iOS standalone-toggle tint
+            // ContentBlockRendererView.swift:525 `.tint(Color(hex: "#6366F1"))`.
+            // Compose Switch defaults to Material3 green; without a `colors=`
+            // override the same payload renders indigo on iOS and green on
+            // Android. Track-thumb pair below mirrors iOS where the entire
+            // track + thumb adopts the tint when checked.
             Switch(
                 checked = checked,
                 onCheckedChange = {
                     checked = it
                     toggleValues[block.id] = it
                 },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Color(0xFF6366F1),
+                ),
             )
         }
         block.toggle_description?.let {
@@ -2561,6 +2586,15 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
         }
         finished = true
         if (autoAdvance) {
+            // SPEC-401-A R9 — match iOS items-mode auto_advance grace
+            // delay at ContentBlockStandaloneViews.swift:347-352 — wait
+            // 500ms after the final checklist item completes so users
+            // see the completed state before the step advances.
+            // (iOS timer-only mode at line 317 fires instantly; Android
+            //  ProgressBar block path matches that.)
+            if (items.isNotEmpty()) {
+                kotlinx.coroutines.delay(500)
+            }
             onAction("next")
         }
     }

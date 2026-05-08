@@ -228,7 +228,9 @@ fun ChatStepComposable(
                     // event-track. iOS ChatStepView.swift:496-507 does the
                     // same; Android was silent on HTTP errors which made
                     // failed webhooks invisible to the user.
-                    val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong."
+                    // SPEC-401-A R9 — match iOS default at ChatStepView.swift:500,518
+                    // ("Sorry, something went wrong. Please try again.").
+                    val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong. Please try again."
                     messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
                     ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
                         "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
@@ -254,6 +256,12 @@ fun ChatStepComposable(
                             messages = messages + ChatMessage(id = "completion", role = ChatRole.AI, content = completionMsg)
                         }
                         isCompleted = true
+                        // SPEC-401-A R9 — clear stale soft-limit warning when chat
+                        // completes. iOS does this inside completeChat() at
+                        // ChatStepView.swift:580. Without this the warning text
+                        // ("You have 1 message remaining") stays visible after
+                        // completion CTA appears.
+                        showSoftLimitWarning = false
                         ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
                             "flow_id" to flowId, "step_id" to step.id, "user_turn_count" to userTurnCount,
                             "total_messages" to messages.size, "completion_reason" to "ai_completed",
@@ -266,6 +274,8 @@ fun ChatStepComposable(
                             messages = messages + ChatMessage(id = "completion", role = ChatRole.AI, content = it)
                         }
                         isCompleted = true
+                        // SPEC-401-A R9 — see chat completion sites: clear soft-limit warning.
+                        showSoftLimitWarning = false
                         ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
                             "flow_id" to flowId, "step_id" to step.id, "user_turn_count" to userTurnCount,
                             "total_messages" to messages.size, "completion_reason" to "max_turns",
@@ -548,11 +558,22 @@ fun ChatStepComposable(
             LaunchedEffect(turnsRemaining, chatConfig.isHardLimit, isCompleted) {
                 if (!isCompleted && turnsRemaining <= 0 && chatConfig.isHardLimit) {
                     isCompleted = true
+                    // SPEC-401-A R9 — clear stale soft-limit warning when the
+                    // safety-net hard-limit path takes over (matches the other
+                    // completion sites + iOS completeChat).
+                    showSoftLimitWarning = false
+                    // SPEC-401-A R9 — match iOS chat_completed schema at
+                    // ChatStepView.swift:584-591: completion_reason / user_turn_count /
+                    // total_messages keys. Previous keys (reason / turns) silently
+                    // diverged from the main path completeChat() emit, so warehouse
+                    // queries grouping by completion_reason missed the safety-net
+                    // path entirely.
                     ai.appdna.sdk.AppDNA.track("chat_completed", mapOf(
                         "flow_id" to flowId,
                         "step_id" to step.id,
-                        "reason" to "max_turns",
-                        "turns" to userTurnCount,
+                        "completion_reason" to "max_turns",
+                        "user_turn_count" to userTurnCount,
+                        "total_messages" to messages.size,
                         "duration_ms" to (System.currentTimeMillis() - startTime),
                     ))
                 }
