@@ -666,17 +666,24 @@ internal fun OnboardingFlowHost(
         )
         val activity = activityCtx as? android.app.Activity
         if (activity != null) {
-            // Use the static AppDNA.presentPaywall — it accepts a per-call
-            // listener (AppDNA.paywall.present instance method only re-uses
-            // the global listener slot). The bridge then forwards every
-            // delegate event to the global host listener via
-            // AppDNA.paywall.listener (OnboardingPaywallBridge.forwardOnMain).
-            AppDNA.presentPaywall(
-                activity = activity,
-                id = paywallId,
-                context = null,
-                listener = bridge,
-            )
+            // SPEC-401-A — 100ms delay before presenting paywall mirrors
+            // iOS Task.sleep(100ms) at OnboardingRenderer.swift:1280 so
+            // the host fade-out cadence is preserved. Android previously
+            // called presentPaywall immediately producing a snappier-but-
+            // jarring transition.
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                // Use the static AppDNA.presentPaywall — it accepts a per-call
+                // listener (AppDNA.paywall.present instance method only re-uses
+                // the global listener slot). The bridge then forwards every
+                // delegate event to the global host listener via
+                // AppDNA.paywall.listener (OnboardingPaywallBridge.forwardOnMain).
+                AppDNA.presentPaywall(
+                    activity = activity,
+                    id = paywallId,
+                    context = null,
+                    listener = bridge,
+                )
+            }, 100)
         } else {
             ai.appdna.sdk.Log.warning(
                 "OnboardingPaywallBridge: no Activity context; falling back to legacy __paywall_trigger marker."
