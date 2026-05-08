@@ -7,6 +7,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -221,9 +223,14 @@ private fun FormFieldControl(
             // `keyboard_type` from `OnboardingConfig.keyboard_type` to back
             // the same field-level override; Android does the same.
             val keyboardType = resolveKeyboardType(field)
+            val maxLen = field.config?.max_length
             OutlinedTextField(
                 value = values[field.id]?.toString() ?: "",
-                onValueChange = { values[field.id] = it; errors.remove(field.id) },
+                onValueChange = { input ->
+                    val truncated = if (maxLen != null && input.length > maxLen) input.take(maxLen) else input
+                    values[field.id] = truncated
+                    errors.remove(field.id)
+                },
                 modifier = Modifier.fillMaxWidth(),
                 placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 // SPEC-070-A I.5b — `imeAction = Done` so the soft keyboard
@@ -239,17 +246,28 @@ private fun FormFieldControl(
         }
 
         FormFieldType.TEXTAREA -> {
+            val maxLen = field.config?.max_length
+            val minLines = field.config?.multiline_min_lines ?: 3
             OutlinedTextField(
                 value = values[field.id]?.toString() ?: "",
-                onValueChange = { values[field.id] = it; errors.remove(field.id) },
+                onValueChange = { input ->
+                    val truncated = if (maxLen != null && input.length > maxLen) input.take(maxLen) else input
+                    values[field.id] = truncated
+                    errors.remove(field.id)
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 80.dp),
+                    .heightIn(min = (minLines * 24).dp),
                 placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 isError = errors.containsKey(field.id),
-                maxLines = 5
+                minLines = minLines,
+                maxLines = 8,
             )
         }
+
+        FormFieldType.PASSWORD -> PasswordField(field, values, errors)
+
+        FormFieldType.URL -> UrlField(field, values, errors)
 
         FormFieldType.NUMBER -> {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -299,10 +317,11 @@ private fun FormFieldControl(
             val max = field.config?.max_value?.toFloat() ?: 100f
             val step = field.config?.step?.toFloat() ?: 1f
             val unit = field.config?.unit ?: ""
+            val decimalPlaces = field.config?.decimal_places ?: 0
             val current = (values[field.id] as? Number)?.toFloat() ?: min
 
             Text(
-                text = "${current.toInt()}${if (unit.isNotEmpty()) " $unit" else ""}",
+                text = "${formatNumber(current, decimalPlaces)}${if (unit.isNotEmpty()) " $unit" else ""}",
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -317,10 +336,22 @@ private fun FormFieldControl(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("${min.toInt()}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
-                Text("${max.toInt()}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                Text(formatNumber(min, decimalPlaces), fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                Text(formatNumber(max, decimalPlaces), fontSize = 12.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
             }
         }
+
+        FormFieldType.RANGE_SLIDER -> RangeSliderField(field, values, errors)
+
+        FormFieldType.RATING -> RatingField(field, values, errors)
+
+        FormFieldType.IMAGE_PICKER -> ImagePickerField(field, values, errors)
+
+        FormFieldType.COLOR -> ColorPickerField(field, values, errors)
+
+        FormFieldType.MULTILINE_CHIPS -> MultilineChipsField(field, values, errors)
+
+        FormFieldType.SIGNATURE -> SignatureField(field, values, errors)
 
         FormFieldType.TOGGLE -> {
             Row(
@@ -337,10 +368,13 @@ private fun FormFieldControl(
         }
 
         FormFieldType.STEPPER -> {
-            val min = field.config?.min_value?.toInt() ?: 0
-            val max = field.config?.max_value?.toInt() ?: 100
-            val step = field.config?.step?.toInt() ?: 1
-            val current = (values[field.id] as? Number)?.toInt() ?: min
+            val min = field.config?.min_value ?: 0.0
+            val max = field.config?.max_value ?: 100.0
+            val step = field.config?.step ?: 1.0
+            val decimalPlaces = field.config?.decimal_places ?: 0
+            val current = (values[field.id] as? Number)?.toDouble() ?: min
+            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+            val tap = androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -348,14 +382,19 @@ private fun FormFieldControl(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { if (current - step >= min) values[field.id] = current - step },
+                    onClick = {
+                        if (current - step >= min) {
+                            values[field.id] = current - step
+                            haptic.performHapticFeedback(tap)
+                        }
+                    },
                     enabled = current - step >= min
                 ) {
                     Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    text = "$current${field.config?.unit?.let { " $it" } ?: ""}",
+                    text = "${formatNumber(current, decimalPlaces)}${field.config?.unit?.let { " $it" } ?: ""}",
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
@@ -363,7 +402,12 @@ private fun FormFieldControl(
                 )
                 Spacer(Modifier.width(16.dp))
                 IconButton(
-                    onClick = { if (current + step <= max) values[field.id] = current + step },
+                    onClick = {
+                        if (current + step <= max) {
+                            values[field.id] = current + step
+                            haptic.performHapticFeedback(tap)
+                        }
+                    },
                     enabled = current + step <= max
                 ) {
                     Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
@@ -549,9 +593,81 @@ private fun SelectField(
     errors: MutableMap<String, String>
 ) {
     val options = field.options ?: emptyList()
+    val multiSelect = field.config?.multi_select == true
+    val maxSelections = field.config?.max_selections
+
+    if (multiSelect) {
+        @Suppress("UNCHECKED_CAST")
+        val selected: List<String> = (values[field.id] as? List<String>)
+            ?: ((values[field.id] as? String)?.split(",")?.filter { it.isNotEmpty() } ?: emptyList())
+        var expanded by remember { mutableStateOf(false) }
+        val selectedLabel = if (selected.isEmpty()) ""
+            else selected.mapNotNull { id -> options.find { it.id == id }?.label?.interpolated() }.joinToString(", ")
+
+        ExposedDropdownMenuBox(
+            expanded = expanded,
+            onExpandedChange = { expanded = it },
+        ) {
+            OutlinedTextField(
+                value = selectedLabel,
+                onValueChange = {},
+                readOnly = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .menuAnchor(),
+                placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+                isError = errors.containsKey(field.id),
+            )
+            ExposedDropdownMenu(
+                expanded = expanded,
+                onDismissRequest = { expanded = false },
+            ) {
+                options.forEach { option ->
+                    val checked = option.id in selected
+                    DropdownMenuItem(
+                        text = { Text(option.label.interpolated()) },
+                        onClick = {
+                            val updated = selected.toMutableList()
+                            if (checked) {
+                                updated.remove(option.id)
+                            } else {
+                                if (maxSelections == null || updated.size < maxSelections) {
+                                    updated.add(option.id)
+                                }
+                            }
+                            values[field.id] = updated.toList()
+                            errors.remove(field.id)
+                        },
+                        leadingIcon = {
+                            if (checked) {
+                                Icon(
+                                    imageVector = Icons.Filled.Check,
+                                    contentDescription = "Selected",
+                                )
+                            } else {
+                                Spacer(Modifier.width(24.dp))
+                            }
+                        },
+                    )
+                }
+            }
+        }
+        // Done button when max reached or just to confirm
+        if (selected.isNotEmpty()) {
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (maxSelections != null) "${selected.size} / $maxSelections selected" else "${selected.size} selected",
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+            )
+        }
+        return
+    }
+
     var expanded by remember { mutableStateOf(false) }
     val selected = values[field.id]?.toString() ?: ""
-    val selectedLabel = options.find { it.id == selected }?.label ?: ""
+    val selectedLabel = options.find { it.id == selected }?.label?.interpolated() ?: ""
 
     ExposedDropdownMenuBox(
         expanded = expanded,

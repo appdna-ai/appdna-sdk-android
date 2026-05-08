@@ -247,10 +247,22 @@ data class ValuePropItem(
 enum class FormFieldType(val value: String) {
     TEXT("text"), TEXTAREA("textarea"), NUMBER("number"),
     EMAIL("email"), PHONE("phone"),
+    // SPEC-401-A: missing field types added — schema in
+    // `flow.schema.ts FORM_FIELD_TYPES` lists all 22; these were
+    // previously unimplemented in the Android SDK so configs that
+    // referenced them silently fell back to TEXT (silent breakage).
+    PASSWORD("password"),
+    URL("url"),
     DATE("date"), TIME("time"), DATETIME("datetime"),
     SELECT("select"), SLIDER("slider"), TOGGLE("toggle"),
     STEPPER("stepper"), SEGMENTED("segmented"),
-    LOCATION("location");
+    LOCATION("location"),
+    RATING("rating"),
+    RANGE_SLIDER("range_slider"),
+    IMAGE_PICKER("image_picker"),
+    COLOR("color"),
+    MULTILINE_CHIPS("multiline_chips"),
+    SIGNATURE("signature");
 
     companion object {
         fun fromString(value: String): FormFieldType {
@@ -295,8 +307,11 @@ data class FormFieldDependency(
 
 data class FormFieldConfig(
     val max_length: Int? = null,
+    val min_length: Int? = null,
     val keyboard_type: String? = null,
     val autocapitalize: String? = null,
+    val autocorrect: Boolean? = null,
+    val multiline_min_lines: Int? = null,
     val min_value: Double? = null,
     val max_value: Double? = null,
     val step: Double? = null,
@@ -304,16 +319,46 @@ data class FormFieldConfig(
     val decimal_places: Int? = null,
     val min_date: String? = null,
     val max_date: String? = null,
+    val date_format: String? = null,
     val picker_style: String? = null,
     val search_enabled: Boolean? = null,
     val multi_select: Boolean? = null,
+    val max_selections: Int? = null,
     val default_value: Any? = null,
     // Location (SPEC-089)
     val location_type: String? = null,
     val location_bias_country: String? = null,
     val location_language: String? = null,
     val location_placeholder: String? = null,
-    val location_min_chars: Int? = null
+    val location_min_chars: Int? = null,
+    // SPEC-401-A: rating
+    val max_stars: Int? = null,
+    val allow_half: Boolean? = null,
+    val star_size: Int? = null,
+    val filled_color: String? = null,
+    val empty_color: String? = null,
+    // SPEC-401-A: range_slider
+    val min_label: String? = null,
+    val max_label: String? = null,
+    // SPEC-401-A: image_picker
+    val max_size_mb: Double? = null,
+    val allowed_types: String? = null, // "photo" | "camera" | "both"
+    val aspect_ratio: String? = null, // e.g. "1:1", "4:3", "16:9", or "free"
+    val placeholder_text: String? = null,
+    // SPEC-401-A: color picker
+    val default_color: String? = null,
+    val show_opacity: Boolean? = null,
+    val preset_colors: List<String>? = null,
+    // SPEC-401-A: url validation
+    val validate_format: Boolean? = null,
+    // SPEC-401-A: multiline_chips
+    val max_chips: Int? = null,
+    val suggestions: List<String>? = null,
+    val allow_custom: Boolean? = null,
+    // SPEC-401-A: signature
+    val stroke_color: String? = null,
+    val stroke_width: Double? = null,
+    val clear_button_text: String? = null
 )
 
 @Immutable
