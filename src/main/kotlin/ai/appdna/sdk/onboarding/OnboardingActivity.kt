@@ -2254,11 +2254,19 @@ private fun BlockBasedStepView(
 
         when (rawAction) {
             "next" -> {
-                // Merge toggleValues and inputValues (rating, etc.) into responses
+                // SPEC-401-A R15 — match iOS OnboardingRenderer.swift:1518-1527.
+                // iOS prefixes every toggle key with `toggle_` so the namespaces
+                // never collide with form input keys; Android previously merged
+                // raw toggle keys, breaking cross-platform analytics aggregation
+                // and any NextStepRule JSON authored against `toggle_<id>`.
+                // Order: inputs first, then toggle_<key> entries — matches iOS
+                // line ordering at 1519-1526.
                 val merged = mutableMapOf<String, Any>()
-                merged.putAll(toggleValues.mapValues { it.value as Any })
                 merged.putAll(inputValues)
-                onNext(merged)
+                for ((key, value) in toggleValues) {
+                    merged["toggle_$key"] = value
+                }
+                onNext(if (merged.isEmpty()) null else merged)
             }
             "skip" -> onSkip?.invoke()
             // SPEC-070-A C.1 — social_login retains its existing data shape
@@ -2376,13 +2384,68 @@ private fun BlockBasedStepView(
                 }
                 "image" -> {
                     Box(Modifier.fillMaxSize()) {
+                        // SPEC-401-A R15 — read `image_fit` from DTO instead
+                        // of hardcoding Crop. Matches iOS imageFit() helper at
+                        // StyleEngine.swift:337 — "fit" → letterbox, "fill"/
+                        // "cover"/null → fill.
+                        val imageScale = when (bg.image_fit?.lowercase()) {
+                            "fit", "contain" -> androidx.compose.ui.layout.ContentScale.Fit
+                            else -> androidx.compose.ui.layout.ContentScale.Crop
+                        }
                         ai.appdna.sdk.core.NetworkImage(
                             url = bg.image_url,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            contentScale = imageScale,
                         )
-                        bg.overlay?.let { overlay ->
-                            Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(overlay)))
+                        // SPEC-401-A R15 — overlay opacity per iOS
+                        // StyleEngine.swift:343-358. Pure black/white default
+                        // hexes (editor default) get 0.4 opacity so the image
+                        // remains visible; explicit overlay_opacity wins.
+                        bg.overlay?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }?.let { overlay ->
+                            val op = bg.overlay_opacity ?: run {
+                                val l = overlay.lowercase()
+                                if (l == "#000000" || l == "#ffffff" || l == "000000" || l == "ffffff") 0.4 else null
+                            }
+                            val color = ai.appdna.sdk.core.StyleEngine.parseColor(overlay)
+                            val tinted = if (op != null) color.copy(alpha = op.toFloat()) else color
+                            Box(Modifier.fillMaxSize().background(tinted))
+                        }
+                    }
+                }
+                "lottie" -> {
+                    // SPEC-401-A R15 — full-screen Lottie background
+                    // (iOS StyleEngine.swift:361-392). Without this branch
+                    // a console-authored Lottie background rendered as a
+                    // transparent / theme-default screen on Android.
+                    Box(Modifier.fillMaxSize()) {
+                        bg.lottie_url?.let { url ->
+                            // LottieBlockView constrains height; for a
+                            // full-screen background pass screenHeightDp.
+                            val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat()
+                            ai.appdna.sdk.core.LottieBlockView(
+                                block = ai.appdna.sdk.core.LottieBlock(
+                                    lottie_url = url,
+                                    lottie_json = null,
+                                    autoplay = true,
+                                    loop = bg.animation_loop ?: true,
+                                    speed = 1.0f,
+                                    width = null,
+                                    height = screenHeight,
+                                    alignment = "center",
+                                    play_on_scroll = null,
+                                    play_on_tap = null,
+                                    color_overrides = null,
+                                ),
+                            )
+                        }
+                        bg.overlay?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }?.let { overlay ->
+                            val op = bg.overlay_opacity ?: run {
+                                val l = overlay.lowercase()
+                                if (l == "#000000" || l == "#ffffff" || l == "000000" || l == "ffffff") 0.4 else null
+                            }
+                            val color = ai.appdna.sdk.core.StyleEngine.parseColor(overlay)
+                            val tinted = if (op != null) color.copy(alpha = op.toFloat()) else color
+                            Box(Modifier.fillMaxSize().background(tinted))
                         }
                     }
                 }

@@ -62,6 +62,14 @@ data class BackgroundStyleConfig(
     val image_url: String? = null,
     val image_fit: String? = null,
     val overlay: String? = null,
+    // SPEC-401-A R15 — match iOS BackgroundStyle (StyleEngine.swift:343-358 +
+    // 361-392). `overlay_opacity` lets authors dim the underlying media; when
+    // unset the SDK applies a 0.4 default for pure-black/white #000000/#FFFFFF
+    // hexes (editor default) so the image/lottie remains visible. `lottie_url`
+    // + `animation_loop` enable a full-screen Lottie background type.
+    val overlay_opacity: Double? = null,
+    val lottie_url: String? = null,
+    val animation_loop: Boolean? = null,
 )
 
 data class GradientConfig(
