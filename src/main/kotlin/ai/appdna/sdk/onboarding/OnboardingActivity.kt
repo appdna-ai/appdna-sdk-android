@@ -2277,12 +2277,17 @@ private fun BlockBasedStepView(
 private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().fillMaxHeight()
     ) {
-        Spacer(Modifier.height(48.dp))
+        // SPEC-401-A — flexible top spacer instead of fixed 48dp.
+        // iOS uses Spacer() top + Spacer() between image-block and
+        // CTA so the content vertically centers on tall screens.
+        // Fixed 48dp top-aligned the content; on tablets the layout
+        // looked top-heavy compared to iOS.
+        Spacer(Modifier.weight(1f))
         // SPEC-401-A — legacy step image_url. Mirrors iOS WelcomeStepView
-        // .swift:13-29 — 280×280dp rounded image when authored without
-        // content_blocks.
+        // .swift:13-21 — 280×280dp ContentScale.Fit (matches scaledToFit)
+        // with rounded 16dp corners.
         config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
             ai.appdna.sdk.core.NetworkImage(
                 url = url,
@@ -2290,7 +2295,7 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
                 modifier = androidx.compose.ui.Modifier
                     .size(280.dp)
                     .clip(RoundedCornerShape(16.dp)),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
             Spacer(Modifier.height(24.dp))
         }
@@ -2443,20 +2448,6 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
 @Composable
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-        // SPEC-401-A — legacy step image_url. Mirrors iOS CustomStepView
-        // .swift:29-41 — 280×280dp rounded image when authored without
-        // content_blocks. Affects custom/info/permission step types.
-        config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
-            ai.appdna.sdk.core.NetworkImage(
-                url = url,
-                contentDescription = null,
-                modifier = androidx.compose.ui.Modifier
-                    .size(280.dp)
-                    .clip(RoundedCornerShape(16.dp)),
-                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-            )
-            Spacer(Modifier.height(24.dp))
-        }
         config.title?.let {
             // SPEC-070-A J.11 — custom step title is the screen heading.
             Text(
@@ -2470,6 +2461,21 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
             Text(text = it.interpolated(), fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+        }
+        // SPEC-401-A — legacy step image_url. Mirrors iOS CustomStepView
+        // .swift:29-41 — image renders AFTER title+subtitle, ContentScale
+        // .Fit (matches scaledToFit so non-square assets are letterboxed
+        // not cropped), and NO rounded corners (iOS uses no clip-shape).
+        // Affects custom/info/permission step types.
+        config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+            Spacer(Modifier.height(24.dp))
+            ai.appdna.sdk.core.NetworkImage(
+                url = url,
+                contentDescription = null,
+                modifier = androidx.compose.ui.Modifier
+                    .size(280.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            )
         }
         Spacer(Modifier.height(32.dp))
         Button(
