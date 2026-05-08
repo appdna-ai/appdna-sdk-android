@@ -354,9 +354,22 @@ data class ContentBlock(
     val lottie_autoplay: Boolean? = null,
     val lottie_loop: Boolean? = null,
     val lottie_speed: Float? = null,
+    // SPEC-401-A — extra Lottie controls iOS forwards but Android
+    // never declared (and so silently dropped).
+    val play_on_scroll: Boolean? = null,
+    val play_on_tap: Boolean? = null,
+    val color_overrides: Map<String, String>? = null,
+    val lottie_width: Double? = null,
     val rive_url: String? = null,
     val rive_artboard: String? = null,
     val rive_state_machine: String? = null,
+    // SPEC-401-A — iOS canonical Rive field names (`artboard`,
+    // `state_machine`) on the top-level ContentBlock plus the inputs
+    // and trigger_on_step_complete fields iOS already forwards.
+    val artboard: String? = null,
+    val state_machine: String? = null,
+    val rive_inputs: Map<String, Any>? = null,
+    val trigger_on_step_complete: String? = null,
     val icon_ref: Any? = null,  // IconReference map or emoji string
     val video_autoplay: Boolean? = null,
     val video_loop: Boolean? = null,
@@ -1504,8 +1517,12 @@ private fun LottieContentBlock(block: ContentBlock) {
                 autoplay = block.lottie_autoplay ?: true,
                 loop = block.lottie_loop ?: true,
                 speed = block.lottie_speed ?: 1.0f,
+                width = block.lottie_width?.toFloat(),
                 height = (block.height ?: 160.0).toFloat(),
                 alignment = block.icon_alignment ?: "center",
+                play_on_scroll = block.play_on_scroll,
+                play_on_tap = block.play_on_tap,
+                color_overrides = block.color_overrides,
             )
         )
     }
@@ -1518,10 +1535,15 @@ private fun RiveContentBlock(block: ContentBlock) {
         RiveBlockView(
             block = RiveBlock(
                 rive_url = block.rive_url,
-                artboard = block.rive_artboard,
-                state_machine = block.rive_state_machine,
+                // SPEC-401-A — honour iOS canonical `artboard`/
+                // `state_machine` first, fall back to legacy
+                // `rive_*` prefix.
+                artboard = block.artboard ?: block.rive_artboard,
+                state_machine = block.state_machine ?: block.rive_state_machine,
                 height = (block.height ?: 160.0).toFloat(),
                 alignment = block.icon_alignment ?: "center",
+                inputs = block.rive_inputs,
+                trigger_on_step_complete = block.trigger_on_step_complete,
             )
         )
     }
