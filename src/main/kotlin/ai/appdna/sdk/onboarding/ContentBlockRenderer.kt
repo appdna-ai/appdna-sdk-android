@@ -4027,12 +4027,17 @@ private fun FormInputDateBlock(
     mode: String,
 ) {
     val fieldId = block.field_id ?: block.id
-    var displayText by remember { mutableStateOf(block.field_placeholder ?: "Select ${mode}...") }
+    // SPEC-401-A R12 — restore the saved value into the visible button
+    // text on back-nav so the user sees their prior answer. Previous
+    // impl only restored `pendingDate` (datetime sub-state) and left
+    // displayText showing "Select date..." as if no answer existed.
+    val savedRaw = (inputValues[fieldId] as? String).orEmpty()
+    var displayText by remember {
+        mutableStateOf(if (savedRaw.isNotEmpty()) savedRaw else (block.field_placeholder ?: "Select $mode..."))
+    }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
-    // For datetime mode: track which sub-picker is active
-    // SPEC-070-A finalization OB-6 — restore saved date value on back nav.
-    var pendingDate by remember { mutableStateOf((inputValues[block.field_id ?: block.id] as? String) ?: "") }
+    var pendingDate by remember { mutableStateOf(savedRaw) }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -4071,6 +4076,18 @@ private fun FormInputDateBlock(
         }
     }
 
+    // SPEC-401-A R12 — match iOS ISO 8601 serialization at
+    // FormInputBlockViews.swift:386-389 (`ISO8601DateFormatter().string(from:)`).
+    // Previous Android impl wrote `"yyyy-MM-dd"` strings, so server-side
+    // consumers + journey triggers + host analytics saw incompatible
+    // payloads from the two SDKs for the same flow. iOS's
+    // ISO8601DateFormatter defaults emit `yyyy-MM-dd'T'HH:mm:ssZ` in UTC.
+    val isoFormatter = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
+    }
+
     // Material3 DatePickerDialog
     if (showDatePicker) {
         val datePickerState = rememberDatePickerState()
@@ -4081,13 +4098,14 @@ private fun FormInputDateBlock(
                     showDatePicker = false
                     val millis = datePickerState.selectedDateMillis
                     if (millis != null) {
-                        val formatted = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date(millis))
+                        // ISO8601 normalised to midnight UTC of the picked day.
+                        val isoStr = isoFormatter.format(java.util.Date(millis))
                         if (mode == "datetime") {
-                            pendingDate = formatted
+                            pendingDate = isoStr
                             showTimePicker = true
                         } else {
-                            displayText = formatted
-                            inputValues[fieldId] = formatted
+                            displayText = isoStr
+                            inputValues[fieldId] = isoStr
                         }
                     }
                 }) { Text("OK") }
@@ -4108,13 +4126,34 @@ private fun FormInputDateBlock(
             confirmButton = {
                 TextButton(onClick = {
                     showTimePicker = false
-                    val timeStr = String.format(java.util.Locale.US, "%02d:%02d", timePickerState.hour, timePickerState.minute)
                     if (mode == "datetime" && pendingDate.isNotEmpty()) {
-                        val combined = "$pendingDate $timeStr"
-                        displayText = combined
-                        inputValues[fieldId] = combined
+                        // Combine: parse pendingDate (ISO date), apply hour/minute,
+                        // re-serialise to ISO8601 with the user's chosen time.
+                        try {
+                            val baseDate = isoFormatter.parse(pendingDate)
+                            if (baseDate != null) {
+                                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                                cal.time = baseDate
+                                cal.set(java.util.Calendar.HOUR_OF_DAY, timePickerState.hour)
+                                cal.set(java.util.Calendar.MINUTE, timePickerState.minute)
+                                cal.set(java.util.Calendar.SECOND, 0)
+                                val combined = isoFormatter.format(cal.time)
+                                displayText = combined
+                                inputValues[fieldId] = combined
+                            }
+                        } catch (_: Exception) {
+                            // Fallback: keep pendingDate alone if parse fails.
+                            displayText = pendingDate
+                            inputValues[fieldId] = pendingDate
+                        }
                         pendingDate = ""
                     } else {
+                        // Time-only mode: ISO8601 with today's date in UTC.
+                        val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC"))
+                        cal.set(java.util.Calendar.HOUR_OF_DAY, timePickerState.hour)
+                        cal.set(java.util.Calendar.MINUTE, timePickerState.minute)
+                        cal.set(java.util.Calendar.SECOND, 0)
+                        val timeStr = isoFormatter.format(cal.time)
                         displayText = timeStr
                         inputValues[fieldId] = timeStr
                     }
