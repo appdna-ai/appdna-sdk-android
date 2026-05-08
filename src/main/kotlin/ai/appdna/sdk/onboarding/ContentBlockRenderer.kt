@@ -361,6 +361,13 @@ data class ContentBlock(
     val video_autoplay: Boolean? = null,
     val video_loop: Boolean? = null,
     val video_muted: Boolean? = null,
+    // SPEC-401-A — iOS canonical field names. Console writes both
+    // legacy `video_*` and the unprefixed forms; honour both.
+    val autoplay: Boolean? = null,
+    val loop: Boolean? = null,
+    val muted: Boolean? = null,
+    val controls: Boolean? = null,
+    val inline_playback: Boolean? = null,
     // SPEC-089d §6.1: Per-block style design tokens
     val block_style: BlockStyle? = null,
     // SPEC-089d §6.2: 2D positioning
@@ -1448,9 +1455,15 @@ private fun VideoBlock(block: ContentBlock) {
                 video_thumbnail_url = block.video_thumbnail_url ?: block.image_url,
                 video_height = effectiveHeight.toFloat(),
                 video_corner_radius = effectiveCornerRadius.toFloat(),
-                autoplay = block.video_autoplay,
-                loop = block.video_loop,
-                muted = block.video_muted,
+                // SPEC-401-A — iOS canonical field-name parity. Honour
+                // unprefixed `autoplay`/`loop`/`muted`/`controls`/
+                // `inline_playback` first, fall back to legacy
+                // `video_*` prefix for older payloads.
+                autoplay = block.autoplay ?: block.video_autoplay,
+                loop = block.loop ?: block.video_loop,
+                muted = block.muted ?: block.video_muted,
+                controls = block.controls ?: true,
+                inline_playback = block.inline_playback ?: true,
             )
         )
     } else {
