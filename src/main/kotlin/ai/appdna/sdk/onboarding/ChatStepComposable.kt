@@ -410,6 +410,11 @@ fun ChatStepComposable(
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // SPEC-401-A — `style.quick_reply_border` config now applied
+                // to OutlinedButton border. Mirrors iOS ChatStepView.swift:251
+                // 1px stroke with `qrBorder` color. Was using Material3
+                // default border, ignoring the config.
+                val qrBorderColor = style?.quick_reply_border?.takeIf { it.isNotBlank() }?.let { hex(it, "#475569") } ?: qrBgColor
                 items(dynamicQuickReplies, key = { it.id }) { qr ->
                     OutlinedButton(
                         onClick = {
@@ -420,6 +425,7 @@ fun ChatStepComposable(
                         },
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.outlinedButtonColors(containerColor = qrBgColor, contentColor = qrTextColor),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, qrBorderColor),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
                     ) {
                         Text(qr.text, fontSize = 12.sp)
@@ -499,7 +505,12 @@ fun ChatStepComposable(
             ) {
                 OutlinedTextField(
                     value = inputText,
-                    onValueChange = { inputText = it },
+                    // SPEC-401-A — enforce input_max_length truncation.
+                    // ChatModels declared the field but the UI ignored it.
+                    onValueChange = { input ->
+                        val maxLen = chatConfig.input_max_length
+                        inputText = if (maxLen != null && input.length > maxLen) input.take(maxLen) else input
+                    },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text(chatConfig.input_placeholder ?: "Type your message...", fontSize = (style?.input_font_size ?: 14).sp, color = inputTextColor.copy(alpha = 0.5f)) },
                     textStyle = LocalTextStyle.current.copy(fontSize = (style?.input_font_size ?: 14).sp),
