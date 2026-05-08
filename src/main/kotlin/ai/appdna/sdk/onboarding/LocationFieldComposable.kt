@@ -141,7 +141,21 @@ fun LocationFieldComposable(
                     .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(8.dp)),
             ) {
                 suggestions.forEachIndexed { index, suggestion ->
-                    Column(
+                    // SPEC-401-A B1.5 — Material3 ListItem primary/secondary
+                    // text hierarchy parity with iOS LocationFieldView's
+                    // two-line cells. Primary = first comma-segment of the
+                    // formatted address (street/POI), secondary = the
+                    // remainder so users can disambiguate "Springfield, IL"
+                    // vs "Springfield, MA" at a glance.
+                    val primary = suggestion.address.substringBefore(",").trim()
+                        .ifEmpty { suggestion.address }
+                    val secondary = suggestion.address
+                        .substringAfter(",", missingDelimiterValue = "")
+                        .trim()
+                        .ifEmpty {
+                            listOfNotNull(suggestion.city, suggestion.country).joinToString(", ")
+                        }
+                    ListItem(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
@@ -169,12 +183,29 @@ fun LocationFieldComposable(
                                 suggestion.postalCode?.let { payload["postal_code"] = it }
                                 suggestion.rawQuery?.let { payload["raw_query"] = it }
                                 values[field.id] = payload
-                            }
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(2.dp),
-                    ) {
-                        Text(text = suggestion.address, fontSize = 14.sp, color = Color.Black)
-                    }
+                            },
+                        leadingContent = {
+                            Icon(
+                                imageVector = Icons.Filled.LocationOn,
+                                contentDescription = null,
+                                modifier = Modifier.size(20.dp),
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        },
+                        headlineContent = {
+                            Text(
+                                text = primary,
+                                fontSize = 14.sp,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                            )
+                        },
+                        supportingContent = if (secondary.isNotBlank()) {
+                            { Text(text = secondary, fontSize = 12.sp) }
+                        } else null,
+                        colors = ListItemDefaults.colors(
+                            containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                        ),
+                    )
                     if (index < suggestions.size - 1) {
                         @Suppress("DEPRECATION")
                         Divider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)

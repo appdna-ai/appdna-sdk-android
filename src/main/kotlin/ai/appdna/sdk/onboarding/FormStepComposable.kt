@@ -257,7 +257,11 @@ private fun FormFieldControl(
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = (minLines * 24).dp),
+                    // SPEC-401-A — cap height at 150dp to match iOS
+                    // FormStepView.swift:274 so long input doesn't push the
+                    // CTA off-screen on small phones. minLines still drives
+                    // the initial visible row count.
+                    .heightIn(min = (minLines * 24).dp, max = 150.dp),
                 placeholder = field.placeholder?.let { { Text(it.interpolated()) } },
                 isError = errors.containsKey(field.id),
                 minLines = minLines,
@@ -474,7 +478,7 @@ private fun DateField(
     OutlinedButton(
         onClick = {
             val cal = Calendar.getInstance()
-            DatePickerDialog(
+            val dialog = DatePickerDialog(
                 context,
                 { _, year, month, day ->
                     // SPEC-070-A I.6 — ISO8601 (`yyyy-MM-dd`) submission
@@ -493,7 +497,20 @@ private fun DateField(
                 cal.get(Calendar.YEAR),
                 cal.get(Calendar.MONTH),
                 cal.get(Calendar.DAY_OF_MONTH)
-            ).show()
+            )
+            // SPEC-401-A — enforce min_date/max_date config; previously the
+            // schema accepted them but the picker ignored them. ISO8601
+            // `yyyy-MM-dd` parsed via SimpleDateFormat(Locale.US).
+            try {
+                val isoFmt = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                field.config?.min_date?.let { iso ->
+                    isoFmt.parse(iso)?.let { dialog.datePicker.minDate = it.time }
+                }
+                field.config?.max_date?.let { iso ->
+                    isoFmt.parse(iso)?.let { dialog.datePicker.maxDate = it.time }
+                }
+            } catch (_: Exception) { /* tolerate parse failure */ }
+            dialog.show()
         },
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(4.dp)
