@@ -88,6 +88,37 @@ class PaywallActivity : ComponentActivity() {
     // last written to the static companion-object slots.
     private var launchToken: String? = null
     private var instanceConfig: PaywallConfig? = null
+    private var instancePaywallId: String? = null
+
+    /**
+     * SPEC-401 Fix 1C — host-controlled opt-out for SDK auto-dismiss on
+     * restore success. Hosts that want to keep the paywall visible after
+     * restore (e.g. show a "Restored! Tap X when ready" overlay) flip
+     * this flag inside their `onPaywallRestoreCompleted` delegate body
+     * before returning. When true, [dismissAfterRestore] short-circuits.
+     * Mirrors iOS PaywallDismissGuard.skipSDKAutoDismiss.
+     */
+    internal var skipSDKAutoDismiss: Boolean = false
+
+    /**
+     * SPEC-401 Fix 1C — auto-dismiss on restore success. Called from
+     * [PaywallManager.handleRestore] AFTER the delegate's
+     * `onPaywallRestoreCompleted(productIds)` fires with non-empty products.
+     * No-ops if the user already dismissed (`dispatchedDismiss`) or if the
+     * host requested to keep the paywall up ([skipSDKAutoDismiss]).
+     */
+    internal fun dismissAfterRestore() {
+        if (dispatchedDismiss) return
+        if (skipSDKAutoDismiss) return
+        dispatchedDismiss = true
+        // Surface the dismiss reason on the captured `onDismiss` slot so
+        // the onboarding bridge / host can route via `on_success_target`
+        // (Fix 1B already flipped didPurchase=true via the bridge so this
+        // path lands on the same outcome as a real purchase). DismissReason
+        // mirrors the values used elsewhere in this Activity.
+        snapshotOnDismiss?.invoke(DismissReason.PURCHASED)
+        finish()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -140,6 +171,10 @@ class PaywallActivity : ComponentActivity() {
         launchToken = token
         val config = slots.config
         instanceConfig = config
+        instancePaywallId = paywallId
+        // SPEC-401 Fix 1C — register this Activity so PaywallManager can
+        // call dismissAfterRestore() on it after a successful restore.
+        activePaywallInstances[paywallId] = java.lang.ref.WeakReference(this)
 
         val onAppear = slots.onAppear
         val onDismiss = slots.onDismiss
@@ -231,6 +266,13 @@ class PaywallActivity : ComponentActivity() {
         // PaywallConfig and `finish()` the recreated instance.
         if (isFinishing && !isChangingConfigurations) {
             launchToken?.let { activeLaunches.remove(it) }
+            // SPEC-401 Fix 1C — clear our weak ref entry so a stale
+            // reference can't be returned to PaywallManager after the
+            // Activity is gone.
+            instancePaywallId?.let { id ->
+                val ref = activePaywallInstances[id]
+                if (ref?.get() === this) activePaywallInstances.remove(id)
+            }
         }
         super.onDestroy()
     }
@@ -265,6 +307,31 @@ class PaywallActivity : ComponentActivity() {
             val onRestore: (() -> Unit)? = null,
         )
         private val activeLaunches = java.util.concurrent.ConcurrentHashMap<String, LaunchSlots>()
+
+        // SPEC-401 Fix 1C — per-paywallId registry of live PaywallActivity
+        // instances. Used by [PaywallManager.handleRestore] to call
+        // [PaywallActivity.dismissAfterRestore] when restore succeeds with
+        // non-empty productIds. Stored as WeakReference so a leaked entry
+        // never holds the Activity beyond its real lifecycle.
+        //
+        // In practice only one paywall presents at a time per paywallId;
+        // a second present overwrites the prior weak ref, and the prior
+        // Activity (if still alive) is dismissed by its own onDestroy
+        // path. Mirrors iOS PaywallManager's per-presentation closure
+        // capture of viewController.
+        private val activePaywallInstances =
+            java.util.concurrent.ConcurrentHashMap<String, java.lang.ref.WeakReference<PaywallActivity>>()
+
+        /**
+         * SPEC-401 Fix 1C — look up the currently-live PaywallActivity for
+         * the given paywallId so [PaywallManager.handleRestore] can call
+         * [dismissAfterRestore] from a non-Activity coroutine context.
+         * Returns null if no Activity is registered or the WeakReference
+         * has been cleared by GC.
+         */
+        @JvmStatic
+        internal fun activeInstance(paywallId: String): PaywallActivity? =
+            activePaywallInstances[paywallId]?.get()
 
         // Read-only accessor for `onBackPressed` to consult the active
         // paywall's `dismiss.allowed` field. Returns null if the Activity

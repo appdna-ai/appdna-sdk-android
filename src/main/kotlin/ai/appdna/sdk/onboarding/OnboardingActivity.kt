@@ -628,6 +628,33 @@ internal fun OnboardingFlowHost(
             "continue" -> "continue"
             else -> "continue"
         }
+
+        // SPEC-401 Fix 1A — entitlement-aware skip gate.
+        // Default `true` matches the new SDK contract: paywalls auto-skip
+        // for already-subscribed users unless the author explicitly opts
+        // out (upsell paywalls). Older flows that never authored the field
+        // resolve to null → defaults to true here. `hasActiveSubscription()`
+        // is synchronous on Android (reads from `EntitlementCache`); cold
+        // start with empty cache returns false, so the paywall presents
+        // (acceptable defensive fallback per spec edge cases).
+        val skipIfSubscribed = (triggerData?.get("skip_if_subscribed") as? Boolean) ?: true
+        if (skipIfSubscribed && AppDNA.billing.hasActiveSubscription()) {
+            eventTracker?.track(
+                "onboarding_paywall_skip",
+                mapOf(
+                    "flow_id" to flow.id,
+                    "paywall_id" to paywallId,
+                    "reason" to "user_already_subscribed",
+                ),
+            )
+            // Reuse the same routing primitive used after a real purchase
+            // so success-target wiring (continue / specific node / complete)
+            // takes a single code path. Default fallback is "continue" —
+            // mirrors iOS OnboardingRenderer presentPaywallTrigger.
+            routeOutcome(onSuccessTarget, "continue", "user_already_subscribed")
+            return
+        }
+
         val bridge = OnboardingPaywallBridge(
             onPurchased = { routeOutcome(onSuccessTarget, "continue", "paywall_purchased") },
             onFailed = { routeOutcome(onFailTarget, "stay", "paywall_payment_failed") },

@@ -194,6 +194,42 @@ class BillingModule internal constructor() {
     }
 
     /**
+     * SPEC-401 Fix 1D — silently refresh cached entitlement state.
+     *
+     * Calls into [NativeBillingManager.refreshEntitlementCache] which
+     * re-reads the user's current entitlements via Play Billing
+     * `BillingClient.queryPurchasesAsync` and primes the
+     * [EntitlementCache] in place. Designed for two callers:
+     *   1. [AppDNA.identify] — auto-refresh after host signs in a user
+     *      so the next paywall_trigger entitlement gate (Fix 1A)
+     *      reflects that user's subscriptions, not the previous
+     *      anonymous user's empty entitlements.
+     *   2. Hosts that complete auth out-of-band (SSO callbacks, deep
+     *      links, OAuth web flows) and need to flush stale cache
+     *      without firing user-visible restore events.
+     *
+     * Side effects: ZERO. No analytics events, no delegate callbacks,
+     * no UI. Errors are swallowed and logged at warning level — the
+     * suspend returns normally so callers can chain without try/catch.
+     * Mirrors iOS `BillingModule.refreshEntitlementCache()`.
+     */
+    suspend fun refreshEntitlementCache() {
+        val mgr = manager ?: run {
+            Log.warning("BillingModule.refreshEntitlementCache: manager not available")
+            return
+        }
+        try {
+            mgr.refreshEntitlementCache()
+        } catch (e: Exception) {
+            Log.warning("BillingModule.refreshEntitlementCache failed: ${e.message}")
+        }
+    }
+
+    /** Java-friendly overload — returns a [CompletableFuture]. */
+    fun refreshEntitlementCacheFuture(): CompletableFuture<Unit> =
+        scope.future { refreshEntitlementCache() }
+
+    /**
      * SPEC-070-A A.30 — typed suspend product fetch.
      *
      * Returns `ProductInfo` data classes from [NativeBillingManager.getProducts].

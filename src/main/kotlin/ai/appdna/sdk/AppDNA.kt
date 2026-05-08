@@ -635,6 +635,17 @@ object AppDNA {
             // SPEC-203: start journey-triggered pending-messages listener.
             pendingMessageListener?.startObserving(orgId, appId, userId)
         }
+
+        // SPEC-401 Fix 1D — silently refresh the entitlement cache so the
+        // next paywall_trigger entitlement gate (Fix 1A) reflects the
+        // identified user's current Play Billing subscriptions, not the
+        // prior anonymous user's empty entitlements. Fire-and-forget on
+        // the SDK's lifecycle-bound `scope` (cancelled on shutdown);
+        // identify is not blocked on completion. Errors are swallowed
+        // inside refreshEntitlementCache. Mirrors iOS AppDNA.identify.
+        scope.launch {
+            billing.refreshEntitlementCache()
+        }
     }
 
     /**

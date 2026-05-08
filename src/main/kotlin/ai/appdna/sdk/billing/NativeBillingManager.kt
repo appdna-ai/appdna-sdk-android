@@ -664,6 +664,57 @@ class NativeBillingManager internal constructor(
      *
      * @return List of restored Entitlements.
      */
+    /**
+     * SPEC-401 Fix 1D — silent entitlement-cache refresh.
+     *
+     * Same query path as [restorePurchases] (SUBS + INAPP via Play Billing
+     * `queryPurchasesAsync`) but skips the user-visible parts: no
+     * `purchase_restored` analytics events, no `fireOnRestoreCompleted`
+     * delegate callbacks. Designed for [AppDNA.identify] and host-driven
+     * post-auth refresh hooks where firing user-visible restore events
+     * would be wrong.
+     *
+     * Errors are swallowed and logged at warning level — callers must be
+     * able to chain without try/catch (identify is fire-and-forget). On
+     * failure the cache stays at whatever it was before; no state mutation.
+     */
+    suspend fun refreshEntitlementCache() {
+        try {
+            val client = connectionManager.awaitConnectedClient() ?: return
+            val (subsResult, inappResult) = coroutineScope {
+                val subsDeferred = async {
+                    val params = QueryPurchasesParams.newBuilder()
+                        .setProductType(BillingClient.ProductType.SUBS)
+                        .build()
+                    client.queryPurchasesAsync(params)
+                }
+                val inappDeferred = async {
+                    val params = QueryPurchasesParams.newBuilder()
+                        .setProductType(BillingClient.ProductType.INAPP)
+                        .build()
+                    client.queryPurchasesAsync(params)
+                }
+                subsDeferred.await() to inappDeferred.await()
+            }
+            val mergedPurchases = (subsResult.purchasesList + inappResult.purchasesList)
+                .distinctBy { it.purchaseToken }
+            // Empty entitlements is a valid state (user has no past
+            // purchases) — short-circuit before hitting the verifier so
+            // we don't make a network call for nothing.
+            if (mergedPurchases.isEmpty()) return
+            val transactions = mergedPurchases.map { purchase ->
+                mapOf(
+                    "token" to purchase.purchaseToken,
+                    "productId" to (purchase.products.firstOrNull() ?: "unknown")
+                )
+            }
+            val entitlements = receiptVerifier.restore(transactions)
+            entitlementCache.replaceAll(entitlements)
+        } catch (e: Exception) {
+            Log.warning("refreshEntitlementCache: silent refresh failed — ${e.message}")
+        }
+    }
+
     suspend fun restorePurchases(): List<Entitlement> {
         Log.info("Restoring purchases (SUBS + INAPP)")
 

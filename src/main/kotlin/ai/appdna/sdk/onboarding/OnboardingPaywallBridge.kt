@@ -120,6 +120,17 @@ internal class OnboardingPaywallBridge(
 
     override fun onPaywallRestoreCompleted(paywallId: String, productIds: List<String>) {
         forwardOnMain { it.onPaywallRestoreCompleted(paywallId, productIds) }
+        // SPEC-401 Fix 1B — treat a non-empty restore as equivalent to a
+        // successful purchase so subsequent dismiss routes via on_success
+        // instead of on_dismiss. Empty productIds means "restore call
+        // succeeded but found no entitlements" (user is genuinely not
+        // subscribed) — leave didPurchase=false and let the user either
+        // dismiss or attempt a fresh purchase. Mirrors iOS
+        // OnboardingPaywallBridge.onPaywallRestoreCompleted.
+        if (productIds.isNotEmpty()) {
+            didPurchase = true
+            onPurchased()
+        }
     }
 
     override fun onPaywallRestoreFailed(paywallId: String, error: Throwable) {
