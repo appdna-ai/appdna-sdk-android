@@ -1938,11 +1938,17 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
         }
     }
 
-    // On expire: hide
+    // On expire: hide (only when explicitly requested).
     if (expired && block.on_expire_action == "hide") return
 
-    // On expire: show expired text
-    if (expired && block.on_expire_action == "show_expired_text") {
+    // SPEC-401-A R3 — on expire show expired_text by default. iOS
+    // always renders `expired_text` once the timer hits zero
+    // (ContentBlockStandaloneViews.swift:148-165) regardless of
+    // on_expire_action, except for hide/auto_advance. Android
+    // previously only rendered it when on_expire_action ==
+    // "show_expired_text", so the default-unset case fell through
+    // to the digital "00:00" timer indefinitely.
+    if (expired && block.on_expire_action != "auto_advance") {
         Text(
             text = block.expired_text ?: "Expired",
             fontSize = fontSize,
@@ -1997,30 +2003,33 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
                 horizontalArrangement = hAlign,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                timeUnits.forEachIndexed { index, (value, unitLabel, showSep) ->
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                timeUnits.forEach { (value, unitLabel, _) ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    ) {
                         Text(
                             text = value.toString().padStart(2, '0'),
                             fontSize = fontSize,
                             fontWeight = FontWeight.Bold,
                             color = textColor,
+                            // SPEC-401-A R3 — monospaced digits so the
+                            // counter doesn't visibly shift width per
+                            // second. iOS uses .system(.monospaced).
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                         )
                         Text(
                             text = unitLabel,
                             fontSize = 10.sp,
-                            color = textColor.copy(alpha = 0.6f),
+                            // SPEC-401-A R3 — accent_color when authored,
+                            // mirrors iOS unit-label colour (was hardcoded
+                            // textColor.alpha 0.6 — accent ignored).
+                            color = accentColor,
                         )
                     }
-                    // Show separator between units, but not after last
-                    if (showSep && index < timeUnits.size - 1) {
-                        Text(
-                            text = ":",
-                            fontSize = fontSize,
-                            fontWeight = FontWeight.Bold,
-                            color = textColor.copy(alpha = 0.4f),
-                            modifier = Modifier.padding(horizontal = 4.dp),
-                        )
-                    }
+                    // SPEC-401-A R3 — drop the inter-column ":" separator.
+                    // iOS doesn't render any separator between time-unit
+                    // columns; Android's colon broke the visual rhythm.
                 }
             }
         }
