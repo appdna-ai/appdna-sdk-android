@@ -247,6 +247,73 @@ object StyleEngine {
     }
 
     /**
+     * SPEC-401-A R9 — universal block-container styling, ported from
+     * iOS `ContentBlockTypes.swift:744-786 applyBlockContainerStyle`.
+     *
+     * iOS applies this modifier to EVERY ContentBlock at
+     * `ContentBlockRendererView.swift:67` (.applyBlockContainerStyle(block))
+     * so any block type — text/image/row/input/etc. — can opt into
+     * a container background, blur effect, border, and corner radius
+     * via `field_config` keys:
+     *   - `blur_background: Bool`   → frosted-glass effect
+     *   - `container_bg_color: String`
+     *   - `container_opacity: Double` (preferred) or `background_opacity` (legacy)
+     *   - `container_border_width: Double`
+     *   - `container_border_color: String`
+     *   - `container_corner_radius: Double`
+     *
+     * Previously Android only honoured these on the `row` block, so any
+     * authored container styling on a non-row block silently dropped.
+     *
+     * Opt-in: if blur is off, container_bg_color is empty/white/transparent,
+     * AND no visible border, this returns `this` unchanged. Same opt-in
+     * gate as iOS to avoid phantom backgrounds from stale color-picker
+     * defaults.
+     *
+     * Blur caveat: Compose's `Modifier.blur(...)` (API 31+) blurs the
+     * MODIFIER's content, not the content BEHIND it the way iOS
+     * `.ultraThinMaterial` does. Without a HazeChild library we
+     * approximate frosted-glass with a translucent white layer; the
+     * effect on solid backgrounds is similar enough for parity.
+     */
+    @androidx.compose.runtime.Composable
+    fun Modifier.applyBlockContainerStyle(fieldConfig: Map<String, Any?>?): Modifier {
+        if (fieldConfig == null) return this
+        val useBlur = (fieldConfig["blur_background"] as? Boolean) == true
+        val containerBg = fieldConfig["container_bg_color"] as? String
+        val hasBg = containerBg != null && containerBg.isNotEmpty()
+            && !containerBg.equals("#ffffff", true)
+            && !containerBg.equals("transparent", true)
+        val containerBorderW = (fieldConfig["container_border_width"] as? Number)
+            ?.toDouble()?.takeIf { it > 0 }?.dp
+        val containerBorderC = fieldConfig["container_border_color"] as? String
+        val hasBorder = containerBorderW != null && !containerBorderC.isNullOrEmpty()
+        val bgOpacity = ((fieldConfig["container_opacity"] as? Number)?.toDouble()
+            ?: (fieldConfig["background_opacity"] as? Number)?.toDouble()
+            ?: 1.0).toFloat()
+        val cornerR = ((fieldConfig["container_corner_radius"] as? Number)?.toDouble() ?: 0.0).dp
+
+        if (!useBlur && !hasBg && !hasBorder) return this
+        val shape = RoundedCornerShape(cornerR)
+        var mod: Modifier = this
+        if (useBlur) {
+            // Approximation: translucent white veneer. Compose
+            // Modifier.blur() blurs the wrapped content, not what's
+            // behind it, so it can't replicate iOS .ultraThinMaterial.
+            mod = mod.background(Color.White.copy(alpha = 0.3f), shape)
+        }
+        if (hasBg && containerBg != null) {
+            val bgColor = parseColor(containerBg).copy(alpha = bgOpacity)
+            mod = mod.background(bgColor, shape)
+        }
+        mod = mod.clip(shape)
+        if (hasBorder && containerBorderW != null && containerBorderC != null) {
+            mod = mod.border(containerBorderW, parseColor(containerBorderC), shape)
+        }
+        return mod
+    }
+
+    /**
      * Resolve per-corner or uniform corner radius into a Shape.
      */
     private fun resolveShape(style: ElementStyleConfig): RoundedCornerShape {

@@ -1081,14 +1081,24 @@ internal fun RenderBlock(
         mapBlockAlignment(block.horizontal_align, block.vertical_align)
     } else null
 
-    val contentModifier = Modifier
-        .applyBlockStyle(block.block_style)
-        .applyBlockPosition(
-            verticalAlign = block.vertical_align,
-            horizontalAlign = block.horizontal_align,
-            verticalOffset = block.vertical_offset,
-            horizontalOffset = block.horizontal_offset,
-        )
+    // SPEC-401-A R9 — universal block-container styling. Mirrors
+    // iOS `ContentBlockRendererView.swift:67` `.applyBlockContainerStyle(block)`
+    // applied to EVERY block type. Previously only the `row` block read
+    // these field_config keys; every other block silently dropped
+    // authored `blur_background` / `container_bg_color` / `container_*`.
+    // The hook is opt-in: it no-ops when the field_config has no
+    // visible container values.
+    val contentModifier = with(StyleEngine) {
+        Modifier
+            .applyBlockStyle(block.block_style)
+            .applyBlockPosition(
+                verticalAlign = block.vertical_align,
+                horizontalAlign = block.horizontal_align,
+                verticalOffset = block.vertical_offset,
+                horizontalOffset = block.horizontal_offset,
+            )
+            .applyBlockContainerStyle(block.field_config)
+    }
 
     if (blockAlignment != null) {
         Box(
