@@ -1075,8 +1075,11 @@ internal fun OnboardingFlowHost(
                 // defaulted to 20sp making the back glyph noticeably
                 // larger than iOS for the same flow config.
                 val backIconSize = (bbStyle?.icon_size?.toFloat() ?: 16f).sp
+                // SPEC-401-A R5 — default to iOS gray (#6B7280) instead
+                // of Material onBackground (black in light theme).
+                // Mirrors iOS OnboardingRenderer.swift:253.
                 val backIconColor = bbStyle?.icon_color?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
-                    ?: MaterialTheme.colorScheme.onBackground
+                    ?: ai.appdna.sdk.core.StyleEngine.parseColor("#6B7280")
                 if (flow.settings.allow_back && navigationHistory.isNotEmpty()) {
                     val backCd = stringResource(R.string.appdna_a11y_onboarding_back)
                     IconButton(
@@ -1145,7 +1148,8 @@ internal fun OnboardingFlowHost(
                 ) {
                     Text(
                         text = "\u2715",
-                        fontSize = 16.sp,
+                        // SPEC-401-A R5 \u2014 match iOS dismiss X font.system(size:14).
+                        fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
                     )

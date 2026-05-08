@@ -97,7 +97,16 @@ fun ChatStepComposable(
     var userTurnCount by remember { mutableIntStateOf(initialUserTurnCount) }
     var isCompleted by remember { mutableStateOf(didRestore) }
     var currentRating by remember { mutableStateOf<Int?>(null) }
-    var dynamicQuickReplies by remember { mutableStateOf(chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()) }
+    // SPEC-401-A R5 — only seed turn-0 quick replies synchronously
+    // when there are no auto-messages to play. iOS calls
+    // `loadQuickReplies(forTurn: 0)` AFTER `playAutoMessages`
+    // completes (or immediately when no auto-messages); Android
+    // previously seeded them at composition so they appeared while
+    // the AI was still "typing" the welcome sequence.
+    val initialQuickReplies = if (didRestore || chatConfig.auto_messages.isNullOrEmpty()) {
+        chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
+    } else emptyList()
+    var dynamicQuickReplies by remember { mutableStateOf(initialQuickReplies) }
     var webhookData by remember { mutableStateOf(mutableMapOf<String, Any>()) }
     val startTime = remember { System.currentTimeMillis() }
     var showSoftLimitWarning by remember { mutableStateOf(false) }
@@ -142,6 +151,14 @@ fun ChatStepComposable(
             delay(800)
             isTyping = false
             messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
+        }
+        // SPEC-401-A R5 — load turn-0 quick replies AFTER auto-messages
+        // finish playing. Mirrors iOS ChatStepView.swift:614-637 which
+        // calls loadQuickReplies(forTurn: 0) at the end of
+        // playAutoMessages. Without this the QR chips appeared while
+        // the welcome sequence was still typing.
+        if (autoMsgs.isNotEmpty()) {
+            dynamicQuickReplies = chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
         }
     }
 
