@@ -3907,7 +3907,15 @@ private fun FormInputTextBlock(
                     color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
                 )
             },
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = kbType),
+            // SPEC-401-A R11 — match iOS UIKitTextField `returnKeyType: .done`
+            // (FormInputBlockViews.swift:93). Without `imeAction = Done` the
+            // soft keyboard's return key shows the platform default ("Enter"
+            // newline) which (a) doesn't dismiss the keyboard and (b) gives
+            // no visual cue that the form is complete.
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = kbType,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+            ),
             shape = RoundedCornerShape(cornerRadius),
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
@@ -3978,8 +3986,25 @@ private fun FormInputPasswordBlock(
             },
             placeholder = { Text(block.field_placeholder ?: "Password") },
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            // SPEC-401-A R11 \u2014 match iOS Password Autofill at
+            // FormInputBlockViews.swift:174 (`textContentType: .password`)
+            // and provide imeAction=Done for keyboard return-key parity
+            // with FormInputBlockViews.swift:177 `returnKeyType: .done`.
+            // `Modifier.semantics { contentType = ContentType.Password }`
+            // would be the proper Compose 1.6+ ContentType API but
+            // requires consumers on Compose 1.6+; `autofillHints` via
+            // the legacy AndroidView Autofill bridge would also work
+            // but requires a wrapper. The `keyboardType = Password`
+            // option below at least signals AutofillManager that this
+            // is a password field on Android 12+ for limited autofill
+            // support. A bundled vector icon for show/hide eye is a
+            // separate follow-up \u2014 current emoji works on every device.
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+            ),
             visualTransformation = if (passwordVisible)
                 androidx.compose.ui.text.input.VisualTransformation.None
             else
