@@ -265,6 +265,27 @@ fun Modifier.applyBlockPosition(
 /**
  * Maps horizontal/vertical alignment strings to Compose Alignment.
  */
+/**
+ * SPEC-401-A — parse iOS combined alignment tokens (e.g. `top_left`,
+ * `topLeading`, `bottomTrailing`). Returns null when the token isn't
+ * recognised so callers can fall back to per-axis tokens.
+ */
+internal fun parseStackAlignment(token: String?): Alignment? {
+    if (token.isNullOrBlank()) return null
+    return when (token.lowercase()) {
+        "top_left", "topleft", "topleading", "top_leading" -> Alignment.TopStart
+        "top", "topcenter", "top_center" -> Alignment.TopCenter
+        "top_right", "topright", "toptrailing", "top_trailing" -> Alignment.TopEnd
+        "left", "leading", "centerleading", "center_leading" -> Alignment.CenterStart
+        "center", "middle" -> Alignment.Center
+        "right", "trailing", "centertrailing", "center_trailing" -> Alignment.CenterEnd
+        "bottom_left", "bottomleft", "bottomleading", "bottom_leading" -> Alignment.BottomStart
+        "bottom", "bottomcenter", "bottom_center" -> Alignment.BottomCenter
+        "bottom_right", "bottomright", "bottomtrailing", "bottom_trailing" -> Alignment.BottomEnd
+        else -> null
+    }
+}
+
 internal fun mapBlockAlignment(horizontal: String?, vertical: String?): Alignment {
     val h = when (horizontal) {
         "left" -> Alignment.Start
@@ -1325,7 +1346,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             // SPEC-089d §3.18: Outline variant — transparent bg, colored border + text
             OutlinedButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
+                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
                 shape = shape,
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, bgColor),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = bgColor),
@@ -1337,7 +1358,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
         "text" -> {
             TextButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
+                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
                 shape = shape,
                 interactionSource = interactionSource,
             ) {
@@ -1351,7 +1372,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(52.dp)
+                        .defaultMinSize(minHeight = 52.dp)
                         .then(pressedModifier)
                         .clip(shape)
                         .then(gradientModifier)
@@ -1363,7 +1384,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             } else {
                 Button(
                     onClick = onClick,
-                    modifier = Modifier.fillMaxWidth().height(52.dp).then(pressedModifier),
+                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
                     shape = shape,
                     colors = ButtonDefaults.buttonColors(containerColor = bgColor),
                     interactionSource = interactionSource,
@@ -1598,8 +1619,11 @@ private fun RiveContentBlock(block: ContentBlock) {
 @Composable
 private fun PageIndicatorBlock(block: ContentBlock, currentStepIndex: Int = 0, totalSteps: Int = 1) {
     val dotCount = block.dot_count ?: totalSteps
-    // AC-012: Auto-bind active_index to current step index when not explicitly set or 0
-    val activeIndex = if ((block.active_index ?: 0) == 0) currentStepIndex else (block.active_index ?: 0)
+    // SPEC-401-A — explicit `active_index = 0` is a valid first-dot
+    // selection. Previously Android auto-rebound to currentStepIndex
+    // when the value was 0 (couldn't tell unset from 0); iOS uses
+    // nil-coalesce so 0 is honoured. Use null-check to match iOS:
+    val activeIndex = block.active_index ?: currentStepIndex
     val activeColor = StyleEngine.parseColor(block.active_color ?: "#6366F1")
     val inactiveColor = StyleEngine.parseColor(block.inactive_color ?: "#D1D5DB")
     val dotSize = (block.dot_size ?: 8.0).dp
@@ -2714,7 +2738,15 @@ private fun StackBlock(
     loc: ((String, String) -> String)?,
 ) {
     val childBlocks = (block.children ?: emptyList()).sortedBy { it.z_index ?: 0.0 }
-    val stackAlignment = mapBlockAlignment(block.alignment, null)
+    // SPEC-401-A — iOS Stack alignment supports 9 named tokens
+    // (top_left/topLeading/topLeft, top, top_right, leading, center,
+    // trailing, bottom_left, bottom, bottom_right). Android previously
+    // delegated to mapBlockAlignment which only knew left/right/center
+    // + top/bottom split into separate fields, so any combined token
+    // fell through to Center. Parse the combined name first, fall
+    // back to the per-axis path for legacy authoring.
+    val stackAlignment = parseStackAlignment(block.alignment)
+        ?: mapBlockAlignment(block.horizontal_align, block.vertical_align)
 
     Box(
         modifier = Modifier.fillMaxWidth(),
