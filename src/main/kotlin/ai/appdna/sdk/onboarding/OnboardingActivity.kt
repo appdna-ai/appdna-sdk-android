@@ -1016,6 +1016,14 @@ internal fun OnboardingFlowHost(
                 }
             }
 
+            // SPEC-401-A — gate entire nav-bar Row when both back +
+            // dismiss are hidden. iOS doesn't render the empty VStack
+            // child in that case (OnboardingRenderer.swift:46-49); on
+            // Android the IconButton spacers reserve ~48dp regardless,
+            // so authored "no-chrome" flows had a phantom band at top.
+            val navBackVisible = flow.settings.allow_back && navigationHistory.isNotEmpty()
+            val navDismissAllowed = flow.settings.dismiss_allowed ?: true
+            if (navBackVisible || navDismissAllowed) {
             // Navigation bar
             Row(
                 modifier = Modifier
@@ -1034,7 +1042,11 @@ internal fun OnboardingFlowHost(
                 // (icon_size + icon_color) and dismiss_allowed. iOS reads
                 // these from OnboardingRenderer.swift:250-292.
                 val bbStyle = flow.settings.back_button_style
-                val backIconSize = (bbStyle?.icon_size?.toFloat() ?: 20f).sp
+                // SPEC-401-A — default 16sp matches iOS
+                // OnboardingRenderer.swift:252 (16pt). Android previously
+                // defaulted to 20sp making the back glyph noticeably
+                // larger than iOS for the same flow config.
+                val backIconSize = (bbStyle?.icon_size?.toFloat() ?: 16f).sp
                 val backIconColor = bbStyle?.icon_color?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
                     ?: MaterialTheme.colorScheme.onBackground
                 if (flow.settings.allow_back && navigationHistory.isNotEmpty()) {
@@ -1075,8 +1087,7 @@ internal fun OnboardingFlowHost(
                 // SPEC-070-A finalization B4 P1 — gate dismiss X on
                 // `flow.settings.dismiss_allowed`. iOS suppresses dismiss
                 // when set false (e.g. mandatory onboarding flows).
-                val dismissAllowed = flow.settings.dismiss_allowed ?: true
-                if (!dismissAllowed) {
+                if (!navDismissAllowed) {
                     Spacer(Modifier.size(48.dp))
                 } else {
                 val dismissCd = stringResource(R.string.appdna_a11y_onboarding_close)
@@ -1103,6 +1114,7 @@ internal fun OnboardingFlowHost(
                 }
                 } // end dismissAllowed
             }
+            } // end SPEC-401-A navBarVisible gate
 
             // Step content with animated transitions
             if (currentIndex < flow.steps.size) {
