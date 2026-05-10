@@ -3557,6 +3557,17 @@ private fun CircularGaugeBlock(block: ContentBlock) {
 private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
     val fieldId = block.field_id ?: block.id
     val highlightColor = StyleEngine.parseColor(block.highlight_color ?: "#6366F1")
+    // SPEC-401-A R77 (Lens C P1) — `wheel_text_color` / `text_color` /
+    // `field_style.text_color` author override mirrors iOS
+    // ContentBlockStandaloneViews.swift:1026-1028 + 1338-1339. Was
+    // hard-locked to MaterialTheme.colorScheme.onSurface.alpha(0.6f) on
+    // every column — author intent (e.g. white wheel text on dark card)
+    // silently dropped on Android.
+    val wheelTextColorHex = (block.field_config?.get("wheel_text_color") as? String)
+        ?: block.text_color
+        ?: block.field_style?.text_color
+    val wheelTextColor = wheelTextColorHex?.let { StyleEngine.parseColor(it) }
+        ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
     // SPEC-401-A R57 (Lens C R57 #2, P3) — host View for SELECTION haptic on
     // wheel-column tap, mirroring iOS UIPickerView/UIDatePicker auto-emitting
     // selectionChanged() on every wheel snap (system behavior on iOS 13+).
@@ -3628,7 +3639,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         // non-center text uses theme onSurface.alpha(0.6)
                         // matching iOS .secondary (was Color.Gray, illegible
                         // in dark mode).
-                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        color = if (isCenter) highlightColor else wheelTextColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
@@ -3668,7 +3679,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         // non-center text uses theme onSurface.alpha(0.6)
                         // matching iOS .secondary (was Color.Gray, illegible
                         // in dark mode).
-                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        color = if (isCenter) highlightColor else wheelTextColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
@@ -3706,7 +3717,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         // non-center text uses theme onSurface.alpha(0.6)
                         // matching iOS .secondary (was Color.Gray, illegible
                         // in dark mode).
-                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        color = if (isCenter) highlightColor else wheelTextColor,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
