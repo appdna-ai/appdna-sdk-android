@@ -8,7 +8,7 @@
 package ai.appdna.sdk.onboarding
 
 import androidx.compose.foundation.background
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -5164,7 +5164,11 @@ private fun FormInputLocationPlaceholder(
                         Text(text = suggestion.address, fontSize = 14.sp, color = Color.Black)
                     }
                     if (index < suggestions.size - 1) {
-                        Divider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
+                        // in favor of `HorizontalDivider` (same API surface,
+                        // distinct widget). Pre-emptive switch silences runtime
+                        // warnings + unblocks the next BOM bump (1.4 removes).
+                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
                     }
                 }
             }

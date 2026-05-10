@@ -210,8 +210,10 @@ fun LocationFieldComposable(
                         ),
                     )
                     if (index < suggestions.size - 1) {
-                        @Suppress("DEPRECATION")
-                        Divider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
+                        // in favor of `HorizontalDivider`. Switch matches the
+                        // R22 LinearProgressIndicator lambda-form pattern.
+                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
                     }
                 }
             } }
