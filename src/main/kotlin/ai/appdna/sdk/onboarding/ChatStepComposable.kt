@@ -228,7 +228,7 @@ fun ChatStepComposable(
         isTyping = true
         scope.launch {
             try {
-                val response = fireWebhook(
+                val result = fireWebhook(
                     webhook = chatConfig.webhook,
                     flowId = flowId,
                     stepId = step.id,
@@ -240,20 +240,37 @@ fun ChatStepComposable(
                     context = webhookData.toMap(),
                 )
                 isTyping = false
+                // SPEC-401-A R16 — match iOS ChatStepView.swift:496-507.
+                // Distinguish HTTP non-2xx (preserves http_status +
+                // response_body) from network/transport errors so console
+                // analytics can filter by failure category.
+                val response: WebhookResponse? = when (result) {
+                    null -> null
+                    is WebhookResult.Success -> result.response
+                    is WebhookResult.HttpError -> {
+                        val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong. Please try again."
+                        messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
+                        ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
+                            "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
+                            "http_status" to result.statusCode,
+                            "response_body" to result.bodyPreview,
+                        ))
+                        null
+                    }
+                    is WebhookResult.NetworkError -> {
+                        val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong. Please try again."
+                        messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
+                        ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
+                            "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
+                            "error" to result.message,
+                        ))
+                        null
+                    }
+                }
                 if (response == null) {
-                    // SPEC-401-A — surface non-2xx HTTP / null webhook
-                    // response as a system message in the transcript +
-                    // event-track. iOS ChatStepView.swift:496-507 does the
-                    // same; Android was silent on HTTP errors which made
-                    // failed webhooks invisible to the user.
-                    // SPEC-401-A R9 — match iOS default at ChatStepView.swift:500,518
-                    // ("Sorry, something went wrong. Please try again.").
-                    val errMsg = chatConfig.webhook?.error_text ?: "Sorry, something went wrong. Please try again."
-                    messages = messages + ChatMessage(id = "err_$userTurnCount", role = ChatRole.SYSTEM, content = errMsg)
-                    ai.appdna.sdk.AppDNA.track("chat_webhook_error", mapOf(
-                        "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
-                        "error" to "http_non_2xx_or_null",
-                    ))
+                    // No-op: result was null (no webhook configured) or already
+                    // handled above (HttpError/NetworkError both surface a
+                    // system message + emit analytics).
                 } else {
                     ai.appdna.sdk.AppDNA.track("chat_message_received", mapOf(
                         "flow_id" to flowId, "step_id" to step.id, "turn" to userTurnCount,
@@ -732,6 +749,23 @@ private data class WebhookResponse(
     val completion_message: String?
 )
 
+/**
+ * SPEC-401-A R16 — sealed result for chat webhook outcomes so callers can
+ * emit structured telemetry per failure mode (matches iOS ChatStepView.swift
+ * :496-507 which preserves `http_status` + `response_body` on non-2xx).
+ *
+ * Previously `fireWebhook` returned `WebhookResponse?` and the caller
+ * collapsed every non-2xx HTTP and every parse error into a single
+ * `error: "http_non_2xx_or_null"` event — making it impossible to
+ * distinguish 401 (auth revocation) from 5xx (backend deploy) in console
+ * analytics. This split lets the caller emit the canonical iOS payload.
+ */
+private sealed class WebhookResult {
+    data class Success(val response: WebhookResponse) : WebhookResult()
+    data class HttpError(val statusCode: Int, val bodyPreview: String) : WebhookResult()
+    data class NetworkError(val message: String) : WebhookResult()
+}
+
 private data class ChatWebhookMessage(
     val content: String?,
     val media: ChatMedia?,
@@ -759,7 +793,7 @@ private suspend fun fireWebhook(
     remaining: Int,
     rating: Int? = null,
     context: Map<String, Any> = emptyMap(),
-): WebhookResponse? = withContext(Dispatchers.IO) {
+): WebhookResult? = withContext(Dispatchers.IO) {
     webhook ?: return@withContext null
     val url = webhook.webhook_url ?: return@withContext null
 
@@ -817,10 +851,25 @@ private suspend fun fireWebhook(
     }
 
     try {
-        conn.outputStream.use { it.write(body.toString().toByteArray()) }
-        if (conn.responseCode !in 200..299) {
-            Log.e("ChatWebhook", "HTTP ${conn.responseCode}")
-            return@withContext null
+        try {
+            conn.outputStream.use { it.write(body.toString().toByteArray()) }
+        } catch (e: Exception) {
+            // Capture transport-level failures (timeout, DNS, no-network) so
+            // the caller can emit the iOS-canonical `error` field. Matches
+            // ChatStepView.swift:518 catch path.
+            return@withContext WebhookResult.NetworkError(e.message ?: "unknown")
+        }
+        val statusCode = try { conn.responseCode } catch (e: Exception) {
+            return@withContext WebhookResult.NetworkError(e.message ?: "unknown")
+        }
+        if (statusCode !in 200..299) {
+            // SPEC-401-A R16 — read errorStream + take 500-char preview to
+            // match iOS bodyPreview semantics at ChatStepView.swift:498-505.
+            val bodyPreview = try {
+                conn.errorStream?.bufferedReader()?.use { it.readText() }?.take(500) ?: ""
+            } catch (_: Exception) { "" }
+            Log.e("ChatWebhook", "HTTP $statusCode")
+            return@withContext WebhookResult.HttpError(statusCode, bodyPreview)
         }
         val respText = conn.inputStream.bufferedReader().readText()
         val json = JSONObject(respText)
@@ -847,13 +896,15 @@ private suspend fun fireWebhook(
             map
         }
 
-        WebhookResponse(
-            action = json.optString("action", null),
-            messages = respMessages,
-            quick_replies = respQRs,
-            data = respData,
-            force_complete = if (json.has("force_complete")) json.getBoolean("force_complete") else null,
-            completion_message = json.optString("completion_message", null)
+        WebhookResult.Success(
+            WebhookResponse(
+                action = json.optString("action", null),
+                messages = respMessages,
+                quick_replies = respQRs,
+                data = respData,
+                force_complete = if (json.has("force_complete")) json.getBoolean("force_complete") else null,
+                completion_message = json.optString("completion_message", null)
+            )
         )
     } finally {
         conn.disconnect()
