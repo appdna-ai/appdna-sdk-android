@@ -378,7 +378,12 @@ fun ChatStepComposable(
                     val initial = persona?.name?.firstOrNull()?.toString() ?: "A"
                     val avatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
                     Box(
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(hex(style?.ai_bubble_bg, "#1E293B")),
+                        // SPEC-401-A R52 (Lens A R50 #9, P2) — header avatar
+                        // placeholder bg uses iOS-canonical
+                        // `Color.gray.opacity(0.3)` instead of chat-theme
+                        // ai_bubble_bg. Matches iOS ChatStepView.swift:147-150
+                        // `Circle().fill(Color.gray.opacity(0.3))` placeholder.
+                        modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.3f)),
                         contentAlignment = Alignment.Center,
                     ) {
                         if (avatarUrl != null) {

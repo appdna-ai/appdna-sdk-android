@@ -153,7 +153,19 @@ class OnboardingActivity : ComponentActivity() {
             // SPEC-070-A D.5 — system dark-mode pref so onboarding renderers
             // can pick `dark` overrides from console content blocks.
             val isDark = isSystemInDarkTheme()
-            MaterialTheme {
+            // SPEC-401-A R52 (Lens C R52 #5, P1) — actually apply
+            // dark-mode color scheme. Was bare `MaterialTheme {}` which
+            // always defaulted to lightColorScheme(); muted text labels
+            // (alpha 0.5/0.6/0.7 onBackground/onSurface) rendered
+            // dark-on-dark on dark devices and washed out completely.
+            // iOS adapts via UIHostingController inheriting
+            // userInterfaceStyle automatically.
+            MaterialTheme(
+                colorScheme = if (isDark)
+                    androidx.compose.material3.darkColorScheme()
+                else
+                    androidx.compose.material3.lightColorScheme(),
+            ) {
                 OnboardingFlowHost(
                     flow = flow,
                     viewModel = viewModel,
@@ -1863,6 +1875,10 @@ fun OnboardingStepView(
             modifier = modifier
                 .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
                 .fillMaxSize(),
+            // SPEC-401-A R52 (Lens A R52 #7, P2) — 8dp gap between step body
+            // and Skip mirroring SwiftUI VStack default spacing
+            // (OnboardingRenderer.swift:1467 legacyStepView VStack).
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             // Inner Box weight=1f reserves space for the step body so the
             // skip button can sit at the bottom edge without conflict with
@@ -1890,7 +1906,10 @@ fun OnboardingStepView(
             if (step.config.skip_enabled == true) {
                 TextButton(
                     onClick = onSkip,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
+                    // SPEC-401-A R52 (Lens A R52 #6, P2) — bottom 8→16dp
+                    // matching iOS OnboardingRenderer.swift:1487
+                    // .padding(.bottom, 16).
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
                 ) {
                     // SPEC-401-A R52 (Lens A R51 #20, P3) — Skip 15sp matching iOS .subheadline.
                     Text("Skip", fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
@@ -2901,14 +2920,18 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
     val selectedOptions = remember { mutableStateListOf<String>() }
     val isMulti = config.selection_mode == SelectionMode.MULTI
 
-    // SPEC-401-A R52 — own fillMaxSize + verticalScroll for long option
-    // lists + 24dp horizontal padding (iOS QuestionStepView.swift:79).
+    // SPEC-401-A R52 (Lens A R52 #1+#5 P0/P1) — split into title (top
+    // pinned) + scrollable options (Box weight=1f) + CTA (bottom pinned)
+    // mirroring iOS QuestionStepView.swift:53-103. Was wrapping the whole
+    // step in verticalScroll which made user scroll past option list to
+    // reach the Continue button on long question lists. iOS keeps both
+    // the title and CTA visible with only the option grid scrolling.
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 24.dp, vertical = 24.dp),
+            .padding(horizontal = 24.dp)
+            .padding(top = 24.dp),
     ) {
         config.title?.let {
             // SPEC-070-A J.11 — question step title is the screen heading.
@@ -2967,6 +2990,16 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         // element_style.corner_radius. iOS QuestionStepView.swift:111
         // defaults to 12pt. Was hardcoded 12dp.
         val optionCornerRadius = (config.element_style?.corner_radius ?: 12.0).dp
+        // SPEC-401-A R52 (Lens A R52 #1 P0) — wrap option grid in
+        // Box(weight=1f).verticalScroll so the title stays pinned top and
+        // the CTA pinned bottom (mirrors iOS QuestionStepView.swift:65-78
+        // ScrollView around only the option list).
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
         config.options?.chunked(2)?.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -3033,8 +3066,9 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                 if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
-
-        Spacer(Modifier.height(24.dp))
+        }
+        // CTA pinned bottom outside the scroll, mirrors iOS Spacer() +
+        // Button at QuestionStepView.swift:81,98-103.
         Button(
             // SPEC-070-A finalization B4 P2 — include `selection_mode` in the
             // CTA payload (iOS QuestionStepView.swift:86-90 emits
@@ -3051,7 +3085,9 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             },
             enabled = selectedOptions.isNotEmpty(),
             // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            // SPEC-401-A R52 (Lens A R52 #5, P1) — top spacer 16dp instead
+            // of 24dp wrapper-padding. Bottom 32dp matches iOS.
+            modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp).height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R48 (Lens C #3) — lock CTA color to iOS-canonical
             // #6366F1 (was MaterialTheme primary — bled through host theme
@@ -3064,9 +3100,8 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
-        // SPEC-401-A R49 (Lens A #8) — bottom padding 32dp matching iOS
-        // QuestionStepView.swift:101-102 `.padding(.bottom, 32)`.
-        Spacer(Modifier.height(32.dp))
+        // SPEC-401-A R52 — Spacer.height(32) dropped; CTA modifier already
+        // pads bottom=32dp and is now outside the verticalScroll.
     }
 }
 
@@ -3110,10 +3145,12 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
                 // iOS .padding(.horizontal, 24). Lens A #7 — icon 36sp inside
                 // 48dp Box for stable column alignment regardless of emoji
                 // intrinsic width.
+                // SPEC-401-A R52 (Lens A R52 #2, P1) — drop the per-item
+                // horizontal=24dp padding. Outer Column already pads
+                // horizontal=24 (line 3091) so the duplicate stacked
+                // 48dp horizontal-pad on items vs iOS 24pt.
                 Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp),
+                    modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.Top,
                 ) {
                     Box(
@@ -3132,11 +3169,13 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
                 }
             }
         }
-        Spacer(Modifier.height(32.dp))
         Button(
             onClick = { onNext(null) },
             // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            // SPEC-401-A R52 (Lens A R52 #4, P1) — top=32dp + bottom=32dp
+            // padding mirroring iOS ValuePropStepView.swift:55
+            // .padding(.bottom, 32). Was Spacer(32) only above CTA.
+            modifier = Modifier.fillMaxWidth().padding(top = 32.dp, bottom = 32.dp).height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R12 — match iOS ValuePropStepView.swift:51 fixed
             // indigo `#6366F1` so flows render the same CTA color on both
@@ -3174,7 +3213,9 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
             )
         }
         config.subtitle?.let {
-            Spacer(Modifier.height(8.dp))
+            // SPEC-401-A R52 (Lens A R52 #3, P1) — title↔subtitle 8→24dp
+            // matching iOS CustomStepView.swift:9 VStack(spacing: 24).
+            Spacer(Modifier.height(24.dp))
             // SPEC-401-A R50 (Lens A #4) — subtitle horizontal padding 32 per iOS.
             // SPEC-401-A R51 (Lens A #8, P2) — 15→17sp matching iOS .body.
             Text(
