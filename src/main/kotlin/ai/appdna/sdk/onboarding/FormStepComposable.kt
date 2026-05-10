@@ -240,13 +240,20 @@ fun FormStep(
                 .padding(bottom = 32.dp)
                 // SPEC-401-A R45 (Lens A #4) — iOS CTA frame.height(54)
                 // (was 52.dp).
-                .height(54.dp)
-                // Match iOS visual cue: `bg.opacity(0.4)` when canSubmit is
-                // false. Compose Button's containerColor doesn't have an
-                // opacity hook, so use graphicsLayer alpha on the whole CTA.
-                .graphicsLayer { alpha = if (canSubmit) 1.0f else 0.4f },
+                .height(54.dp),
             shape = RoundedCornerShape(ctaCornerRadius),
-            colors = ButtonDefaults.buttonColors(containerColor = ctaBgColor),
+            // SPEC-401-A R60 (Lens C P2 #2) — dim only the background, keep
+            // the label opaque white. Was `Modifier.graphicsLayer { alpha =
+            // 0.4f }` on the whole Button which dropped both bg AND text to
+            // 40% alpha — perceived contrast ~1.6:1 (fails WCAG AA). iOS
+            // keeps text opaque white on accent@40% bg
+            // (FormStepView.swift:87-93). Button stays `enabled` so onClick
+            // still runs validation + surfaces inline errors per R17 design
+            // (do NOT set `enabled = canSubmit` — see comment at line 194).
+            // Compute containerColor manually instead.
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (canSubmit) ctaBgColor else ctaBgColor.copy(alpha = 0.4f),
+            ),
         ) {
             Text(
                 text = (config.cta_text ?: "Continue").interpolated(),

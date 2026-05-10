@@ -214,8 +214,18 @@ class OnboardingActivity : ComponentActivity() {
             // Force-flow: ignore system back to prevent accidental abandonment.
             return
         }
-        @Suppress("DEPRECATION")
-        super.onBackPressed()
+        // SPEC-401-A R60 (Lens B P2) — invoke dismiss callback BEFORE finishing
+        // the Activity. Was calling `super.onBackPressed()` first, which
+        // synchronously calls `finish()` and puts the Activity in
+        // `isFinishing = true` before `onOnboardingDismissed` runs. Hosts
+        // that do UI work in their dismiss handler (e.g. `startActivity(...)`
+        // to navigate to home) launched from a finishing Activity context,
+        // causing overlap-animation glitches and Android-only "Activity is
+        // destroyed" warnings the iOS counterpart never produces. The
+        // X-button path (line ~1334) already uses the correct order; this
+        // brings system-back into parity. iOS canonical: callback fires
+        // BEFORE `viewController.dismiss()` at OnboardingFlowManager.swift
+        // :96-104 + OnboardingRenderer.swift:278-289.
         // SPEC-401-A R9 — report the currently-visible step (matches iOS
         // OnboardingRenderer.swift:280-281 which uses `currentStep`/
         // `currentIndex`). Previously reported `steps.first()` + index 0
@@ -226,6 +236,8 @@ class OnboardingActivity : ComponentActivity() {
             val stepId = f.steps.getOrNull(idx)?.id ?: ""
             viewModel.onFlowDismissed?.invoke(stepId, idx)
         }
+        // cleanup() calls reset() + finish(); no need for super.onBackPressed()
+        // on top — that would cause a duplicate finish() call.
         cleanup()
     }
 
@@ -1527,7 +1539,13 @@ internal fun OnboardingFlowHost(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
                     .padding(top = if (flow.settings.show_progress && currentStep?.hide_progress != true) 56.dp else 52.dp)
-                    .background(Color.Red, RoundedCornerShape(8.dp))
+                    // SPEC-401-A R60 (Lens C P3 #3) — match iOS systemRed
+                    // (#FF3B30 light) which is what SwiftUI `Color.red`
+                    // resolves to at OnboardingRenderer.swift:337. Was
+                    // Compose `Color.Red` (#FF0000 saturated red) which
+                    // sits harsher than the iOS counterpart and never
+                    // adapts for dark mode.
+                    .background(Color(0xFFFF3B30), RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {

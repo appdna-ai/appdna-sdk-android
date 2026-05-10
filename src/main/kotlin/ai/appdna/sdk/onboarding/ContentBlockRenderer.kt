@@ -62,10 +62,12 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import kotlin.math.cos
@@ -1734,9 +1736,24 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
     // VStack(alignment: .leading, spacing: 4) at ContentBlockRendererView.swift
     // :523. Was bare Column → Row + description visually touching.
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        // SPEC-401-A R60 (Lens C P2 #1) — wrap label+Switch in `toggleable`
+        // so TalkBack treats the row as a single switch element matching
+        // iOS `Toggle("label", isOn:)` (ContentBlockRendererView.swift:524).
+        // Switch becomes presentational (onCheckedChange = null); the Row
+        // owns the click + a11y semantics. Without this users had to swipe
+        // twice through label then "Switch, On".
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .toggleable(
+                    value = checked,
+                    role = androidx.compose.ui.semantics.Role.Switch,
+                    onValueChange = {
+                        checked = it
+                        toggleValues[block.id] = it
+                    },
+                ),
         ) {
             val label = block.toggle_label ?: ""
             Text(
@@ -1751,10 +1768,10 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
             // track + thumb adopts the tint when checked.
             Switch(
                 checked = checked,
-                onCheckedChange = {
-                    checked = it
-                    toggleValues[block.id] = it
-                },
+                // SPEC-401-A R60 (Lens C P2 #1) — null handler so the Row's
+                // toggleable owns the click + a11y semantics; Switch is now
+                // a presentational visual.
+                onCheckedChange = null,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
                     checkedTrackColor = Color(0xFF6366F1),
@@ -3995,8 +4012,20 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
     var hasUserInteracted by remember { mutableStateOf(false) }
     var lastHapticIndex by remember { mutableStateOf(initialIndex) }
     LaunchedEffect(centeredIndex) {
-        if (centeredIndex in values.indices) {
-            inputValues[fieldId] = values[centeredIndex]
+        // SPEC-401-A R60 (Lens A P1) — gate persistence behind interaction
+        // when the field is required, matching iOS
+        // ContentBlockStandaloneViews.swift:1493-1498:
+        //   if block.field_required != true { persistValue(...) }
+        // Without this, the default wheel value is written to inputValues
+        // on first composition; the required-field validator at
+        // OnboardingActivity.kt:2503-2508 sees a non-null Double and lets
+        // the user advance without ever interacting with the wheel. Also
+        // mirror iOS Int/Double type discrimination so server-side
+        // analytics joins don't drift.
+        val isRequired = block.field_required == true
+        if (centeredIndex in values.indices && (!isRequired || hasUserInteracted)) {
+            val v = values[centeredIndex]
+            inputValues[fieldId] = if (v == v.toLong().toDouble()) v.toLong() else v
         }
         if (!hasUserInteracted && listState.isScrollInProgress) {
             hasUserInteracted = true
@@ -4527,7 +4556,11 @@ private fun FormFieldLabel(block: ContentBlock) {
                 color = StyleEngine.parseColor(block.field_style?.label_color ?: "#374151"),
             )
             if (required) {
-                Text(text = "*", color = Color.Red, fontSize = 15.sp)
+                // SPEC-401-A R60 (Lens C P3 #3) — match iOS systemRed
+                // (#FF3B30 light) which is what SwiftUI `Color.red`
+                // resolves to at FormInputBlockViews.swift:19. Was
+                // Compose `Color.Red` (#FF0000) — harsher than iOS.
+                Text(text = "*", color = Color(0xFFFF3B30), fontSize = 15.sp)
             }
         }
     }
@@ -5378,8 +5411,23 @@ private fun FormInputToggleBlock(
         mutableStateOf((inputValues[fieldId] as? Boolean) ?: (block.toggle_default ?: false))
     }
 
+    // SPEC-401-A R60 (Lens C P2 #1) — wrap label+Switch in `toggleable` so
+    // TalkBack treats the row as a single switch element matching iOS
+    // `Toggle("label", isOn:)` (FormInputBlockViews.swift). Switch becomes
+    // presentational (onCheckedChange = null); the Row owns the click +
+    // a11y semantics. Without this users had to swipe twice through label
+    // then "Switch, On".
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .toggleable(
+                value = checked,
+                role = androidx.compose.ui.semantics.Role.Switch,
+                onValueChange = {
+                    checked = it
+                    inputValues[fieldId] = it
+                },
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // SPEC-401-A R57 (Lens A R57 #5, P2) — 15sp matches iOS .subheadline
@@ -5387,10 +5435,10 @@ private fun FormInputToggleBlock(
         Text(text = label, modifier = Modifier.weight(1f), fontSize = 15.sp)
         Switch(
             checked = checked,
-            onCheckedChange = {
-                checked = it
-                inputValues[fieldId] = it
-            },
+            // SPEC-401-A R60 (Lens C P2 #1) — null handler so the Row's
+            // toggleable owns the click + a11y semantics; Switch is a
+            // presentational visual.
+            onCheckedChange = null,
             colors = SwitchDefaults.colors(checkedTrackColor = onColor),
         )
     }
