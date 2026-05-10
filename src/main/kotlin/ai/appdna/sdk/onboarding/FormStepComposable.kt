@@ -15,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -472,7 +474,12 @@ private fun FormFieldControl(
                             ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
                         }
                     },
-                    enabled = current - step >= min
+                    enabled = current - step >= min,
+                    // SPEC-401-A R58 (Lens C P2) — TalkBack reads "Decrease"
+                    // matching iOS native UIStepper auto-announcement +
+                    // sibling content-block path R38 fix at
+                    // ContentBlockRenderer.kt:5371. Was generic "Button".
+                    modifier = Modifier.semantics { contentDescription = "Decrease" },
                 ) {
                     Text("-", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }
@@ -507,7 +514,10 @@ private fun FormFieldControl(
                             ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
                         }
                     },
-                    enabled = current + step <= max
+                    enabled = current + step <= max,
+                    // SPEC-401-A R58 (Lens C P2) — TalkBack reads "Increase"
+                    // matching iOS UIStepper + ContentBlockRenderer R38 fix.
+                    modifier = Modifier.semantics { contentDescription = "Increase" },
                 ) {
                     Text("+", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 }

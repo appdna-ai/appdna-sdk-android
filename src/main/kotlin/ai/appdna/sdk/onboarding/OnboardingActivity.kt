@@ -3169,7 +3169,14 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             // SPEC-401-A R52 (Lens A R52 #5, P1) — top spacer 16dp instead
             // of 24dp wrapper-padding. Bottom 32dp matches iOS.
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp).height(54.dp),
-            shape = RoundedCornerShape(14.dp),
+            // SPEC-401-A R58 (Lens A P1 #1) — read element_style.corner_radius
+            // matching iOS QuestionStepView.swift:98
+            // `.cornerRadius(CGFloat(config.element_style?.corner_radius ?? 14))`.
+            // Sibling option cards already honor it via `optionCornerRadius`
+            // (line 3053). Was hardcoded 14dp — author setting
+            // element_style.corner_radius=24 got 24dp option cards next to
+            // a 14dp CTA on Android, fully matched 24dp on iOS.
+            shape = RoundedCornerShape((config.element_style?.corner_radius ?: 14.0).dp),
             // SPEC-401-A R55 (Lens A R55 #4, P1) — use accentColor (already
             // computed at line 2945-2949) so element_style.border.color or
             // element_style.background.color overrides reach the CTA.

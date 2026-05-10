@@ -826,7 +826,11 @@ fun ChatStepComposable(
                     // match SwiftUI Image(systemName: "arrow.up.circle.fill") visual
                     // weight at iOS ChatStepView.swift send-button. Was reading as
                     // a small text caret next to a normal-sized text field.
-                    Text("↑", fontSize = 32.sp, color = if (canSendMessage) sendBtnColor else Color.Gray.copy(alpha = 0.3f))
+                    // SPEC-401-A R58 (Lens C P2) — disabled tint = faded BRAND color
+                    // matching iOS ChatStepView.swift:290 `sendBtnColor.opacity(0.3)`.
+                    // Was Color.Gray which dropped the brand identity in the disabled
+                    // state — same JSON rendered gray on Android, faded indigo on iOS.
+                    Text("↑", fontSize = 32.sp, color = if (canSendMessage) sendBtnColor else sendBtnColor.copy(alpha = 0.3f))
                 }
             }
         }
