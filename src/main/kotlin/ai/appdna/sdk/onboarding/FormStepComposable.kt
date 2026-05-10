@@ -146,15 +146,18 @@ fun FormStep(
             visibleFields.forEach { field ->
                 if (field.type != FormFieldType.TOGGLE) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        // SPEC-401-A R52 (Lens A R51 #18, P3) — 14→15sp
+                        // matching iOS .subheadline.weight(.medium) at
+                        // FormStepView.swift:208.
                         Text(
                             text = field.label.interpolated(),
-                            fontSize = 14.sp,
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Medium
                         )
                         if (field.required) {
                             Text(
                                 text = " *",
-                                fontSize = 14.sp,
+                                fontSize = 15.sp,
                                 color = MaterialTheme.colorScheme.error
                             )
                         }

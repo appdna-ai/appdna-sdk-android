@@ -367,7 +367,9 @@ fun ChatStepComposable(
     ) {
         // Header
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp) }
+            // SPEC-401-A R52 (Lens A R51 #15, P3) — header title 16→17sp
+            // matching iOS ChatStepView.swift:142 .headline.
+            step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             if (persona?.name != null && persona.role != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     // SPEC-401-A — render `persona.avatar_url` when set, else
@@ -387,7 +389,9 @@ fun ChatStepComposable(
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             )
                         } else {
-                            Text(initial, color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            // SPEC-401-A R52 (Lens A R51 #17, P3) — fallback initial
+                            // 11→12sp matching iOS .caption.bold (~12pt).
+                            Text(initial, color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Text("${persona.name} - ${persona.role}", color = Color.Gray, fontSize = 12.sp)
@@ -432,7 +436,9 @@ fun ChatStepComposable(
                             ) {
                                 if (msg.content.isNotBlank()) {
                                     Text(
-                                        msg.content, color = aiBubbleTextColor, fontSize = 14.sp,
+                                        // SPEC-401-A R52 (Lens A R51 #16, P3) — bubble text 14→15sp
+                                        // matching iOS .subheadline (~15pt).
+                                        msg.content, color = aiBubbleTextColor, fontSize = 15.sp,
                                         modifier = Modifier.background(aiBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
                                     )
                                 }
@@ -455,7 +461,8 @@ fun ChatStepComposable(
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                             Spacer(Modifier.width(40.dp))
                             Text(
-                                msg.content, color = userBubbleTextColor, fontSize = 14.sp,
+                                // SPEC-401-A R52 (Lens A R51 #16, P3) — bubble text 14→15sp.
+                                msg.content, color = userBubbleTextColor, fontSize = 15.sp,
                                 modifier = Modifier.background(userBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
                             )
                         }
