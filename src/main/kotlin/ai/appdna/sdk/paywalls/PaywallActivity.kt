@@ -808,14 +808,15 @@ fun PaywallScreen(
         // the paywall has no `particle_effect` config of its own. Lottie URL
         // renders via the shared LottieBlockView.
         postPurchaseOverlay?.let { overlay ->
-            if (overlay.confetti) {
+            // SPEC-401-A R71 (Lens A P2) — only render confetti if the
+            // paywall config has `particle_effect` set, matching iOS
+            // PaywallRenderer.swift:235-237 `if let effect = config
+            // .particle_effect`. Was fabricating an ad-hoc ParticleEffect
+            // when none was configured — paywall with NO particle_effect
+            // celebrated on Android but stayed silent on iOS.
+            if (overlay.confetti && config.particle_effect != null) {
                 ConfettiOverlay(
-                    effect = config.particle_effect ?: ai.appdna.sdk.core.ParticleEffect(
-                        type = "confetti",
-                        trigger = "on_purchase",
-                        duration_ms = 2500,
-                        intensity = "medium",
-                    ),
+                    effect = config.particle_effect,
                     trigger = true,
                 )
             }

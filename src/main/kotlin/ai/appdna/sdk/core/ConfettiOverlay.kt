@@ -11,7 +11,10 @@ import androidx.compose.ui.graphics.Color
 data class ParticleEffect(
     val type: String = "confetti",       // "confetti", "sparkle", "fireworks", "snow", "hearts"
     val trigger: String = "on_appear",   // "on_appear", "on_step_complete", "on_purchase", "on_flow_complete"
-    val duration_ms: Int = 2500,
+    // SPEC-401-A R71 (Lens A P2) — default 2000ms matches iOS
+    // ConfettiOverlay.swift:89,101 `effect.duration_ms ?? 2000`. Was 2500 —
+    // iOS-emitted unstyled effects animated 500ms shorter on iOS.
+    val duration_ms: Int = 2000,
     val intensity: String = "medium",    // "light", "medium", "heavy"
     val colors: List<String>? = null,
 )
@@ -35,9 +38,21 @@ fun ConfettiOverlay(
             "hearts" -> listOf(Color.Red, Color(0xFFFF69B4), Color(0xFFFF6B9D))
             "snow" -> listOf(Color.White, Color(0xFFF0F0F0), Color(0xFFE5E5E5))
             "sparkle" -> listOf(Color.Yellow, Color(0xFFFFA500), Color(0xFFFFD700))
+            // SPEC-401-A R71 (Lens A P1) — `fireworks` palette mirrors iOS
+            // ConfettiOverlay.swift:32 `[red, blue, green, yellow, purple,
+            // orange]` (6 colors, no pink). Was falling through to confetti
+            // palette which adds pink — visible color drift.
+            "fireworks" -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFF9333EA), Color(0xFFF97316))
             else -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFF9333EA), Color(0xFFF97316), Color(0xFFEC4899))
         }
     }
+
+    // SPEC-401-A R71 (Lens A P1, deferred) — non-confetti glyph rendering
+    // (hearts ❤, snow ❄, sparkle ✨, fireworks 🎆) needs Compose 1.7+
+    // `DrawScope.drawText(textMeasurer, …)`. Current BoM 2024.02.02 only has
+    // drawCircle/drawPath. Defer until BoM upgrade — for now hearts/snow/
+    // sparkle/fireworks render as colored dots with type-specific palette
+    // (still better than uniform palette).
 
     val progress = remember { Animatable(0f) }
 

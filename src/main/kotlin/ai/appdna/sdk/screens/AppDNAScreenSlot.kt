@@ -4,6 +4,7 @@ import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.core.AudienceRuleEvaluator
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -73,14 +74,47 @@ fun AppDNAScreenSlot(name: String) {
 
     when {
         isLoading -> {
-            // Shimmer placeholder
-            Box(
+            // SPEC-401-A R71 (Lens C P2) — animated shimmer placeholder
+            // matching iOS AppDNAScreenSlot.swift:48-63 — gray base with a
+            // sweeping LinearGradient highlight band. Was a static gray box
+            // — Android users saw an empty-looking slab instead of a
+            // loading affordance. Sweep animates ~1500ms infinite linear.
+            val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "slot_shimmer")
+            val sweep by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                    animation = androidx.compose.animation.core.tween(durationMillis = 1500, easing = androidx.compose.animation.core.LinearEasing),
+                    repeatMode = androidx.compose.animation.core.RepeatMode.Restart,
+                ),
+                label = "slot_shimmer_sweep",
+            )
+            androidx.compose.foundation.layout.BoxWithConstraints(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(100.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .background(Color.Gray.copy(alpha = 0.1f)),
-            )
+            ) {
+                val widthPx = with(androidx.compose.ui.platform.LocalDensity.current) { maxWidth.toPx() }
+                val bandWidthPx = widthPx * 0.4f
+                val startX = -bandWidthPx + sweep * (widthPx + bandWidthPx)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(
+                            androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(
+                                    Color.Transparent,
+                                    Color.White.copy(alpha = 0.3f),
+                                    Color.Transparent,
+                                ),
+                                start = androidx.compose.ui.geometry.Offset(startX, 0f),
+                                end = androidx.compose.ui.geometry.Offset(startX + bandWidthPx, 0f),
+                            )
+                        )
+                )
+            }
         }
         screenConfig != null -> {
             val config = screenConfig ?: return
