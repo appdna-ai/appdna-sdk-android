@@ -27,10 +27,17 @@ fun Modifier.entryAnimation(animation: String?, durationMs: Int? = null): Modifi
     LaunchedEffect(Unit) { appeared = true }
 
     val duration = durationMs ?: 400
-    val animSpec = tween<Float>(durationMillis = duration, easing = FastOutSlowInEasing)
+    // SPEC-401-A R52 (Lens C R52 #2, P2) — easeOut matches iOS
+    // .easeOut(duration:) at AnimationModifiers.swift:15. FastOutSlowInEasing
+    // (≈ ease-in-out) made slide_up/scale_in feel slower-finishing.
+    val animSpec = tween<Float>(durationMillis = duration, easing = LinearOutSlowInEasing)
 
+    // SPEC-401-A R52 (Lens C R52 #1, P2) — alpha only animates when the
+    // animation type is fade-related. iOS AnimationModifiers.swift:13 only
+    // toggles opacity for fade_in / slide_up. scale_in on iOS is pure
+    // scale-with-no-fade; Android was cross-fading even on scale_in.
     val alpha by animateFloatAsState(
-        targetValue = if (appeared) 1f else 0f,
+        targetValue = if (appeared || (anim != "fade_in" && anim != "slide_up")) 1f else 0f,
         animationSpec = animSpec,
         label = "entry_alpha",
     )
@@ -117,21 +124,33 @@ private fun Modifier.pulseEffect(): Modifier {
 @Composable
 private fun Modifier.glowEffect(): Modifier {
     val infiniteTransition = rememberInfiniteTransition(label = "glow")
-    val elevation by infiniteTransition.animateFloat(
+    val alpha by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 15f,
+        targetValue = 0.6f,
         animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
-        label = "glow_elevation",
+        label = "glow_alpha",
     )
-    return this.shadow(elevation.dp)
+    // SPEC-401-A R52 (Lens C R52 #4, P2) — accent-tinted halo matching iOS
+    // AnimationModifiers.swift:73 `.shadow(color: .accentColor.opacity(...))`.
+    // Was Compose's default neutral elevation shadow which read as gray.
+    // Compose 1.4+ supports tinted ambientColor + spotColor on shadow.
+    val accentColor = Color(0xFF6366F1)
+    return this.shadow(
+        elevation = 15.dp,
+        ambientColor = accentColor.copy(alpha = alpha),
+        spotColor = accentColor.copy(alpha = alpha),
+    )
 }
 
 @Composable
 private fun Modifier.bounceEffect(): Modifier {
     val infiniteTransition = rememberInfiniteTransition(label = "bounce")
+    // SPEC-401-A R52 (Lens C R52 #3, P2) — bounce amplitude 15→5dp matching
+    // iOS AnimationModifiers.swift:84 `.offset(y: isBouncing ? -5 : 0)` (5pt).
+    // Android was 3× iOS — CTA bounced dramatically more than iOS.
     val offsetY by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = -15f,
+        targetValue = -5f,
         animationSpec = infiniteRepeatable(tween(800), RepeatMode.Reverse),
         label = "bounce_offset",
     )
@@ -155,13 +174,16 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
         animationSpec = tween(300),
         label = "plan_glow",
     )
+    // SPEC-401-A R52 (Lens C R52 #4, P2) — accent-tinted glow matching iOS
+    // AnimationModifiers.swift:117 `color: .accentColor.opacity(0.5)`.
+    val planGlowColor = Color(0xFF6366F1).copy(alpha = if (anim == "glow" && isSelected) 0.5f else 0f)
     val borderMod = if (anim == "border_highlight" && isSelected) {
         Modifier.border(2.5.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp))
     } else Modifier
 
     return this
         .scale(scale)
-        .shadow(elevation.dp)
+        .shadow(elevation.dp, ambientColor = planGlowColor, spotColor = planGlowColor)
         .then(borderMod)
 }
 
