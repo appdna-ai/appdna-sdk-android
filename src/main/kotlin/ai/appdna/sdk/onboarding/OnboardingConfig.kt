@@ -738,487 +738,16 @@ internal object OnboardingConfigParser {
         val contentBlocks = rawContentBlocks?.mapNotNull { b ->
             if (b is Map<*, *>) {
                 val bm = b as Map<String, Any>
-                ContentBlock(
-                    id = bm["id"] as? String ?: "",
-                    type = bm["type"] as? String ?: "text",
-                    text = bm["text"] as? String,
-                    level = (bm["level"] as? Number)?.toInt(),
-                    image_url = bm["image_url"] as? String,
-                    alt = bm["alt"] as? String,
-                    corner_radius = (bm["corner_radius"] as? Number)?.toDouble(),
-                    height = (bm["height"] as? Number)?.toDouble(),
-                    variant = bm["variant"] as? String,
-                    action = bm["action"] as? String,
-                    action_value = bm["action_value"] as? String,
-                    bg_color = bm["bg_color"] as? String,
-                    text_color = bm["text_color"] as? String,
-                    button_corner_radius = (bm["button_corner_radius"] as? Number)?.toDouble(),
-                    spacer_height = (bm["spacer_height"] as? Number)?.toDouble(),
-                    items = (bm["items"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
-                    list_style = bm["list_style"] as? String,
-                    divider_color = bm["divider_color"] as? String,
-                    divider_thickness = (bm["divider_thickness"] as? Number)?.toDouble(),
-                    divider_margin_y = (bm["divider_margin_y"] as? Number)?.toDouble(),
-                    badge_text = bm["badge_text"] as? String,
-                    badge_bg_color = bm["badge_bg_color"] as? String,
-                    badge_text_color = bm["badge_text_color"] as? String,
-                    badge_corner_radius = (bm["badge_corner_radius"] as? Number)?.toDouble(),
-                    icon_emoji = bm["icon_emoji"] as? String,
-                    icon_size = (bm["icon_size"] as? Number)?.toDouble(),
-                    icon_alignment = bm["icon_alignment"] as? String,
-                    toggle_label = bm["toggle_label"] as? String,
-                    toggle_description = bm["toggle_description"] as? String,
-                    toggle_default = bm["toggle_default"] as? Boolean,
-                    video_thumbnail_url = bm["video_thumbnail_url"] as? String,
-                    // SPEC-084: per-block text style + video source fields
-                    style = (bm["style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    video_url = bm["video_url"] as? String,
-                    video_height = (bm["video_height"] as? Number)?.toDouble(),
-                    video_corner_radius = (bm["video_corner_radius"] as? Number)?.toDouble(),
-                    // SPEC-085: Rich media fields
-                    lottie_url = bm["lottie_url"] as? String,
-                    lottie_json = bm["lottie_json"] as? Map<String, Any>,
-                    lottie_autoplay = bm["lottie_autoplay"] as? Boolean,
-                    lottie_loop = bm["lottie_loop"] as? Boolean,
-                    lottie_speed = (bm["lottie_speed"] as? Number)?.toFloat(),
-                    rive_url = bm["rive_url"] as? String,
-                    rive_artboard = bm["rive_artboard"] as? String,
-                    rive_state_machine = bm["rive_state_machine"] as? String,
-                    icon_ref = bm["icon_ref"] ?: bm["icon"],
-                    video_autoplay = bm["video_autoplay"] as? Boolean,
-                    video_loop = bm["video_loop"] as? Boolean,
-                    video_muted = bm["video_muted"] as? Boolean,
-                    // SPEC-089d §6.1: Per-block style design tokens
-                    block_style = (bm["block_style"] as? Map<String, Any>)?.let { parseBlockStyle(it) },
-                    // SPEC-089d §6.2: 2D positioning
-                    vertical_align = bm["vertical_align"] as? String,
-                    horizontal_align = bm["horizontal_align"] as? String,
-                    vertical_offset = (bm["vertical_offset"] as? Number)?.toDouble(),
-                    horizontal_offset = (bm["horizontal_offset"] as? Number)?.toDouble(),
-                    // SPEC-070-A I.17 — three-zone layout opt-in.
-                    zone = bm["zone"] as? String,
-                    // SPEC-089d: page_indicator fields
-                    dot_count = (bm["dot_count"] as? Number)?.toInt(),
-                    active_index = (bm["active_index"] as? Number)?.toInt(),
-                    active_color = bm["active_color"] as? String,
-                    inactive_color = bm["inactive_color"] as? String,
-                    dot_size = (bm["dot_size"] as? Number)?.toDouble(),
-                    dot_spacing = (bm["dot_spacing"] as? Number)?.toDouble(),
-                    active_dot_width = (bm["active_dot_width"] as? Number)?.toDouble(),
-                    // SPEC-089d: social_login fields
-                    providers = (bm["providers"] as? List<*>)?.mapNotNull { p ->
-                        if (p is Map<*, *>) {
-                            @Suppress("UNCHECKED_CAST")
-                            val pm = p as Map<String, Any>
-                            SocialProvider(
-                                type = pm["type"] as? String ?: "",
-                                label = pm["label"] as? String,
-                                enabled = pm["enabled"] as? Boolean ?: true,
-                                // SPEC-070-A finalization OB-2 — per-provider color/style overrides.
-                                bg_color = pm["bg_color"] as? String,
-                                text_color = pm["text_color"] as? String,
-                                border_color = pm["border_color"] as? String,
-                                border_width = (pm["border_width"] as? Number)?.toFloat(),
-                                corner_radius = (pm["corner_radius"] as? Number)?.toFloat(),
-                                icon_style = pm["icon_style"] as? String,
-                            )
-                        } else null
-                    }?.toImmutableList(),
-                    button_style = bm["button_style"] as? String,
-                    button_height = (bm["button_height"] as? Number)?.toDouble(),
-                    spacing = (bm["spacing"] as? Number)?.toDouble(),
-                    show_divider = bm["show_divider"] as? Boolean,
-                    divider_text = bm["divider_text"] as? String,
-                    // SPEC-089d: countdown_timer fields
-                    target_type = bm["target_type"] as? String,
-                    duration_seconds = (bm["duration_seconds"] as? Number)?.toInt(),
-                    target_datetime = bm["target_datetime"] as? String,
-                    show_days = bm["show_days"] as? Boolean,
-                    show_hours = bm["show_hours"] as? Boolean,
-                    show_minutes = bm["show_minutes"] as? Boolean,
-                    show_seconds = bm["show_seconds"] as? Boolean,
-                    labels = (bm["labels"] as? Map<String, Any>)?.let { lm ->
-                        CountdownLabels(
-                            days = lm["days"] as? String,
-                            hours = lm["hours"] as? String,
-                            minutes = lm["minutes"] as? String,
-                            seconds = lm["seconds"] as? String,
-                        )
-                    },
-                    on_expire_action = bm["on_expire_action"] as? String,
-                    expired_text = bm["expired_text"] as? String,
-                    accent_color = bm["accent_color"] as? String,
-                    font_size = (bm["font_size"] as? Number)?.toDouble(),
-                    alignment = bm["alignment"] as? String,
-                    // SPEC-089d: rating fields
-                    field_id = bm["field_id"] as? String,
-                    max_stars = (bm["max_stars"] as? Number)?.toInt(),
-                    default_value = (bm["default_value"] as? Number)?.toDouble(),
-                    star_size = (bm["star_size"] as? Number)?.toDouble(),
-                    active_rating_color = bm["active_rating_color"] as? String ?: bm["filled_color"] as? String ?: bm["active_color"] as? String,
-                    inactive_rating_color = bm["inactive_rating_color"] as? String ?: bm["empty_color"] as? String ?: bm["inactive_color"] as? String,
-                    allow_half = bm["allow_half"] as? Boolean,
-                    label = bm["label"] as? String,
-                    // SPEC-089d: rich_text fields
-                    content = bm["content"] as? String,
-                    base_style = (bm["base_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    link_color = bm["link_color"] as? String,
-                    max_lines = (bm["max_lines"] as? Number)?.toInt(),
-                    // SPEC-089d: progress_bar fields
-                    segment_count = (bm["segment_count"] as? Number)?.toInt() ?: (bm["total_segments"] as? Number)?.toInt(),
-                    active_segments = (bm["active_segments"] as? Number)?.toInt() ?: (bm["filled_segments"] as? Number)?.toInt(),
-                    fill_color = bm["fill_color"] as? String,
-                    track_color = bm["track_color"] as? String,
-                    segment_gap = (bm["segment_gap"] as? Number)?.toDouble(),
-                    show_label = bm["show_label"] as? Boolean,
-                    label_style = (bm["label_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    // SPEC-089d: timeline fields
-                    timeline_items = (bm["timeline_items"] as? List<*>
-                        ?: bm["items"] as? List<*>)?.mapNotNull { ti ->
-                        if (ti is Map<*, *>) {
-                            @Suppress("UNCHECKED_CAST")
-                            val tm = ti as Map<String, Any>
-                            // Only parse as TimelineItem if it has a title (to distinguish from string items)
-                            val title = tm["title"] as? String ?: return@mapNotNull null
-                            TimelineItem(
-                                id = tm["id"] as? String ?: "",
-                                title = title,
-                                subtitle = tm["subtitle"] as? String,
-                                icon = tm["icon"] as? String,
-                                // SPEC-401-A R39 — drop `?: "upcoming"` parser
-                                // walk-back of R18. R18 made `status` nullable
-                                // on the data class so missing-status timeline
-                                // items render in solid title color (not greyed).
-                                // Parser hardcoded `?: "upcoming"`, so the
-                                // renderer's `if (item.status == "upcoming")`
-                                // greyed every missing-status title regardless.
-                                status = tm["status"] as? String,
-                            )
-                        } else null
-                    }?.toImmutableList(),
-                    line_color = bm["line_color"] as? String,
-                    completed_color = bm["completed_color"] as? String,
-                    current_color = bm["current_color"] as? String,
-                    upcoming_color = bm["upcoming_color"] as? String,
-                    show_line = bm["show_line"] as? Boolean,
-                    compact = bm["compact"] as? Boolean,
-                    title_style = (bm["title_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    subtitle_style = (bm["subtitle_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    // SPEC-089d: animated_loading fields
-                    loading_items = (bm["loading_items"] as? List<*>
-                        ?: if (bm["type"] == "animated_loading") bm["items"] as? List<*> else null)?.mapNotNull { li ->
-                        if (li is Map<*, *>) {
-                            @Suppress("UNCHECKED_CAST")
-                            val lm = li as Map<String, Any>
-                            LoadingItem(
-                                label = lm["label"] as? String ?: "",
-                                duration_ms = (lm["duration_ms"] as? Number)?.toInt() ?: 1000,
-                                icon = lm["icon"] as? String,
-                                // SPEC-401-A R35 orbit-variant per-item fields.
-                                // Until R36 these were declared on LoadingItem
-                                // but never read from JSON.
-                                icon_url = lm["icon_url"] as? String,
-                                icon_bg_color = lm["icon_bg_color"] as? String,
-                                icon_size = (lm["icon_size"] as? Number)?.toFloat(),
-                                icon_orbit_angle = (lm["icon_orbit_angle"] as? Number)?.toFloat(),
-                            )
-                        } else null
-                    }?.toImmutableList(),
-                    progress_color = bm["progress_color"] as? String,
-                    check_color = bm["check_color"] as? String,
-                    total_duration_ms = (bm["total_duration_ms"] as? Number)?.toInt(),
-                    auto_advance = bm["auto_advance"] as? Boolean,
-                    show_percentage = bm["show_percentage"] as? Boolean,
-                    // SPEC-089d: Form input fields
-                    field_label = bm["field_label"] as? String,
-                    field_placeholder = bm["field_placeholder"] as? String,
-                    field_required = bm["field_required"] as? Boolean,
-                    field_options = (bm["field_options"] as? List<*>)?.mapNotNull { fo ->
-                        if (fo is Map<*, *>) {
-                            @Suppress("UNCHECKED_CAST")
-                            val fm = fo as Map<String, Any>
-                            // SPEC-070-A finalization P0 audit-11 Drift 2 —
-                            // expanded to read all 24 iOS InputOption fields.
-                            // Console-authored per-option styling now reaches
-                            // the renderer instead of being dropped on parse.
-                            InputOption(
-                                // SPEC-401-A R37 — match iOS canonical
-                                // value-first fallback (ContentBlockTypes.swift:358-360
-                                // `let rawValue = decode(.value); self.value =
-                                // rawValue ?? rawId`). Was id-first → response
-                                // payload reported display id instead of
-                                // authored canonical answer code, breaking
-                                // server-side analytics joins + next_step_rule
-                                // comparisons + webhook payloads when console
-                                // author set both id and value.
-                                value = fm["value"] as? String ?: fm["id"] as? String ?: "",
-                                label = fm["label"] as? String ?: "",
-                                image_url = fm["image_url"] as? String,
-                                id = fm["id"] as? String,
-                                icon = fm["icon"] as? String,
-                                selected_image_url = fm["selected_image_url"] as? String,
-                                unselected_image_url = fm["unselected_image_url"] as? String,
-                                subtitle = fm["subtitle"] as? String,
-                                title_color = fm["title_color"] as? String,
-                                subtitle_color = fm["subtitle_color"] as? String,
-                                title_font_size = (fm["title_font_size"] as? Number)?.toDouble(),
-                                subtitle_font_size = (fm["subtitle_font_size"] as? Number)?.toDouble(),
-                                title_font_weight = fm["title_font_weight"] as? String,
-                                selected_icon = fm["selected_icon"] as? String,
-                                unselected_icon = fm["unselected_icon"] as? String,
-                                image_overlay_color = fm["image_overlay_color"] as? String,
-                                image_overlay_opacity = (fm["image_overlay_opacity"] as? Number)?.toDouble(),
-                                border_color = fm["border_color"] as? String,
-                                selected_border_color = fm["selected_border_color"] as? String,
-                                bg_color = fm["bg_color"] as? String,
-                                selected_bg_color = fm["selected_bg_color"] as? String,
-                                selected_text_color = fm["selected_text_color"] as? String,
-                                cell_alignment = fm["cell_alignment"] as? String,
-                            )
-                        } else null
-                    }?.toImmutableList(),
-                    // Gap 8: Parse field_config for display_style, use_variable, use_webhook
-                    field_config = bm["field_config"] as? Map<String, Any>,
-                    // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
-                    visibility_condition = (bm["visibility_condition"] as? Map<String, Any>)?.let { vc ->
-                        VisibilityCondition(
-                            type = vc["type"] as? String ?: "always",
-                            variable = vc["variable"] as? String,
-                            value = vc["value"],
-                            expression = vc["expression"] as? String,
-                        )
-                    },
-                    entrance_animation = (bm["entrance_animation"] as? Map<String, Any>)?.let { ea ->
-                        EntranceAnimationConfig(
-                            type = ea["type"] as? String ?: "none",
-                            duration_ms = (ea["duration_ms"] as? Number)?.toInt() ?: 300,
-                            delay_ms = (ea["delay_ms"] as? Number)?.toInt() ?: 0,
-                            easing = ea["easing"] as? String ?: "ease_out",
-                            spring_damping = (ea["spring_damping"] as? Number)?.toDouble(),
-                        )
-                    },
-                    pressed_style = (bm["pressed_style"] as? Map<String, Any>)?.let { ps ->
-                        PressedStyleConfig(
-                            scale = (ps["scale"] as? Number)?.toDouble(),
-                            opacity = (ps["opacity"] as? Number)?.toDouble(),
-                            bg_color = ps["bg_color"] as? String,
-                            text_color = ps["text_color"] as? String,
-                        )
-                    },
-                    bindings = (bm["bindings"] as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() },
-                    element_width = bm["element_width"] as? String,
-                    element_height = bm["element_height"] as? String,
-                    overflow = bm["overflow"] as? String,
-                    // Row / stack container fields
-                    // SPEC-070-A finalization §3.2 — coalesce `children` and
-                    // legacy `stack_children`. iOS ContentBlockTypes.swift:1068
-                    // accepts both keys; Android previously read only `children`,
-                    // so console-saved stack containers rendered blank.
-                    children = parseChildBlocks(bm["children"] ?: bm["stack_children"]),
-                    row_direction = bm["row_direction"] as? String,
-                    row_distribution = bm["row_distribution"] as? String,
-                    row_child_fill = bm["row_child_fill"] as? Boolean,
-                    gap = (bm["gap"] as? Number)?.toDouble(),
-                    wrap = bm["wrap"] as? Boolean,
-                    justify = bm["justify"] as? String,
-                    align_items = bm["align_items"] as? String,
-
-                    // ============================================================
-                    // SPEC-401-A R36 — Lens A P0 systemic parser drift fix.
-                    // Many ContentBlock fields were declared on the data class
-                    // and read by the renderer (often added by R3/R7/R10/R13/
-                    // R15/R16/R35) but never populated from the Firestore JSON
-                    // payload. Each "honour canonical first" fix was thus
-                    // shadowed by the parser; console-authored values silently
-                    // fell through to defaults. Adding all of them here so
-                    // every prior R-round renderer fix actually receives data.
-                    // ============================================================
-
-                    // Lottie/Rive canonical short names (iOS ContentBlockTypes.swift).
-                    // Console flow.schema.ts:225-244 emits these — NOT the
-                    // legacy `lottie_*`/`rive_*` aliases — so authoring
-                    // `autoplay: false` was always lost on Android.
-                    autoplay = bm["autoplay"] as? Boolean,
-                    loop = bm["loop"] as? Boolean,
-                    muted = bm["muted"] as? Boolean,
-                    controls = bm["controls"] as? Boolean,
-                    inline_playback = bm["inline_playback"] as? Boolean,
-                    lottie_height = (bm["lottie_height"] as? Number)?.toDouble(),
-                    lottie_width = (bm["lottie_width"] as? Number)?.toDouble(),
-                    play_on_scroll = bm["play_on_scroll"] as? Boolean,
-                    play_on_tap = bm["play_on_tap"] as? Boolean,
-                    color_overrides = (bm["color_overrides"] as? Map<*, *>)?.entries
-                        ?.mapNotNull { (k, v) ->
-                            val ks = k as? String ?: return@mapNotNull null
-                            val vs = v as? String ?: return@mapNotNull null
-                            ks to vs
-                        }?.toMap(),
-                    artboard = bm["artboard"] as? String,
-                    state_machine = bm["state_machine"] as? String,
-                    rive_inputs = @Suppress("UNCHECKED_CAST") (bm["rive_inputs"] as? Map<String, Any>),
-                    trigger_on_step_complete = bm["trigger_on_step_complete"] as? String,
-
-                    // PricingCard fields (iOS ContentBlockTypes.swift PricingPlan).
-                    // PricingCardBlock at ContentBlockRenderer.kt:4006 reads
-                    // block.pricing_plans which was always null — card always
-                    // empty.
-                    pricing_plans = (bm["pricing_plans"] as? List<*>)?.mapNotNull { pp ->
-                        if (pp is Map<*, *>) {
-                            @Suppress("UNCHECKED_CAST")
-                            val pm = pp as Map<String, Any>
-                            PricingPlan(
-                                id = pm["id"] as? String ?: "",
-                                label = pm["label"] as? String ?: pm["title"] as? String ?: "",
-                                price = pm["price"] as? String ?: "",
-                                period = pm["period"] as? String ?: "",
-                                badge = pm["badge"] as? String,
-                                is_highlighted = pm["is_highlighted"] as? Boolean
-                                    ?: pm["highlighted"] as? Boolean
-                                    ?: false,
-                            )
-                        } else null
-                    }?.toImmutableList(),
-                    pricing_layout = bm["pricing_layout"] as? String,
-
-                    // Rich text canonical (R4)
-                    markdown_content = bm["markdown_content"] as? String,
-                    rich_text_variant = bm["rich_text_variant"] as? String,
-
-                    // Social-login R13 below-inputs CTA layout
-                    email_login_placement = bm["email_login_placement"] as? String,
-                    email_cta_spacing_below = (bm["email_cta_spacing_below"] as? Number)?.toDouble(),
-
-                    // Rating canonical R3
-                    default_rating = (bm["default_rating"] as? Number)?.toDouble(),
-                    rating_label = bm["rating_label"] as? String,
-
-                    // ProgressBar canonical (Phase F + R3)
-                    total_segments = (bm["total_segments"] as? Number)?.toInt(),
-                    progress_value = (bm["progress_value"] as? Number)?.toDouble(),
-                    progress_variant = bm["progress_variant"] as? String,
-                    bar_color = bm["bar_color"] as? String,
-                    bar_height = (bm["bar_height"] as? Number)?.toDouble(),
-
-                    // WheelPicker (Phase F + R35 horizontal/haptic)
-                    min_value = (bm["min_value"] as? Number)?.toDouble(),
-                    max_value_picker = (bm["max_value_picker"] as? Number)?.toDouble(),
-                    step_value = (bm["step_value"] as? Number)?.toDouble(),
-                    default_picker_value = (bm["default_picker_value"] as? Number)?.toDouble(),
-                    unit = bm["unit"] as? String,
-                    unit_position = bm["unit_position"] as? String,
-                    visible_items = (bm["visible_items"] as? Number)?.toInt(),
-                    wheel_orientation = bm["wheel_orientation"] as? String,
-                    orientation = bm["orientation"] as? String,
-                    highlight_color = bm["highlight_color"] as? String,
-                    haptic_on_scroll = bm["haptic_on_scroll"] as? Boolean,
-
-                    // DateWheelPicker (Phase F)
-                    min_date = bm["min_date"] as? String,
-                    max_date = bm["max_date"] as? String,
-                    default_date_value = bm["default_date_value"] as? String,
-
-                    // PulsingAvatar (Phase F + R3)
-                    pulse_color = bm["pulse_color"] as? String,
-                    pulse_ring_count = (bm["pulse_ring_count"] as? Number)?.toInt(),
-                    pulse_speed = (bm["pulse_speed"] as? Number)?.toDouble(),
-                    border_width = (bm["border_width"] as? Number)?.toDouble(),
-                    border_color = bm["border_color"] as? String,
-                    image_shape = bm["image_shape"] as? String,
-                    image_corner_radius = (bm["image_corner_radius"] as? Number)?.toDouble(),
-                    badge_position = bm["badge_position"] as? String,
-                    badge_size = (bm["badge_size"] as? Number)?.toDouble(),
-
-                    // StarBackground (Phase F) — density/speed are String tokens
-                    // ("low"/"medium"/"high", "slow"/"normal"/"fast") on the
-                    // data class; iOS reads the same shape.
-                    particle_type = bm["particle_type"] as? String,
-                    density = bm["density"] as? String,
-                    speed = bm["speed"] as? String,
-                    secondary_color = bm["secondary_color"] as? String,
-                    size_range = (bm["size_range"] as? List<*>)?.mapNotNull { (it as? Number)?.toDouble() }?.toImmutableList(),
-                    fullscreen = bm["fullscreen"] as? Boolean,
-
-                    // CircularGauge (Phase F — block previously rendered fully default)
-                    gauge_value = (bm["gauge_value"] as? Number)?.toDouble(),
-                    max_value = (bm["max_value"] as? Number)?.toDouble(),
-                    gauge_variant = bm["gauge_variant"] as? String,
-                    gradient_start_color = bm["gradient_start_color"] as? String,
-                    gradient_end_color = bm["gradient_end_color"] as? String,
-                    arrow_color = bm["arrow_color"] as? String,
-                    arrow_stroke_width = (bm["arrow_stroke_width"] as? Number)?.toDouble(),
-                    min_label = bm["min_label"] as? String,
-                    max_label = bm["max_label"] as? String,
-                    min_max_font_size = (bm["min_max_font_size"] as? Number)?.toDouble(),
-                    min_max_color = bm["min_max_color"] as? String,
-                    percentage_location = bm["percentage_location"] as? String,
-                    sublabel = bm["sublabel"] as? String,
-                    stroke_width = (bm["stroke_width"] as? Number)?.toDouble(),
-                    label_color = bm["label_color"] as? String,
-                    label_font_size = (bm["label_font_size"] as? Number)?.toDouble(),
-                    animate = bm["animate"] as? Boolean,
-                    animation_duration_ms = (bm["animation_duration_ms"] as? Number)?.toInt(),
-
-                    // AnimatedLoading variant (R3) — block.variant alias works,
-                    // but loading_variant is the canonical name iOS reads.
-                    loading_variant = bm["loading_variant"] as? String,
-
-                    // Container/positioning (multiple R-rounds) — column_ratios
-                    // is a colon-encoded ratio string ("1:2") on both platforms
-                    // (iOS ContentBlockTypes.swift, Android data class line 634).
-                    column_ratios = bm["column_ratios"] as? String,
-
-                    // SPEC-401-A R37 Lens A — same-pattern parser drift
-                    // continuation of R36. These four fields are declared on the
-                    // data class + read first by their respective renderers but
-                    // never populated from JSON.
-
-                    // P0 — `field_style` envelope (FormFieldBlockStyle, 17
-                    // styling tokens) is read by every form_input_* renderer
-                    // (text/slider/select/chips/rating/toggle/etc) but parser
-                    // dropped it entirely; console-authored field styling
-                    // silently fell through to hardcoded defaults
-                    // (#D1D5DB borders, 8.0 radius, #374151 labels).
-                    field_style = (bm["field_style"] as? Map<*, *>)?.let { fs ->
-                        FormFieldBlockStyle(
-                            background_color = fs["background_color"] as? String,
-                            border_color = fs["border_color"] as? String,
-                            border_width = (fs["border_width"] as? Number)?.toDouble(),
-                            corner_radius = (fs["corner_radius"] as? Number)?.toDouble(),
-                            text_color = fs["text_color"] as? String,
-                            placeholder_color = fs["placeholder_color"] as? String,
-                            font_size = (fs["font_size"] as? Number)?.toDouble(),
-                            focused_border_color = fs["focused_border_color"] as? String,
-                            label_color = fs["label_color"] as? String,
-                            label_font_size = (fs["label_font_size"] as? Number)?.toDouble(),
-                            error_border_color = fs["error_border_color"] as? String,
-                            error_text_color = fs["error_text_color"] as? String,
-                            track_color = fs["track_color"] as? String,
-                            fill_color = fs["fill_color"] as? String,
-                            thumb_color = fs["thumb_color"] as? String,
-                            toggle_on_color = fs["toggle_on_color"] as? String,
-                            toggle_off_color = fs["toggle_off_color"] as? String,
-                        )
-                    },
-
-                    // P1 — `filled_segments` parser previously folded it into
-                    // active_segments fallback, but renderer at
-                    // ContentBlockRenderer.kt:2561 reads filled_segments first
-                    // (`block.filled_segments ?: block.active_segments`).
-                    // Author intent was lost when only filled_segments was set.
-                    filled_segments = (bm["filled_segments"] as? Number)?.toInt(),
-
-                    // P1 — Rating canonical iOS-first names (R3 added the
-                    // renderer fallback at lines 2301-2306 but parser never
-                    // reads them; rating fell through to default colours).
-                    filled_color = bm["filled_color"] as? String,
-                    empty_color = bm["empty_color"] as? String,
-                    z_index = (bm["z_index"] as? Number)?.toDouble(),
-                    image_fit = bm["image_fit"] as? String,
-                    view_key = bm["view_key"] as? String,
-                    custom_config = @Suppress("UNCHECKED_CAST") (bm["custom_config"] as? Map<String, Any>),
-                    placeholder_image_url = bm["placeholder_image_url"] as? String,
-                    placeholder_text = bm["placeholder_text"] as? String,
-                )
+                // SPEC-401-A R40 P0 — body extracted into `decodeContentBlock`
+                // (defined alongside `parseChildBlocks` further below) so
+                // nested children inside row/stack containers (parsed by
+                // `parseChildBlocks`) take the SAME ~150-field decode path.
+                // Until R40, parseChildBlocks only populated ~25 fields,
+                // silently shadowing every R3-R39 renderer fix for content
+                // nested inside a container. iOS gets full parity
+                // automatically because ContentBlock is Codable; Android
+                // emulates that via this shared helper.
+                decodeContentBlock(bm)
             } else null
         }?.toImmutableList()
 
@@ -1517,12 +1046,517 @@ internal object OnboardingConfigParser {
     }
 
     /**
-     * Recursively parse child ContentBlocks for row/stack containers.
-     * Accepts the raw `children` value from a Firestore map and returns a list of ContentBlock,
-     * or null if no children are present.
+     * Decode a single Firestore content-block Map into a [ContentBlock].
      *
-     * SPEC-070-A J.22 — returns ImmutableList so ContentBlock.children stays
-     * Compose-stable through the recursive tree.
+     * SPEC-401-A R40 P0 — extracted from the inline `ContentBlock(...)`
+     * constructor invocation that used to live mid-`parseStep`. Both
+     * top-level `content_blocks` (in `parseStep`) AND nested children
+     * inside row/stack containers (in `parseChildBlocks`) call into this
+     * shared helper so every R3-R39 renderer fix takes effect at every
+     * tree level. Until R40 the inline body decoded ~150 fields while
+     * `parseChildBlocks` only populated ~25, silently shadowing all
+     * nested-content fixes (lottie autoplay, gauge metrics, pricing
+     * cards, etc.). iOS achieves the same outcome automatically because
+     * `ContentBlock` is `Codable`; Android emulates that via this helper.
+     */
+    @Suppress("UNCHECKED_CAST")
+    private fun decodeContentBlock(bm: Map<String, Any>): ContentBlock {
+        return ContentBlock(
+            id = bm["id"] as? String ?: "",
+            type = bm["type"] as? String ?: "text",
+            text = bm["text"] as? String,
+            level = (bm["level"] as? Number)?.toInt(),
+            image_url = bm["image_url"] as? String,
+            alt = bm["alt"] as? String,
+            corner_radius = (bm["corner_radius"] as? Number)?.toDouble(),
+            height = (bm["height"] as? Number)?.toDouble(),
+            variant = bm["variant"] as? String,
+            action = bm["action"] as? String,
+            action_value = bm["action_value"] as? String,
+            bg_color = bm["bg_color"] as? String,
+            text_color = bm["text_color"] as? String,
+            button_corner_radius = (bm["button_corner_radius"] as? Number)?.toDouble(),
+            spacer_height = (bm["spacer_height"] as? Number)?.toDouble(),
+            items = (bm["items"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
+            list_style = bm["list_style"] as? String,
+            divider_color = bm["divider_color"] as? String,
+            divider_thickness = (bm["divider_thickness"] as? Number)?.toDouble(),
+            divider_margin_y = (bm["divider_margin_y"] as? Number)?.toDouble(),
+            badge_text = bm["badge_text"] as? String,
+            badge_bg_color = bm["badge_bg_color"] as? String,
+            badge_text_color = bm["badge_text_color"] as? String,
+            badge_corner_radius = (bm["badge_corner_radius"] as? Number)?.toDouble(),
+            icon_emoji = bm["icon_emoji"] as? String,
+            icon_size = (bm["icon_size"] as? Number)?.toDouble(),
+            icon_alignment = bm["icon_alignment"] as? String,
+            toggle_label = bm["toggle_label"] as? String,
+            toggle_description = bm["toggle_description"] as? String,
+            toggle_default = bm["toggle_default"] as? Boolean,
+            video_thumbnail_url = bm["video_thumbnail_url"] as? String,
+            // SPEC-084: per-block text style + video source fields
+            style = (bm["style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+            video_url = bm["video_url"] as? String,
+            video_height = (bm["video_height"] as? Number)?.toDouble(),
+            video_corner_radius = (bm["video_corner_radius"] as? Number)?.toDouble(),
+            // SPEC-085: Rich media fields
+            lottie_url = bm["lottie_url"] as? String,
+            lottie_json = bm["lottie_json"] as? Map<String, Any>,
+            lottie_autoplay = bm["lottie_autoplay"] as? Boolean,
+            lottie_loop = bm["lottie_loop"] as? Boolean,
+            lottie_speed = (bm["lottie_speed"] as? Number)?.toFloat(),
+            rive_url = bm["rive_url"] as? String,
+            rive_artboard = bm["rive_artboard"] as? String,
+            rive_state_machine = bm["rive_state_machine"] as? String,
+            icon_ref = bm["icon_ref"] ?: bm["icon"],
+            video_autoplay = bm["video_autoplay"] as? Boolean,
+            video_loop = bm["video_loop"] as? Boolean,
+            video_muted = bm["video_muted"] as? Boolean,
+            // SPEC-089d §6.1: Per-block style design tokens
+            block_style = (bm["block_style"] as? Map<String, Any>)?.let { parseBlockStyle(it) },
+            // SPEC-089d §6.2: 2D positioning
+            vertical_align = bm["vertical_align"] as? String,
+            horizontal_align = bm["horizontal_align"] as? String,
+            vertical_offset = (bm["vertical_offset"] as? Number)?.toDouble(),
+            horizontal_offset = (bm["horizontal_offset"] as? Number)?.toDouble(),
+            // SPEC-070-A I.17 — three-zone layout opt-in.
+            zone = bm["zone"] as? String,
+            // SPEC-089d: page_indicator fields
+            dot_count = (bm["dot_count"] as? Number)?.toInt(),
+            active_index = (bm["active_index"] as? Number)?.toInt(),
+            active_color = bm["active_color"] as? String,
+            inactive_color = bm["inactive_color"] as? String,
+            dot_size = (bm["dot_size"] as? Number)?.toDouble(),
+            dot_spacing = (bm["dot_spacing"] as? Number)?.toDouble(),
+            active_dot_width = (bm["active_dot_width"] as? Number)?.toDouble(),
+            // SPEC-089d: social_login fields
+            providers = (bm["providers"] as? List<*>)?.mapNotNull { p ->
+                if (p is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val pm = p as Map<String, Any>
+                    SocialProvider(
+                        type = pm["type"] as? String ?: "",
+                        label = pm["label"] as? String,
+                        enabled = pm["enabled"] as? Boolean ?: true,
+                        // SPEC-070-A finalization OB-2 — per-provider color/style overrides.
+                        bg_color = pm["bg_color"] as? String,
+                        text_color = pm["text_color"] as? String,
+                        border_color = pm["border_color"] as? String,
+                        border_width = (pm["border_width"] as? Number)?.toFloat(),
+                        corner_radius = (pm["corner_radius"] as? Number)?.toFloat(),
+                        icon_style = pm["icon_style"] as? String,
+                    )
+                } else null
+            }?.toImmutableList(),
+            button_style = bm["button_style"] as? String,
+            button_height = (bm["button_height"] as? Number)?.toDouble(),
+            spacing = (bm["spacing"] as? Number)?.toDouble(),
+            show_divider = bm["show_divider"] as? Boolean,
+            divider_text = bm["divider_text"] as? String,
+            // SPEC-089d: countdown_timer fields
+            target_type = bm["target_type"] as? String,
+            duration_seconds = (bm["duration_seconds"] as? Number)?.toInt(),
+            target_datetime = bm["target_datetime"] as? String,
+            show_days = bm["show_days"] as? Boolean,
+            show_hours = bm["show_hours"] as? Boolean,
+            show_minutes = bm["show_minutes"] as? Boolean,
+            show_seconds = bm["show_seconds"] as? Boolean,
+            labels = (bm["labels"] as? Map<String, Any>)?.let { lm ->
+                CountdownLabels(
+                    days = lm["days"] as? String,
+                    hours = lm["hours"] as? String,
+                    minutes = lm["minutes"] as? String,
+                    seconds = lm["seconds"] as? String,
+                )
+            },
+            on_expire_action = bm["on_expire_action"] as? String,
+            expired_text = bm["expired_text"] as? String,
+            accent_color = bm["accent_color"] as? String,
+            font_size = (bm["font_size"] as? Number)?.toDouble(),
+            alignment = bm["alignment"] as? String,
+            // SPEC-089d: rating fields
+            field_id = bm["field_id"] as? String,
+            max_stars = (bm["max_stars"] as? Number)?.toInt(),
+            default_value = (bm["default_value"] as? Number)?.toDouble(),
+            star_size = (bm["star_size"] as? Number)?.toDouble(),
+            active_rating_color = bm["active_rating_color"] as? String ?: bm["filled_color"] as? String ?: bm["active_color"] as? String,
+            inactive_rating_color = bm["inactive_rating_color"] as? String ?: bm["empty_color"] as? String ?: bm["inactive_color"] as? String,
+            allow_half = bm["allow_half"] as? Boolean,
+            label = bm["label"] as? String,
+            // SPEC-089d: rich_text fields
+            content = bm["content"] as? String,
+            base_style = (bm["base_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+            link_color = bm["link_color"] as? String,
+            max_lines = (bm["max_lines"] as? Number)?.toInt(),
+            // SPEC-089d: progress_bar fields
+            segment_count = (bm["segment_count"] as? Number)?.toInt() ?: (bm["total_segments"] as? Number)?.toInt(),
+            active_segments = (bm["active_segments"] as? Number)?.toInt() ?: (bm["filled_segments"] as? Number)?.toInt(),
+            fill_color = bm["fill_color"] as? String,
+            track_color = bm["track_color"] as? String,
+            segment_gap = (bm["segment_gap"] as? Number)?.toDouble(),
+            show_label = bm["show_label"] as? Boolean,
+            label_style = (bm["label_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+            // SPEC-089d: timeline fields
+            timeline_items = (bm["timeline_items"] as? List<*>
+                ?: bm["items"] as? List<*>)?.mapNotNull { ti ->
+                if (ti is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val tm = ti as Map<String, Any>
+                    // Only parse as TimelineItem if it has a title (to distinguish from string items)
+                    val title = tm["title"] as? String ?: return@mapNotNull null
+                    TimelineItem(
+                        id = tm["id"] as? String ?: "",
+                        title = title,
+                        subtitle = tm["subtitle"] as? String,
+                        icon = tm["icon"] as? String,
+                        // SPEC-401-A R39 — drop `?: "upcoming"` parser
+                        // walk-back of R18. R18 made `status` nullable
+                        // on the data class so missing-status timeline
+                        // items render in solid title color (not greyed).
+                        // Parser hardcoded `?: "upcoming"`, so the
+                        // renderer's `if (item.status == "upcoming")`
+                        // greyed every missing-status title regardless.
+                        status = tm["status"] as? String,
+                    )
+                } else null
+            }?.toImmutableList(),
+            line_color = bm["line_color"] as? String,
+            completed_color = bm["completed_color"] as? String,
+            current_color = bm["current_color"] as? String,
+            upcoming_color = bm["upcoming_color"] as? String,
+            show_line = bm["show_line"] as? Boolean,
+            compact = bm["compact"] as? Boolean,
+            title_style = (bm["title_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+            subtitle_style = (bm["subtitle_style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
+            // SPEC-089d: animated_loading fields
+            loading_items = (bm["loading_items"] as? List<*>
+                ?: if (bm["type"] == "animated_loading") bm["items"] as? List<*> else null)?.mapNotNull { li ->
+                if (li is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val lm = li as Map<String, Any>
+                    LoadingItem(
+                        label = lm["label"] as? String ?: "",
+                        duration_ms = (lm["duration_ms"] as? Number)?.toInt() ?: 1000,
+                        icon = lm["icon"] as? String,
+                        // SPEC-401-A R35 orbit-variant per-item fields.
+                        // Until R36 these were declared on LoadingItem
+                        // but never read from JSON.
+                        icon_url = lm["icon_url"] as? String,
+                        icon_bg_color = lm["icon_bg_color"] as? String,
+                        icon_size = (lm["icon_size"] as? Number)?.toFloat(),
+                        icon_orbit_angle = (lm["icon_orbit_angle"] as? Number)?.toFloat(),
+                    )
+                } else null
+            }?.toImmutableList(),
+            progress_color = bm["progress_color"] as? String,
+            check_color = bm["check_color"] as? String,
+            total_duration_ms = (bm["total_duration_ms"] as? Number)?.toInt(),
+            auto_advance = bm["auto_advance"] as? Boolean,
+            show_percentage = bm["show_percentage"] as? Boolean,
+            // SPEC-089d: Form input fields
+            field_label = bm["field_label"] as? String,
+            field_placeholder = bm["field_placeholder"] as? String,
+            field_required = bm["field_required"] as? Boolean,
+            field_options = (bm["field_options"] as? List<*>)?.mapNotNull { fo ->
+                if (fo is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val fm = fo as Map<String, Any>
+                    // SPEC-070-A finalization P0 audit-11 Drift 2 —
+                    // expanded to read all 24 iOS InputOption fields.
+                    // Console-authored per-option styling now reaches
+                    // the renderer instead of being dropped on parse.
+                    InputOption(
+                        // SPEC-401-A R37 — match iOS canonical
+                        // value-first fallback (ContentBlockTypes.swift:358-360
+                        // `let rawValue = decode(.value); self.value =
+                        // rawValue ?? rawId`). Was id-first → response
+                        // payload reported display id instead of
+                        // authored canonical answer code, breaking
+                        // server-side analytics joins + next_step_rule
+                        // comparisons + webhook payloads when console
+                        // author set both id and value.
+                        value = fm["value"] as? String ?: fm["id"] as? String ?: "",
+                        label = fm["label"] as? String ?: "",
+                        image_url = fm["image_url"] as? String,
+                        id = fm["id"] as? String,
+                        icon = fm["icon"] as? String,
+                        selected_image_url = fm["selected_image_url"] as? String,
+                        unselected_image_url = fm["unselected_image_url"] as? String,
+                        subtitle = fm["subtitle"] as? String,
+                        title_color = fm["title_color"] as? String,
+                        subtitle_color = fm["subtitle_color"] as? String,
+                        title_font_size = (fm["title_font_size"] as? Number)?.toDouble(),
+                        subtitle_font_size = (fm["subtitle_font_size"] as? Number)?.toDouble(),
+                        title_font_weight = fm["title_font_weight"] as? String,
+                        selected_icon = fm["selected_icon"] as? String,
+                        unselected_icon = fm["unselected_icon"] as? String,
+                        image_overlay_color = fm["image_overlay_color"] as? String,
+                        image_overlay_opacity = (fm["image_overlay_opacity"] as? Number)?.toDouble(),
+                        border_color = fm["border_color"] as? String,
+                        selected_border_color = fm["selected_border_color"] as? String,
+                        bg_color = fm["bg_color"] as? String,
+                        selected_bg_color = fm["selected_bg_color"] as? String,
+                        selected_text_color = fm["selected_text_color"] as? String,
+                        cell_alignment = fm["cell_alignment"] as? String,
+                    )
+                } else null
+            }?.toImmutableList(),
+            // Gap 8: Parse field_config for display_style, use_variable, use_webhook
+            field_config = bm["field_config"] as? Map<String, Any>,
+            // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
+            visibility_condition = (bm["visibility_condition"] as? Map<String, Any>)?.let { vc ->
+                VisibilityCondition(
+                    type = vc["type"] as? String ?: "always",
+                    variable = vc["variable"] as? String,
+                    value = vc["value"],
+                    expression = vc["expression"] as? String,
+                )
+            },
+            entrance_animation = (bm["entrance_animation"] as? Map<String, Any>)?.let { ea ->
+                EntranceAnimationConfig(
+                    type = ea["type"] as? String ?: "none",
+                    duration_ms = (ea["duration_ms"] as? Number)?.toInt() ?: 300,
+                    delay_ms = (ea["delay_ms"] as? Number)?.toInt() ?: 0,
+                    easing = ea["easing"] as? String ?: "ease_out",
+                    spring_damping = (ea["spring_damping"] as? Number)?.toDouble(),
+                )
+            },
+            pressed_style = (bm["pressed_style"] as? Map<String, Any>)?.let { ps ->
+                PressedStyleConfig(
+                    scale = (ps["scale"] as? Number)?.toDouble(),
+                    opacity = (ps["opacity"] as? Number)?.toDouble(),
+                    bg_color = ps["bg_color"] as? String,
+                    text_color = ps["text_color"] as? String,
+                )
+            },
+            bindings = (bm["bindings"] as? Map<*, *>)?.entries?.associate { (k, v) -> k.toString() to v.toString() },
+            element_width = bm["element_width"] as? String,
+            element_height = bm["element_height"] as? String,
+            overflow = bm["overflow"] as? String,
+            // Row / stack container fields
+            // SPEC-070-A finalization §3.2 — coalesce `children` and
+            // legacy `stack_children`. iOS ContentBlockTypes.swift:1068
+            // accepts both keys; Android previously read only `children`,
+            // so console-saved stack containers rendered blank.
+            children = parseChildBlocks(bm["children"] ?: bm["stack_children"]),
+            row_direction = bm["row_direction"] as? String,
+            row_distribution = bm["row_distribution"] as? String,
+            row_child_fill = bm["row_child_fill"] as? Boolean,
+            gap = (bm["gap"] as? Number)?.toDouble(),
+            wrap = bm["wrap"] as? Boolean,
+            justify = bm["justify"] as? String,
+            align_items = bm["align_items"] as? String,
+
+            // ============================================================
+            // SPEC-401-A R36 — Lens A P0 systemic parser drift fix.
+            // Many ContentBlock fields were declared on the data class
+            // and read by the renderer (often added by R3/R7/R10/R13/
+            // R15/R16/R35) but never populated from the Firestore JSON
+            // payload. Each "honour canonical first" fix was thus
+            // shadowed by the parser; console-authored values silently
+            // fell through to defaults. Adding all of them here so
+            // every prior R-round renderer fix actually receives data.
+            // ============================================================
+
+            // Lottie/Rive canonical short names (iOS ContentBlockTypes.swift).
+            // Console flow.schema.ts:225-244 emits these — NOT the
+            // legacy `lottie_*`/`rive_*` aliases — so authoring
+            // `autoplay: false` was always lost on Android.
+            autoplay = bm["autoplay"] as? Boolean,
+            loop = bm["loop"] as? Boolean,
+            muted = bm["muted"] as? Boolean,
+            controls = bm["controls"] as? Boolean,
+            inline_playback = bm["inline_playback"] as? Boolean,
+            lottie_height = (bm["lottie_height"] as? Number)?.toDouble(),
+            lottie_width = (bm["lottie_width"] as? Number)?.toDouble(),
+            play_on_scroll = bm["play_on_scroll"] as? Boolean,
+            play_on_tap = bm["play_on_tap"] as? Boolean,
+            color_overrides = (bm["color_overrides"] as? Map<*, *>)?.entries
+                ?.mapNotNull { (k, v) ->
+                    val ks = k as? String ?: return@mapNotNull null
+                    val vs = v as? String ?: return@mapNotNull null
+                    ks to vs
+                }?.toMap(),
+            artboard = bm["artboard"] as? String,
+            state_machine = bm["state_machine"] as? String,
+            rive_inputs = @Suppress("UNCHECKED_CAST") (bm["rive_inputs"] as? Map<String, Any>),
+            trigger_on_step_complete = bm["trigger_on_step_complete"] as? String,
+
+            // PricingCard fields (iOS ContentBlockTypes.swift PricingPlan).
+            // PricingCardBlock at ContentBlockRenderer.kt:4006 reads
+            // block.pricing_plans which was always null — card always
+            // empty.
+            pricing_plans = (bm["pricing_plans"] as? List<*>)?.mapNotNull { pp ->
+                if (pp is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST")
+                    val pm = pp as Map<String, Any>
+                    PricingPlan(
+                        id = pm["id"] as? String ?: "",
+                        label = pm["label"] as? String ?: pm["title"] as? String ?: "",
+                        price = pm["price"] as? String ?: "",
+                        period = pm["period"] as? String ?: "",
+                        badge = pm["badge"] as? String,
+                        is_highlighted = pm["is_highlighted"] as? Boolean
+                            ?: pm["highlighted"] as? Boolean
+                            ?: false,
+                    )
+                } else null
+            }?.toImmutableList(),
+            pricing_layout = bm["pricing_layout"] as? String,
+
+            // Rich text canonical (R4)
+            markdown_content = bm["markdown_content"] as? String,
+            rich_text_variant = bm["rich_text_variant"] as? String,
+
+            // Social-login R13 below-inputs CTA layout
+            email_login_placement = bm["email_login_placement"] as? String,
+            email_cta_spacing_below = (bm["email_cta_spacing_below"] as? Number)?.toDouble(),
+
+            // Rating canonical R3
+            default_rating = (bm["default_rating"] as? Number)?.toDouble(),
+            rating_label = bm["rating_label"] as? String,
+
+            // ProgressBar canonical (Phase F + R3)
+            total_segments = (bm["total_segments"] as? Number)?.toInt(),
+            progress_value = (bm["progress_value"] as? Number)?.toDouble(),
+            progress_variant = bm["progress_variant"] as? String,
+            bar_color = bm["bar_color"] as? String,
+            bar_height = (bm["bar_height"] as? Number)?.toDouble(),
+
+            // WheelPicker (Phase F + R35 horizontal/haptic)
+            min_value = (bm["min_value"] as? Number)?.toDouble(),
+            max_value_picker = (bm["max_value_picker"] as? Number)?.toDouble(),
+            step_value = (bm["step_value"] as? Number)?.toDouble(),
+            default_picker_value = (bm["default_picker_value"] as? Number)?.toDouble(),
+            unit = bm["unit"] as? String,
+            unit_position = bm["unit_position"] as? String,
+            visible_items = (bm["visible_items"] as? Number)?.toInt(),
+            wheel_orientation = bm["wheel_orientation"] as? String,
+            orientation = bm["orientation"] as? String,
+            highlight_color = bm["highlight_color"] as? String,
+            haptic_on_scroll = bm["haptic_on_scroll"] as? Boolean,
+
+            // DateWheelPicker (Phase F)
+            min_date = bm["min_date"] as? String,
+            max_date = bm["max_date"] as? String,
+            default_date_value = bm["default_date_value"] as? String,
+
+            // PulsingAvatar (Phase F + R3)
+            pulse_color = bm["pulse_color"] as? String,
+            pulse_ring_count = (bm["pulse_ring_count"] as? Number)?.toInt(),
+            pulse_speed = (bm["pulse_speed"] as? Number)?.toDouble(),
+            border_width = (bm["border_width"] as? Number)?.toDouble(),
+            border_color = bm["border_color"] as? String,
+            image_shape = bm["image_shape"] as? String,
+            image_corner_radius = (bm["image_corner_radius"] as? Number)?.toDouble(),
+            badge_position = bm["badge_position"] as? String,
+            badge_size = (bm["badge_size"] as? Number)?.toDouble(),
+
+            // StarBackground (Phase F) — density/speed are String tokens
+            // ("low"/"medium"/"high", "slow"/"normal"/"fast") on the
+            // data class; iOS reads the same shape.
+            particle_type = bm["particle_type"] as? String,
+            density = bm["density"] as? String,
+            speed = bm["speed"] as? String,
+            secondary_color = bm["secondary_color"] as? String,
+            size_range = (bm["size_range"] as? List<*>)?.mapNotNull { (it as? Number)?.toDouble() }?.toImmutableList(),
+            fullscreen = bm["fullscreen"] as? Boolean,
+
+            // CircularGauge (Phase F — block previously rendered fully default)
+            gauge_value = (bm["gauge_value"] as? Number)?.toDouble(),
+            max_value = (bm["max_value"] as? Number)?.toDouble(),
+            gauge_variant = bm["gauge_variant"] as? String,
+            gradient_start_color = bm["gradient_start_color"] as? String,
+            gradient_end_color = bm["gradient_end_color"] as? String,
+            arrow_color = bm["arrow_color"] as? String,
+            arrow_stroke_width = (bm["arrow_stroke_width"] as? Number)?.toDouble(),
+            min_label = bm["min_label"] as? String,
+            max_label = bm["max_label"] as? String,
+            min_max_font_size = (bm["min_max_font_size"] as? Number)?.toDouble(),
+            min_max_color = bm["min_max_color"] as? String,
+            percentage_location = bm["percentage_location"] as? String,
+            sublabel = bm["sublabel"] as? String,
+            stroke_width = (bm["stroke_width"] as? Number)?.toDouble(),
+            label_color = bm["label_color"] as? String,
+            label_font_size = (bm["label_font_size"] as? Number)?.toDouble(),
+            animate = bm["animate"] as? Boolean,
+            animation_duration_ms = (bm["animation_duration_ms"] as? Number)?.toInt(),
+
+            // AnimatedLoading variant (R3) — block.variant alias works,
+            // but loading_variant is the canonical name iOS reads.
+            loading_variant = bm["loading_variant"] as? String,
+
+            // Container/positioning (multiple R-rounds) — column_ratios
+            // is a colon-encoded ratio string ("1:2") on both platforms
+            // (iOS ContentBlockTypes.swift, Android data class line 634).
+            column_ratios = bm["column_ratios"] as? String,
+
+            // SPEC-401-A R37 Lens A — same-pattern parser drift
+            // continuation of R36. These four fields are declared on the
+            // data class + read first by their respective renderers but
+            // never populated from JSON.
+
+            // P0 — `field_style` envelope (FormFieldBlockStyle, 17
+            // styling tokens) is read by every form_input_* renderer
+            // (text/slider/select/chips/rating/toggle/etc) but parser
+            // dropped it entirely; console-authored field styling
+            // silently fell through to hardcoded defaults
+            // (#D1D5DB borders, 8.0 radius, #374151 labels).
+            field_style = (bm["field_style"] as? Map<*, *>)?.let { fs ->
+                FormFieldBlockStyle(
+                    background_color = fs["background_color"] as? String,
+                    border_color = fs["border_color"] as? String,
+                    border_width = (fs["border_width"] as? Number)?.toDouble(),
+                    corner_radius = (fs["corner_radius"] as? Number)?.toDouble(),
+                    text_color = fs["text_color"] as? String,
+                    placeholder_color = fs["placeholder_color"] as? String,
+                    font_size = (fs["font_size"] as? Number)?.toDouble(),
+                    focused_border_color = fs["focused_border_color"] as? String,
+                    label_color = fs["label_color"] as? String,
+                    label_font_size = (fs["label_font_size"] as? Number)?.toDouble(),
+                    error_border_color = fs["error_border_color"] as? String,
+                    error_text_color = fs["error_text_color"] as? String,
+                    track_color = fs["track_color"] as? String,
+                    fill_color = fs["fill_color"] as? String,
+                    thumb_color = fs["thumb_color"] as? String,
+                    toggle_on_color = fs["toggle_on_color"] as? String,
+                    toggle_off_color = fs["toggle_off_color"] as? String,
+                )
+            },
+
+            // P1 — `filled_segments` parser previously folded it into
+            // active_segments fallback, but renderer at
+            // ContentBlockRenderer.kt:2561 reads filled_segments first
+            // (`block.filled_segments ?: block.active_segments`).
+            // Author intent was lost when only filled_segments was set.
+            filled_segments = (bm["filled_segments"] as? Number)?.toInt(),
+
+            // P1 — Rating canonical iOS-first names (R3 added the
+            // renderer fallback at lines 2301-2306 but parser never
+            // reads them; rating fell through to default colours).
+            filled_color = bm["filled_color"] as? String,
+            empty_color = bm["empty_color"] as? String,
+            z_index = (bm["z_index"] as? Number)?.toDouble(),
+            image_fit = bm["image_fit"] as? String,
+            view_key = bm["view_key"] as? String,
+            custom_config = @Suppress("UNCHECKED_CAST") (bm["custom_config"] as? Map<String, Any>),
+            placeholder_image_url = bm["placeholder_image_url"] as? String,
+            placeholder_text = bm["placeholder_text"] as? String,
+        )
+    }
+
+    /**
+     * Recursively parse child ContentBlocks for row/stack containers.
+     * Accepts the raw `children` value from a Firestore map and returns a
+     * list of [ContentBlock], or null if no children are present.
+     *
+     * SPEC-070-A J.22 — returns ImmutableList so ContentBlock.children
+     * stays Compose-stable through the recursive tree.
+     *
+     * SPEC-401-A R40 P0 — delegates per-child decoding to
+     * [decodeContentBlock] so nested children get the SAME ~150-field
+     * decode path as top-level blocks. The previous skeleton populated
+     * only ~25 fields, silently shadowing every R3-R39 renderer fix for
+     * any block nested inside a row or stack container.
      */
     @Suppress("UNCHECKED_CAST")
     private fun parseChildBlocks(raw: Any?): kotlinx.collections.immutable.ImmutableList<ContentBlock>? {
@@ -1530,41 +1564,7 @@ internal object OnboardingConfigParser {
         return list.mapNotNull { child ->
             if (child is Map<*, *>) {
                 val cm = child as Map<String, Any>
-                ContentBlock(
-                    id = cm["id"] as? String ?: "",
-                    type = cm["type"] as? String ?: "text",
-                    text = cm["text"] as? String,
-                    level = (cm["level"] as? Number)?.toInt(),
-                    image_url = cm["image_url"] as? String,
-                    alt = cm["alt"] as? String,
-                    corner_radius = (cm["corner_radius"] as? Number)?.toDouble(),
-                    height = (cm["height"] as? Number)?.toDouble(),
-                    variant = cm["variant"] as? String,
-                    action = cm["action"] as? String,
-                    action_value = cm["action_value"] as? String,
-                    bg_color = cm["bg_color"] as? String,
-                    text_color = cm["text_color"] as? String,
-                    button_corner_radius = (cm["button_corner_radius"] as? Number)?.toDouble(),
-                    spacer_height = (cm["spacer_height"] as? Number)?.toDouble(),
-                    icon_emoji = cm["icon_emoji"] as? String,
-                    icon_size = (cm["icon_size"] as? Number)?.toDouble(),
-                    style = (cm["style"] as? Map<String, Any>)?.let { parseTextStyleConfig(it) },
-                    block_style = (cm["block_style"] as? Map<String, Any>)?.let { parseBlockStyle(it) },
-                    field_id = cm["field_id"] as? String,
-                    field_label = cm["field_label"] as? String,
-                    field_placeholder = cm["field_placeholder"] as? String,
-                    field_required = cm["field_required"] as? Boolean,
-                    field_config = cm["field_config"] as? Map<String, Any>,
-                    children = parseChildBlocks(cm["children"]),
-                    row_direction = cm["row_direction"] as? String,
-                    row_distribution = cm["row_distribution"] as? String,
-                    row_child_fill = cm["row_child_fill"] as? Boolean,
-                    gap = (cm["gap"] as? Number)?.toDouble(),
-                    align_items = cm["align_items"] as? String,
-                    element_width = cm["element_width"] as? String,
-                    element_height = cm["element_height"] as? String,
-                    overflow = cm["overflow"] as? String,
-                )
+                decodeContentBlock(cm)
             } else null
         }.takeIf { it.isNotEmpty() }?.toImmutableList()
     }
