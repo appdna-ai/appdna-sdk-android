@@ -3527,6 +3527,36 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
     val monthListState = rememberLazyListState()
     val yearListState = rememberLazyListState()
 
+    // SPEC-401-A R62 (Lens C P1) — viewport-center math instead of
+    // `firstVisibleItemIndex == index`. Without this, only the literal
+    // first row was "center" — bold/highlighted text never aligned with
+    // the visual selection strip once the user scrolled. Mirrors
+    // WheelPickerBlock pattern (line ~4031).
+    fun centeredIndexOf(state: androidx.compose.foundation.lazy.LazyListState): Int {
+        val info = state.layoutInfo
+        if (info.visibleItemsInfo.isEmpty()) return state.firstVisibleItemIndex
+        val viewportCenter = info.viewportStartOffset +
+            (info.viewportEndOffset - info.viewportStartOffset) / 2
+        return info.visibleItemsInfo.minByOrNull {
+            kotlin.math.abs((it.offset + it.size / 2) - viewportCenter)
+        }?.index ?: state.firstVisibleItemIndex
+    }
+    val monthCentered by remember { derivedStateOf { centeredIndexOf(monthListState) } }
+    val dayCentered by remember { derivedStateOf { centeredIndexOf(dayListState) } }
+    val yearCentered by remember { derivedStateOf { centeredIndexOf(yearListState) } }
+
+    Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+        // SPEC-401-A R62 (Lens C P1) — visible center-strip overlay so
+        // users can see WHERE the selection actually lives. Sits behind
+        // the LazyColumn Row at viewport-center. Mirrors
+        // WheelPickerBlock highlight strip (line 4161-4166).
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .align(Alignment.Center)
+                .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+        )
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -3538,11 +3568,12 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
             LazyColumn(
                 state = monthListState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = monthListState),
             ) {
                 items(12) { index ->
-                    val isCenter = monthListState.firstVisibleItemIndex == index
+                    val isCenter = monthCentered == index
                     Text(
                         text = months[index],
                         fontSize = if (isCenter) 18.sp else 14.sp,
@@ -3573,12 +3604,13 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
             LazyColumn(
                 state = dayListState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = dayListState),
             ) {
                 items(31) { index ->
                     val day = index + 1
-                    val isCenter = dayListState.firstVisibleItemIndex == index
+                    val isCenter = dayCentered == index
                     Text(
                         // SPEC-070-A final audit pass D F1 — Locale.US so the
                         // wheel doesn't show mixed-script digits (Persian /
@@ -3613,12 +3645,13 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
             LazyColumn(
                 state = yearListState,
                 modifier = Modifier.fillMaxSize(),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = yearListState),
             ) {
                 items(years.size) { index ->
                     val year = years[index]
-                    val isCenter = yearListState.firstVisibleItemIndex == index
+                    val isCenter = yearCentered == index
                     Text(
                         text = year.toString(),
                         fontSize = if (isCenter) 18.sp else 14.sp,
@@ -3644,6 +3677,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
             }
         }
     }
+    } // SPEC-401-A R62 (Lens C P1) — close Box wrapper added for highlight strip
 }
 
 // MARK: - Stack Block (ZStack container — SPEC-089d AC-024)
@@ -4165,9 +4199,20 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                         .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
                 )
 
+                // SPEC-401-A R62 (Lens C P1) — vertical wheel needs
+                // top+bottom contentPadding so first/last items can scroll
+                // under the center highlight strip. Without this,
+                // boundary values (e.g. age 18 / 99 in 18..99 range) are
+                // physically unreachable — viewport center math
+                // (centeredIndex line ~4031) requires items to be
+                // positioned at parent center, which is impossible at
+                // index 0 / N-1 when there's no leading/trailing padding.
+                // iOS native Picker(.wheel) auto-positions any index.
+                // Mirrors the horizontal branch fix at line 4106.
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
                 ) {
