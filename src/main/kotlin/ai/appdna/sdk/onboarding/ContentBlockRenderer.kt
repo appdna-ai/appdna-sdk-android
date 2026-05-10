@@ -4594,13 +4594,41 @@ private fun FormInputDateBlock(
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var pendingDate by remember { mutableStateOf(savedRaw) }
+    // SPEC-401-A R49 (Lens A #3, P1) \u2014 allow_future/allow_past date validation.
+    // iOS ContentBlockStandaloneViews.swift:966,970,1160,1174-1175 enforces
+    // these constraints and surfaces an inline error string under the picker.
+    // Android was silently writing invalid dates.
+    var dateError by remember { mutableStateOf<String?>(null) }
+    fun validateDate(millis: Long): Boolean {
+        val now = System.currentTimeMillis()
+        val msg = block.date_validation_message
+        if (block.allow_future == false && millis > now) {
+            dateError = msg ?: "Future dates are not allowed"
+            return false
+        }
+        if (block.allow_past == false && millis < now) {
+            dateError = msg ?: "Past dates are not allowed"
+            return false
+        }
+        dateError = null
+        return true
+    }
 
     // SPEC-401-A R35 \u2014 picker_variant per iOS FormInputBlockViews.swift:208-410.
     // "graphical" \u2192 inline DatePicker; "compact"/null/unknown \u2192 tap-to-open
     // button. "wheel" falls back to compact today (Material3 lacks a wheel
     // date picker out of the box; tracked for follow-up).
-    val pickerVariant = (block.field_config?.get("picker_variant") as? String)?.lowercase() ?: "compact"
-    val inlineGraphical = pickerVariant == "graphical" && (mode == "date" || mode == "datetime")
+    // SPEC-401-A R49 (Lens A #4, P1) \u2014 picker_presentation="field" forces
+    // tap-to-open compact; otherwise legacy field_config.picker_variant
+    // controls inline graphical vs compact. picker_mode similarly may
+    // override the function `mode` parameter.
+    val effectiveMode = block.picker_mode ?: mode
+    val pickerVariant = when {
+        block.picker_presentation == "field" -> "compact"
+        block.picker_presentation == "inline" -> "graphical"
+        else -> (block.field_config?.get("picker_variant") as? String)?.lowercase() ?: "compact"
+    }
+    val inlineGraphical = pickerVariant == "graphical" && (effectiveMode == "date" || effectiveMode == "datetime")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -4616,9 +4644,9 @@ private fun FormInputDateBlock(
             DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth())
             LaunchedEffect(datePickerState.selectedDateMillis) {
                 val millis = datePickerState.selectedDateMillis
-                if (millis != null) {
+                if (millis != null && validateDate(millis)) {
                     val isoStr = isoFormatter.format(java.util.Date(millis))
-                    if (mode == "datetime") {
+                    if (effectiveMode == "datetime") {
                         pendingDate = isoStr
                         showTimePicker = true
                     } else {
@@ -4631,7 +4659,8 @@ private fun FormInputDateBlock(
             // AC-042: Tappable button opens actual Material3 date/time picker
             OutlinedButton(
                 onClick = {
-                    when (mode) {
+                    // SPEC-401-A R49 (Lens A #4) — use effectiveMode (block.picker_mode override).
+                    when (effectiveMode) {
                         "date", "datetime" -> showDatePicker = true
                         "time" -> showTimePicker = true
                     }
@@ -4652,13 +4681,26 @@ private fun FormInputDateBlock(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(text = displayText, fontSize = 14.sp)
-                    Text(text = when (mode) {
+                    // SPEC-401-A R49 (Lens A #4) \u2014 use effectiveMode for icon.
+                    Text(text = when (effectiveMode) {
                         "date" -> "\uD83D\uDCC5"
                         "time" -> "\u23F0"
                         else -> "\uD83D\uDCC5"
                     }, fontSize = 16.sp)
                 }
             }
+        }
+        // SPEC-401-A R49 (Lens A #3, P1) \u2014 inline error caption when
+        // allow_future / allow_past validation rejects a selection.
+        // iOS ContentBlockStandaloneViews.swift:1174-1175 surfaces the
+        // same red-tinted caption directly under the picker.
+        dateError?.let { msg ->
+            Text(
+                text = msg,
+                fontSize = 12.sp,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(top = 4.dp),
+            )
         }
     }
 
@@ -4680,10 +4722,11 @@ private fun FormInputDateBlock(
                 TextButton(onClick = {
                     showDatePicker = false
                     val millis = datePickerState.selectedDateMillis
-                    if (millis != null) {
+                    // SPEC-401-A R49 (Lens A #3) — gate on validateDate.
+                    if (millis != null && validateDate(millis)) {
                         // ISO8601 normalised to midnight UTC of the picked day.
                         val isoStr = isoFormatter.format(java.util.Date(millis))
-                        if (mode == "datetime") {
+                        if (effectiveMode == "datetime") {
                             pendingDate = isoStr
                             showTimePicker = true
                         } else {
@@ -4709,7 +4752,7 @@ private fun FormInputDateBlock(
             confirmButton = {
                 TextButton(onClick = {
                     showTimePicker = false
-                    if (mode == "datetime" && pendingDate.isNotEmpty()) {
+                    if (effectiveMode == "datetime" && pendingDate.isNotEmpty()) {
                         // Combine: parse pendingDate (ISO date), apply hour/minute,
                         // re-serialise to ISO8601 with the user's chosen time.
                         try {
