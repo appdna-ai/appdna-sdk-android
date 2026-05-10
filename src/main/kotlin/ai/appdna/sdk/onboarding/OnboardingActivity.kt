@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 // SPEC-070-A J.11 — accessibility string resources for onboarding chrome
 // (back / close / dismiss). Hosts can override via their own strings.xml.
+import ai.appdna.sdk.Log
 import ai.appdna.sdk.R
 import ai.appdna.sdk.core.HapticEngine
 import ai.appdna.sdk.core.LocalizationEngine
@@ -594,9 +595,24 @@ internal fun OnboardingFlowHost(
             (match?.get("data") as? Map<String, Any?>)
         }
         // Resolve paywall id — mirrors iOS resolvePaywallFromTrigger.
+        // SPEC-401-A R63 (Lens B P2) — drop the third fallback
+        // `triggerNodeId.removePrefix("paywall_trigger_")` to match iOS
+        // OnboardingRenderer.swift:1123-1126 + :1195. iOS has only two
+        // sources (`paywall_id` / `paywallId`); when neither exists, the
+        // caller (`presentPaywallTrigger`) does `onFlowCompleted(...)`
+        // and returns. The third Android fallback derived a paywallId
+        // from the trigger NODE id itself — for modern editor IDs
+        // (`paywall1`, `paywall2`) the prefix-strip is a no-op and
+        // `AppDNA.presentPaywall("paywall1")` was called against a
+        // non-existent paywall, silently failing with no callback fired.
         val paywallId = (triggerData?.get("paywall_id") as? String)?.takeIf { it.isNotBlank() }
             ?: (triggerData?.get("paywallId") as? String)?.takeIf { it.isNotBlank() }
-            ?: triggerNodeId.removePrefix("paywall_trigger_")
+        if (paywallId == null) {
+            Log.warning("Onboarding paywall_trigger node $triggerNodeId has no paywall_id; completing flow.")
+            @Suppress("UNCHECKED_CAST")
+            onFlowCompleted(responses.toMap() as Map<String, Any>)
+            return
+        }
         val onSuccessTarget = (triggerData?.get("on_success_target") as? String)?.takeIf { it.isNotBlank() }
         val onFailTarget = (triggerData?.get("on_fail_target") as? String)?.takeIf { it.isNotBlank() }
         val onDismissTarget = (triggerData?.get("on_dismiss_target") as? String)?.takeIf { it.isNotBlank() }

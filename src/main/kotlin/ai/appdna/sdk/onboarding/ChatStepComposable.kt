@@ -12,6 +12,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowCircleUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -835,7 +837,17 @@ fun ChatStepComposable(
                     // matching iOS ChatStepView.swift:290 `sendBtnColor.opacity(0.3)`.
                     // Was Color.Gray which dropped the brand identity in the disabled
                     // state — same JSON rendered gray on Android, faded indigo on iOS.
-                    Text("↑", fontSize = 32.sp, color = if (canSendMessage) sendBtnColor else sendBtnColor.copy(alpha = 0.3f))
+                    // SPEC-401-A R63 (Lens C P2) — Material ArrowCircleUp icon
+                    // matching iOS `Image(systemName: "arrow.up.circle.fill")`
+                    // at ChatStepView.swift:288-290. Was Unicode arrow "↑"
+                    // which only tinted the arrow stroke; iOS fills the whole
+                    // circle with brand color and renders white arrow inside.
+                    Icon(
+                        imageVector = Icons.Filled.ArrowCircleUp,
+                        contentDescription = "Send message",
+                        tint = if (canSendMessage) sendBtnColor else sendBtnColor.copy(alpha = 0.3f),
+                        modifier = Modifier.size(32.dp),
+                    )
                 }
             }
         }

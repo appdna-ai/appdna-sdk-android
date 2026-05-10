@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cancel
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -114,11 +115,32 @@ fun LocationFieldComposable(
                 )
             },
             trailingIcon = {
-                if (isSearching) {
-                    CircularProgressIndicator(
+                // SPEC-401-A R63 (Lens C P1) — clear-X button when a
+                // location is selected (`values[field.id]` is a Map).
+                // iOS LocationFieldView.swift:81-87 + clearSelection() at
+                // :272 lets users clear with one tap. Without this Android
+                // user can't clear after select except by manually deleting
+                // every char of the formatted address.
+                when {
+                    isSearching -> CircularProgressIndicator(
                         modifier = Modifier.size(18.dp),
                         strokeWidth = 2.dp,
                     )
+                    values[field.id] is Map<*, *> -> IconButton(
+                        onClick = {
+                            text = ""
+                            values[field.id] = null
+                            suggestions = emptyList()
+                            showSuggestions = false
+                            errors.remove(field.id)
+                        },
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Cancel,
+                            contentDescription = "Clear location",
+                            modifier = Modifier.size(20.dp),
+                        )
+                    }
                 }
             },
             // SPEC-070-A I.5b — Search IME action so Enter triggers a

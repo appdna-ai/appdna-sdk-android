@@ -5,6 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -101,7 +104,17 @@ fun VideoBlockView(block: VideoBlock) {
                     .background(Color.White.copy(alpha = 0.9f)),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("▶", fontSize = 18.sp, color = Color.Black)
+                // SPEC-401-A R63 (Lens C P2) — Material PlayArrow icon
+                // matching iOS `Image(systemName: "play.fill")` at
+                // VideoBlockView.swift:55-58. Was Unicode glyph "▶" which
+                // some OEM Android fonts substitute as colored emoji
+                // play-button instead of solid black triangle.
+                Icon(
+                    imageVector = Icons.Filled.PlayArrow,
+                    contentDescription = "Play video",
+                    tint = Color.Black,
+                    modifier = Modifier.size(28.dp).offset(x = 2.dp),
+                )
             }
         }
     } else {

@@ -4,6 +4,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -456,15 +457,31 @@ private fun FormFieldControl(
                 ?: (field.style?.input_style?.get("background_color") as? String)
             val checkedTrackColor = trackColorHex?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
                 ?: MaterialTheme.colorScheme.primary
+            // SPEC-401-A R63 (Lens C P2) — wrap label+Switch in `toggleable`
+            // so TalkBack treats the row as a single switch element matching
+            // iOS Toggle("label", isOn:) at FormStepView.swift:445-459.
+            // Switch becomes presentational (onCheckedChange = null); the
+            // Row owns the click + a11y semantics. R60 fixed this in the
+            // v2 paths (ContentBlockRenderer.kt:5511 + 1762) but the legacy
+            // FormStep TOGGLE path was missed.
+            val toggleChecked = values[field.id] as? Boolean ?: false
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .toggleable(
+                        value = toggleChecked,
+                        role = androidx.compose.ui.semantics.Role.Switch,
+                        onValueChange = { values[field.id] = it },
+                    ),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(field.label.interpolated(), fontSize = 16.sp)
                 Switch(
-                    checked = values[field.id] as? Boolean ?: false,
-                    onCheckedChange = { values[field.id] = it },
+                    checked = toggleChecked,
+                    // SPEC-401-A R63 (Lens C P2) — null handler so the Row's
+                    // toggleable owns the click + a11y semantics.
+                    onCheckedChange = null,
                     colors = SwitchDefaults.colors(
                         checkedTrackColor = checkedTrackColor,
                     ),

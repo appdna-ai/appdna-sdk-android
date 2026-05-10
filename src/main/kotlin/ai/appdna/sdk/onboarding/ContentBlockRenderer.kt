@@ -1573,7 +1573,14 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                 ?.let { StyleEngine.parseColor(it) }
                 ?: textColor
             Text(
-                text = displayText,
+                // SPEC-401-A R63 (Lens A Gap 3 Site A, P2) — apply
+                // style.text_transform (uppercase/lowercase) matching iOS
+                // ContentBlockRendererView.swift:395-397 `.applyTextStyle(
+                // block.style)`. Compose TextStyle has no equivalent;
+                // applyTransform helper at StyleEngine.kt:52 wraps the
+                // string. R17 covered Heading/Text/Timeline; ButtonBlock
+                // was missed.
+                text = block.style.applyTransform(displayText),
                 style = effectiveStyle.copy(color = resolvedTextColor),
             )
         }
@@ -1675,7 +1682,11 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                     )
                 }
                 Text(
-                    text = loc?.invoke("block.${block.id}.item.$index", item) ?: item,
+                    // SPEC-401-A R63 (Lens A Gap 3 Site B, P3) — apply
+                    // style.text_transform matching iOS
+                    // ContentBlockRendererView.swift:447-448 list item
+                    // `.applyTextStyle(block.style)`.
+                    text = block.style.applyTransform(loc?.invoke("block.${block.id}.item.$index", item) ?: item),
                     // SPEC-401-A R56→R57 (Lens A R56 #8, P3) — list item base 17sp
                     // matches iOS .body which inherits ambient default at
                     // ContentBlockRendererView.swift:447 list item Text. Was 16sp.
