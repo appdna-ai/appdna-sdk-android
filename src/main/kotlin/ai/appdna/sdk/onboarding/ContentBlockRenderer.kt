@@ -625,6 +625,13 @@ data class ContentBlock(
     // SPEC-089d Phase F: stack / row fields (container blocks)
     // SPEC-070-A J.22 — ImmutableList for Compose stability of recursive children.
     val children: kotlinx.collections.immutable.ImmutableList<ContentBlock>? = null,
+    // SPEC-401-A R61 (Lens A N1, P1) — accept iOS canonical `stack_children`
+    // alongside `children`. Console editor (StepContentEditor.tsx) writes
+    // `stack_children` on row-block creation; without this field Row blocks
+    // shipped from console rendered an empty Row on Android. iOS already
+    // reads both (`block.children ?? block.stack_children ?? []` at
+    // ContentBlockRendererView.swift:1129).
+    val stack_children: kotlinx.collections.immutable.ImmutableList<ContentBlock>? = null,
     val z_index: Double? = null,
     val gap: Double? = null,
     val wrap: Boolean? = null,
@@ -892,7 +899,13 @@ data class InputOption(
     /** Mirrors iOS `resolvedImageURL(isSelected:)` — selected/unselected variant first, default image_url last. */
     fun resolvedImageURL(isSelected: Boolean): String? {
         val variant = if (isSelected) selected_image_url else unselected_image_url
-        return variant?.takeIf { it.isNotBlank() } ?: image_url
+        // SPEC-401-A R61 (Lens A backlog #8, P3) — `isNotEmpty` matches iOS
+        // canonical ContentBlockTypes.swift:401-405 `if let v = variant,
+        // !v.isEmpty { return v }`. Was `isNotBlank()` which treated
+        // whitespace-only strings as empty (more lenient than iOS).
+        // Aligning to iOS: a `"  "` URL is returned as-is (iOS shows broken
+        // image; Android was silently falling back to image_url).
+        return variant?.takeIf { it.isNotEmpty() } ?: image_url
     }
 }
 
@@ -1336,7 +1349,11 @@ private fun horizontalTextAlign(token: String?): androidx.compose.ui.text.style.
 private fun HeadingBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
     val text = block.text ?: ""
     val baseStyle = TextStyle(
-        fontSize = when (block.level ?: 1) { 1 -> 28.sp; 2 -> 22.sp; else -> 18.sp },
+        // SPEC-401-A R61 (Lens A backlog #1, P2) — match iOS canonical default
+        // at ContentBlockRendererView.swift:240-246: level 4-6 (and unknown)
+        // falls to 28pt, NOT 18pt. Was rendering 18sp on Android vs 28pt on
+        // iOS for the same `{level: 4}` payload — 10pt narrower.
+        fontSize = when (block.level ?: 1) { 1 -> 28.sp; 2 -> 22.sp; 3 -> 18.sp; else -> 28.sp },
         fontWeight = FontWeight.Bold,
         color = Color.Unspecified,
     )
@@ -2456,7 +2473,10 @@ private fun RatingBlock(
         // colour, NOT a hardcoded gray. Previous Color.Gray made the
         // label read as dim secondary text on Android while iOS rendered
         // it as primary body text.
-        (block.rating_label ?: block.label)?.let { label ->
+        // SPEC-401-A R61 (Lens A N7, P3) — drop `?: block.label` to match
+        // iOS canonical ContentBlockStandaloneViews.swift:21 which only
+        // reads `block.rating_label`. Same family as backlog #3.
+        block.rating_label?.let { label ->
             val displayLabel = loc?.invoke("block.${block.id}.label", label) ?: label
             Text(
                 text = displayLabel,
@@ -2533,7 +2553,11 @@ private fun RatingBlock(
 private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
     // SPEC-401-A R4 — iOS canonical `markdown_content` first, then
     // `content`, then plain `text`. Console writes markdown_content.
-    val rawContent = block.markdown_content ?: block.content ?: block.text ?: ""
+    // SPEC-401-A R61 (Lens A N4, P3) — drop `?: block.content` to match iOS
+    // canonical ContentBlockRendererView.swift:932 `block.markdown_content ??
+    // block.text`. iOS DTO has no `content` field; payloads using only
+    // `block.content` rendered on Android, empty on iOS. Aligning to iOS.
+    val rawContent = block.markdown_content ?: block.text ?: ""
     val content = loc?.invoke("block.${block.id}.content", rawContent) ?: rawContent
     val linkColor = StyleEngine.parseColor(block.link_color ?: "#6366F1")
     val context = LocalContext.current
@@ -3632,7 +3656,12 @@ private fun StackBlock(
     inputValues: MutableMap<String, Any>,
     loc: ((String, String) -> String)?,
 ) {
-    val childBlocks = (block.children ?: emptyList()).sortedBy { it.z_index ?: 0.0 }
+    // SPEC-401-A R61 (Lens A N1, P1) — accept iOS canonical `stack_children`
+    // alongside `children`; console editor writes `stack_children` for
+    // stack-block creation. iOS reads both at ContentBlockRendererView.swift
+    // :1129. Without this fallback Android renders empty Stack on console
+    // payloads.
+    val childBlocks = (block.children ?: block.stack_children ?: emptyList()).sortedBy { it.z_index ?: 0.0 }
     // SPEC-401-A — iOS Stack alignment supports 9 named tokens
     // (top_left/topLeading/topLeft, top, top_right, leading, center,
     // trailing, bottom_left, bottom, bottom_right). Android previously
@@ -3671,7 +3700,11 @@ private fun RowBlock(
     inputValues: MutableMap<String, Any>,
     loc: ((String, String) -> String)?,
 ) {
-    val childBlocks = block.children ?: emptyList()
+    // SPEC-401-A R61 (Lens A N1, P1) — accept iOS canonical `stack_children`
+    // alongside `children` for Row blocks; console editor writes
+    // `stack_children` on row-block creation (StepContentEditor.tsx).
+    // Mirrors iOS ContentBlockRendererView.swift:1129.
+    val childBlocks = block.children ?: block.stack_children ?: emptyList()
     val rowGap = (block.gap ?: 8.0).dp
     val direction = block.row_direction ?: "horizontal"
     val distribution = block.row_distribution ?: "start"
@@ -4043,7 +4076,10 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
         // SPEC-401-A R3 — wheel_picker label: iOS reads
         // `rating_label ?? text ?? label`; Android only knew `label`
         // so console-authored labels via either field were lost.
-        (block.rating_label ?: block.text ?: block.label)?.let { label ->
+        // SPEC-401-A R61 (Lens A N7, P3) — drop `?: block.label` to match
+        // iOS canonical ContentBlockStandaloneViews.swift:1448
+        // `block.rating_label ?? block.text`. Same family as backlog #3.
+        (block.rating_label ?: block.text)?.let { label ->
             // SPEC-401-A R45 — theme-adaptive wheel_picker label (was Color.Gray).
             // iOS .secondary (ContentBlockStandaloneViews.swift:1451).
             // SPEC-401-A R57 (Lens A R57 #6, P2) — 15sp matches iOS .subheadline.
@@ -4542,7 +4578,12 @@ private fun FormFieldLabel(block: ContentBlock) {
     // at FormInputBlockViews.swift:11 `block.field_label ?? block.rating_label
     // ?? block.text`. Was missing rating_label so payloads using only that
     // field on a `rating` block rendered no label on Android.
-    val label = block.field_label ?: block.rating_label ?: block.label ?: block.text
+    // SPEC-401-A R61 (Lens A backlog #3, P2) — drop `?: block.label` from
+    // fallback chain to match iOS canonical FormInputBlockViews.swift:11
+    // `block.field_label ?? block.rating_label ?? block.text`. Authored
+    // payload using only `block.label` rendered the label on Android but
+    // not on iOS — Android was masking iOS bug; align to iOS.
+    val label = block.field_label ?: block.rating_label ?: block.text
     if (!label.isNullOrEmpty()) {
         val required = block.field_required ?: false
         Row {
@@ -5305,7 +5346,12 @@ private fun FormInputSliderBlock(
     val fieldId = block.field_id ?: block.id
     val minVal = (block.min_value ?: 0.0).toFloat()
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
-    val stepVal = (block.step_value ?: 0.0).toFloat()
+    // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
+    // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
+    // (continuous), out of parity with iOS integer-snap default; also made
+    // the R59 step-tick haptic never fire because bucket-change gate was
+    // `stepVal > 0f`.
+    val stepVal = (block.step_value ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
@@ -5685,7 +5731,12 @@ private fun FormInputRangeSliderBlock(
     val fieldId = block.field_id ?: block.id
     val minVal = (block.min_value ?: 0.0).toFloat()
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
-    val stepVal = (block.step_value ?: 0.0).toFloat()
+    // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
+    // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
+    // (continuous), out of parity with iOS integer-snap default; also made
+    // the R59 step-tick haptic never fire because bucket-change gate was
+    // `stepVal > 0f`.
+    val stepVal = (block.step_value ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from

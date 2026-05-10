@@ -712,7 +712,15 @@ private fun TimeField(
                 },
                 cal.get(Calendar.HOUR_OF_DAY),
                 cal.get(Calendar.MINUTE),
-                true
+                // SPEC-401-A R61 (Lens C P2) — honour user's locale 12/24
+                // preference matching iOS DatePicker(.hourAndMinute) which
+                // auto-respects system setting (FormStepView.swift:370-376).
+                // Was hardcoded `true` — en-US/AU/CA/PH (12-hour-default
+                // majority) always saw 24h on legacy onboarding flows. v2
+                // Material3 path at ContentBlockRenderer.kt:5036 already
+                // correct via DateFormat.is24HourFormat in
+                // rememberTimePickerState default.
+                android.text.format.DateFormat.is24HourFormat(context)
             ).show()
         },
         modifier = Modifier.fillMaxWidth(),
