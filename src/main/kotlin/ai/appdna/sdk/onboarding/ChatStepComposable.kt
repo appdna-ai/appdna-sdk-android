@@ -375,7 +375,9 @@ fun ChatStepComposable(
         ) {
             // SPEC-401-A R52 (Lens A R51 #15, P3) — header title 16→17sp
             // matching iOS ChatStepView.swift:142 .headline.
-            step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
+            // SPEC-401-A R57 (Lens A R57 #14, P3) — SwiftUI .headline maps to
+            // SemiBold (600), not Bold (700). Drop weight to match iOS.
+            step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.SemiBold, fontSize = 17.sp) }
             if (persona?.name != null && persona.role != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     val avatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
@@ -591,7 +593,10 @@ fun ChatStepComposable(
                         Text(
                             text = if (filled) "★" else "☆",
                             color = starColor,
-                            fontSize = 24.sp,
+                            // SPEC-401-A R57 (Lens A R57 #10, P2) — 20sp matches
+                            // iOS .font(.title3) (~20pt) at ChatStepView.swift:314.
+                            // Was 24sp — visually 1 pt larger than iOS.
+                            fontSize = 20.sp,
                             modifier = Modifier
                                 .padding(horizontal = 4.dp)
                                 .clickable {
@@ -646,7 +651,9 @@ fun ChatStepComposable(
 
         // Soft limit warning
         if (showSoftLimitWarning) {
-            Text("You have 1 message remaining", color = Color(0xFFF59E0B), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp))
+            // SPEC-401-A R57 (Lens A R57 #13, P2) — bottom=4dp matches iOS
+            // .padding(.bottom, 4) at ChatStepView.swift:97.
+            Text("You have 1 message remaining", color = Color(0xFFF59E0B), fontSize = 12.sp, modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 4.dp))
         }
 
         // Input or CTA

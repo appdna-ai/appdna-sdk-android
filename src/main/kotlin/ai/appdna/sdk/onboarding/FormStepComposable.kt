@@ -354,7 +354,9 @@ private fun FormFieldControl(
                 )
                 field.config?.unit?.let { unit ->
                     Spacer(Modifier.width(8.dp))
-                    Text(text = unit, fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                    // SPEC-401-A R57 (Lens A R57 #7, P2) — 15sp matches iOS
+                    // .font(.subheadline) at FormStepView.swift:326.
+                    Text(text = unit, fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                 }
             }
         }
@@ -487,8 +489,11 @@ private fun FormFieldControl(
                 ) { displayed ->
                     Text(
                         text = "${formatNumber(displayed, decimalPlaces)}${field.config?.unit?.let { " $it" } ?: ""}",
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
+                        // SPEC-401-A R57 (Lens A R57 #8, P2) — 17sp SemiBold
+                        // matches iOS .font(.headline) at FormStepView.swift
+                        // :475-476. Was 20sp Bold — visually heavier than iOS.
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.widthIn(min = 48.dp)
                     )

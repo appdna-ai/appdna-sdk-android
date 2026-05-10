@@ -1414,7 +1414,12 @@ private fun ImageBlock(block: ContentBlock) {
             .heightIn(max = (block.height ?: 200.0).dp)
             .then(shapeModifier),
         contentScale = contentScale,
-        contentDescription = block.alt,
+        // SPEC-401-A R57 (Lens A R57 #15, P3) — fall back to "Image" when
+        // alt unset, matching iOS accessibilityLabel(block.alt ?? "Image")
+        // at ContentBlockRendererView.swift:340. Was passing null — TalkBack
+        // treats null contentDescription on an Image as "decorative" so the
+        // image is silently skipped.
+        contentDescription = block.alt ?: "Image",
     )
 }
 
@@ -3979,7 +3984,8 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
         (block.rating_label ?: block.text ?: block.label)?.let { label ->
             // SPEC-401-A R45 — theme-adaptive wheel_picker label (was Color.Gray).
             // iOS .secondary (ContentBlockStandaloneViews.swift:1451).
-            Text(text = label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 8.dp))
+            // SPEC-401-A R57 (Lens A R57 #6, P2) — 15sp matches iOS .subheadline.
+            Text(text = label, fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 8.dp))
         }
 
         if (isHorizontal) {
@@ -4319,7 +4325,10 @@ private fun PricingCardBlock(
                 // the default Color.Black inherited from CardDefaults.
                 Text(
                     text = plan.label,
-                    fontSize = 14.sp,
+                    // SPEC-401-A R57 (Lens A R57 #9, P2) — 15sp matches iOS
+                    // .subheadline.weight(.medium) (ContentBlockStandalone
+                    // Views.swift:1889).
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -4718,6 +4727,20 @@ private fun FormInputDateBlock(
             timeZone = java.util.TimeZone.getTimeZone("UTC")
         }
     }
+    // SPEC-401-A R57 (Lens A R57 P1) — derive `<field_id>_age` from picked
+    // birth-date in date-only mode. Mirrors iOS FormInputBlockViews.swift
+    // :1190-1199 which exposes `inputValues["\(fieldId)_age"]` (whole years
+    // from selectedDate to now). Hosts branching on `birth_date_age` got
+    // nothing on Android. Date-only mode only — datetime/time skip.
+    fun persistAgeIfDate(epochMillis: Long) {
+        if (mode != "date" && mode.isNotEmpty() && mode != "input_date") return
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = epochMillis }
+        val now = java.util.Calendar.getInstance()
+        var years = now.get(java.util.Calendar.YEAR) - cal.get(java.util.Calendar.YEAR)
+        if (now.get(java.util.Calendar.DAY_OF_YEAR) < cal.get(java.util.Calendar.DAY_OF_YEAR)) years--
+        if (years < 0) return
+        inputValues["${fieldId}_age"] = years
+    }
     val displayFormatter = remember(mode) {
         when (mode) {
             "time" -> java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT, java.util.Locale.getDefault())
@@ -4795,6 +4818,7 @@ private fun FormInputDateBlock(
                     } else {
                         displayText = formatForDisplay(isoStr)
                         inputValues[fieldId] = isoStr
+                        persistAgeIfDate(millis)
                     }
                 }
             }
@@ -4875,6 +4899,7 @@ private fun FormInputDateBlock(
                         } else {
                             displayText = formatForDisplay(isoStr)
                             inputValues[fieldId] = isoStr
+                            persistAgeIfDate(millis)
                         }
                     }
                 }) { Text("OK") }
@@ -5206,6 +5231,10 @@ private fun FormInputSliderBlock(
     } else {
         "${value.roundToInt()}"
     }
+    // SPEC-401-A R57 (Lens A R57 #3, P2) — honor field_config.show_value=false
+    // matching iOS FormInputBlockViews.swift:954 (`block.field_config?
+    // ["show_value"]?.value as? Bool ?? true`). Was always rendered on Android.
+    val showValue = (block.field_config?.get("show_value") as? Boolean) ?: true
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -5216,12 +5245,17 @@ private fun FormInputSliderBlock(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             FormFieldLabel(block)
-            Text(
-                text = "$displayValue$unitStr",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = fillCol,
-            )
+            if (showValue) {
+                Text(
+                    text = "$displayValue$unitStr",
+                    // SPEC-401-A R57 (Lens A R57 #2, P2) — 15sp matches iOS
+                    // .subheadline.weight(.semibold) at FormInputBlockViews
+                    // .swift:966. Was 14sp.
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = fillCol,
+                )
+            }
         }
 
         Slider(
@@ -5264,7 +5298,9 @@ private fun FormInputToggleBlock(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(text = label, modifier = Modifier.weight(1f), fontSize = 14.sp)
+        // SPEC-401-A R57 (Lens A R57 #5, P2) — 15sp matches iOS .subheadline
+        // (FormInputBlockViews.swift:999). Was 14sp.
+        Text(text = label, modifier = Modifier.weight(1f), fontSize = 15.sp)
         Switch(
             checked = checked,
             onCheckedChange = {
@@ -5661,7 +5697,9 @@ private fun FormInputChipsBlock(
                 ) {
                     Text(
                         text = option.label,
-                        fontSize = 14.sp,
+                        // SPEC-401-A R57 (Lens A R57 #4, P2) — 15sp matches iOS
+                        // .font(.subheadline) at FormInputBlockViews.swift:1217.
+                        fontSize = 15.sp,
                         // SPEC-401-A R21 — match iOS FormInputBlockViews.swift
                         // :1221 idle text uses `.primary` (theme-aware: black
                         // in light mode, white in dark mode). Android was
@@ -6101,7 +6139,9 @@ private fun FormInputImagePickerPlaceholder(
                     Text(text = "\uD83D\uDDBC", fontSize = 16.sp)
                     // SPEC-401-A R45 — theme-adaptive prompt (was Color.Gray).
                     // iOS .secondary (FormInputBlockViews.swift:1720).
-                    Text(text = "Tap to pick image", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    // SPEC-401-A R57 (Lens A R57 #11, P2) — 15sp matches iOS
+                    // .subheadline (FormInputBlockViews.swift:1719).
+                    Text(text = "Tap to pick image", fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 }
             }
         }
