@@ -2624,7 +2624,9 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
             Text(
                 text = loc?.invoke("block.${block.id}.label", labelText) ?: labelText,
                 style = labelStyle,
-                modifier = Modifier.padding(bottom = 4.dp),
+                // SPEC-401-A R47 (Lens C #7) — iOS VStack(spacing: 8)
+                // (ContentBlockRendererView.swift:1063). Was 4dp.
+                modifier = Modifier.padding(bottom = 8.dp),
             )
         }
 
@@ -2755,9 +2757,15 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                 }
 
                 // Right column: title + subtitle
+                // SPEC-401-A R47 (Lens C #5+#6) — title↔subtitle 4dp
+                // (iOS VStack(spacing: 4)) + bottom padding per-item to
+                // match iOS .padding(.bottom, isCompact ? 8 : 12)
+                // (ContentBlockRendererView.swift:900,913).
                 Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = if (isCompact) 8.dp else 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     val titleText = loc?.invoke("block.${block.id}.item.$index.title", item.title) ?: item.title
                     // SPEC-401-A R16 — match iOS ContentBlockRendererView.swift
@@ -2935,10 +2943,14 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                 if (items.isNotEmpty()) {
                     val currentIdx = completedCount.coerceAtMost(items.size - 1)
                     items.getOrNull(currentIdx)?.label?.takeIf { it.isNotBlank() }?.let { label ->
+                        // SPEC-401-A R47 (Lens C #3) — fall back to theme-adaptive
+                        // .secondary when block.text_color unset (iOS line 244).
                         Text(
                             text = label,
                             fontSize = 14.sp,
-                            color = textColor.copy(alpha = 0.7f),
+                            color = if (block.text_color == null)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            else textColor.copy(alpha = 0.7f),
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -3034,11 +3046,18 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                             // current and completed both .primary; pending
                             // .secondary. No weight switch (iOS .font(.subheadline)
                             // is regular always; was SemiBold-on-current drift).
+                            // SPEC-401-A R47 (Lens C #1) — when block.text_color
+                            // unset, fall back to theme-adaptive onSurface (was
+                            // raw default #000000 invisible-on-dark).
                             color = when {
-                                isCompleted || isCurrent -> textColor
+                                isCompleted || isCurrent ->
+                                    if (block.text_color == null)
+                                        MaterialTheme.colorScheme.onSurface
+                                    else textColor
                                 else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             },
-                            fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
+                            // SPEC-401-A R47 (Lens C #2) — drop SemiBold-on-current
+                            // weight switch; iOS .font(.subheadline) regular always.
                         )
                     }
                 }
