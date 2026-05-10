@@ -1944,7 +1944,10 @@ private fun SocialLoginBlock(
             val borderColor = provider.border_color?.let { StyleEngine.parseColor(it) } ?: defaultBorder
             // OB-2 — per-provider corner_radius + border_width overrides.
             val providerCorner = (provider.corner_radius ?: block.button_corner_radius?.toFloat() ?: 12f).dp
-            val providerBorderWidth = (provider.border_width ?: 1f).dp
+            // SPEC-401-A R27 — match iOS ContentBlockRendererView.swift:738-741
+            // outlined-button default 1.5dp stroke; non-outlined defaults 0
+            // (border invisible on filled/minimal anyway). Was hardcoded 1f.
+            val providerBorderWidth = (provider.border_width ?: if (buttonStyle == "outlined") 1.5f else 0f).dp
 
             val providerIcon = when (provider.type) {
                 // SPEC-401-A R11 \u2014 `\uF8FF` is in Apple's Private-Use range
