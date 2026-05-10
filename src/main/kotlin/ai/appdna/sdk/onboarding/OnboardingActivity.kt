@@ -2922,6 +2922,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                     Card(
                         modifier = Modifier
                             .weight(1f)
+                            .heightIn(min = 80.dp)
                             .border(
                                 if (isSelected) 2.dp else 1.dp,
                                 if (isSelected) accentColor else accentColor.copy(alpha = 0.3f),
@@ -2939,21 +2940,29 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                             containerColor = if (isSelected) selectedBgColor else optionBgColor,
                         ),
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                            option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
-                            // SPEC-070-A finalization parity audit R2 — render
-                            // option.subtitle below the label when non-empty.
-                            // Mirrors iOS QuestionStepView.swift:136-142 caption
-                            // text style (smaller font, muted color).
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(text = option.label.interpolated(), fontSize = 16.sp)
-                                option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
-                                    Text(
-                                        text = sub.interpolated(),
-                                        fontSize = 13.sp,
-                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
-                                    )
-                                }
+                        // SPEC-401-A R50 (Lens A #3, P0) — VStack stacked layout.
+                        // iOS QuestionStepView.swift:124-143 places icon on TOP
+                        // (32pt), label center, optional subtitle below. Min
+                        // height 80. Was Row(icon-left, 20sp) — same JSON
+                        // produced visually different cards on each platform.
+                        Column(
+                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            option.icon?.let { Text(text = it, fontSize = 32.sp) }
+                            Text(
+                                text = option.label.interpolated(),
+                                fontSize = 16.sp,
+                                textAlign = TextAlign.Center,
+                            )
+                            option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
+                                Text(
+                                    text = sub.interpolated(),
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                    textAlign = TextAlign.Center,
+                                )
                             }
                         }
                     }
@@ -3004,15 +3013,18 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
         config.title?.let {
             // SPEC-401-A R48 (Lens A #2 polish) — iOS .title2.bold() ≈ 22pt
             // (was 24sp). SPEC-070-A J.11 — heading semantics.
+            // SPEC-401-A R50 (Lens A #5, P1) — iOS title padding(.horizontal,
+            // 24).padding(.top, 24) at ValuePropStepView.swift:9-56.
             Text(
                 text = it.interpolated(),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier
+                    .padding(horizontal = 24.dp, vertical = 24.dp)
+                    .semantics { heading() },
             )
         }
-        Spacer(Modifier.height(24.dp))
         // SPEC-401-A R48 (Lens A #6) — wrap items in scrollable Column so
         // long bullet lists don't clip on small screens. iOS uses ScrollView
         // (ValuePropStepView.swift:19-41).
@@ -3071,30 +3083,45 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
             // SPEC-070-A J.11 — custom step title is the screen heading.
+            // SPEC-401-A R50 (Lens A #4, P1) — title 24→22sp matching iOS
+            // CustomStepView.swift:9-56 .title2.bold() (~22pt) + horizontal
+            // padding 24.
             Text(
                 text = it.interpolated(),
-                fontSize = 24.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier
+                    .padding(horizontal = 24.dp)
+                    .semantics { heading() },
             )
         }
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
-            Text(text = it.interpolated(), fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+            // SPEC-401-A R50 (Lens A #4) — subtitle horizontal padding 32 per iOS.
+            Text(
+                text = it.interpolated(),
+                fontSize = 15.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.padding(horizontal = 32.dp),
+            )
         }
         // SPEC-401-A — legacy step image_url. Mirrors iOS CustomStepView
         // .swift:29-41 — image renders AFTER title+subtitle, ContentScale
         // .Fit (matches scaledToFit so non-square assets are letterboxed
         // not cropped), and NO rounded corners (iOS uses no clip-shape).
         // Affects custom/info/permission step types.
+        // SPEC-401-A R50 (Lens A #4) — sizeIn(maxWidth=280, maxHeight=280)
+        // matches iOS .frame(maxWidth: 280, maxHeight: 280) so non-square
+        // assets aren't square-cropped.
         config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
             Spacer(Modifier.height(24.dp))
             ai.appdna.sdk.core.NetworkImage(
                 url = url,
                 contentDescription = null,
                 modifier = androidx.compose.ui.Modifier
-                    .size(280.dp),
+                    .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
         }
@@ -3102,7 +3129,13 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         Button(
             onClick = { onNext(null) },
             // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
-            modifier = Modifier.fillMaxWidth().height(54.dp),
+            // SPEC-401-A R50 (Lens A #4, P1) — horizontal padding 24 + bottom
+            // padding 32 matching iOS CustomStepView.swift:51-52.
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R12 — match iOS CustomStepView.swift:51 fixed
             // indigo `#6366F1`. Affects custom/info/permission steps.

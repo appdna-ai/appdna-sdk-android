@@ -650,12 +650,20 @@ private fun TimeField(
                     // their native numerals here).
                     val formatted = String.format(Locale.US, "%02d:%02d", hour, minute)
                     values[timeKey] = formatted
-                    // For datetime, merge date + time as ISO8601 (`YYYY-MM-DDTHH:MM`).
+                    // SPEC-401-A R50 (Lens A #8, P1) — time-only submit MUST
+                    // serialize as full ISO8601 datetime so server payloads
+                    // match iOS, which always passes Date through
+                    // `ISO8601DateFormatter().string(from:)` at
+                    // FormStepView.swift:527-535. Bare "HH:mm" broke
+                    // backend parsing for any flow with time-only fields
+                    // when comparing native A/B test cohorts.
                     val dateStr = values[field.id]?.toString() ?: ""
                     if (dateStr.isNotEmpty() && field.type == FormFieldType.DATETIME) {
                         values[field.id] = "${dateStr}T$formatted"
                     } else {
-                        values[field.id] = formatted
+                        // Anchor time-only fields to 1970-01-01 UTC mirroring
+                        // iOS Date(timeIntervalSinceReferenceDate-style payloads.
+                        values[field.id] = "1970-01-01T${formatted}:00Z"
                     }
                     errors.remove(field.id)
                 },
