@@ -1595,11 +1595,15 @@ private fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfi
         val message = json.optString("message", null as String?)
         val targetStepId = json.optString("target_step_id", null as String?)
 
+        // SPEC-401-A R34 P1 — deep-convert nested JSONObject/JSONArray to
+        // native Map/List using the same helper R33 added for process-death
+        // restore. Was returning raw JSONObject/JSONArray for nested values
+        // → host code reading `responses[stepId]["profile"]` via the
+        // delegate broke `as? Map` casts; iOS Codable round-trips into
+        // native [String: Any] so works.
+        @Suppress("UNCHECKED_CAST")
         val responseData: Map<String, Any>? = if (json.has("data") && !json.isNull("data")) {
-            val dataObj = json.getJSONObject("data")
-            val map = mutableMapOf<String, Any>()
-            dataObj.keys().forEach { key -> map[key] = dataObj.get(key) }
-            map
+            fromJsonAny(json.get("data")) as? Map<String, Any>
         } else null
 
         when (action) {
