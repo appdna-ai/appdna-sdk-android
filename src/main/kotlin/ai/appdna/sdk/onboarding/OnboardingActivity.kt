@@ -794,7 +794,17 @@ internal fun OnboardingFlowHost(
                     step = step,
                     // SPEC-070-A finalization P0 audit-7 — mirror iOS
                     // OnboardingRenderer.swift `previousStepId` source.
-                    previousStepId = navigationHistory.lastOrNull(),
+                    // SPEC-401-A R50 (Lens B P0) — read the step BEFORE
+                    // the just-pushed current step. Line 769 pushed the
+                    // step we're leaving (`step.id`) onto navigationHistory
+                    // before this loop runs, so `.last()` would return the
+                    // CURRENT step, inverting `previous_step_equals` rule
+                    // semantics. iOS pushes inside `navigate(to:)` AFTER
+                    // rule classification (OnboardingRenderer.swift:841-848),
+                    // so iOS `navigationHistory.last` is correctly the
+                    // entry-prior step. We read `size - 2` to recover the
+                    // same value without restructuring the call sites.
+                    previousStepId = navigationHistory.elementAtOrNull(navigationHistory.size - 2),
                 )
                 if (!matches) continue
 
