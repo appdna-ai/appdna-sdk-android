@@ -2103,10 +2103,18 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
     // "show_expired_text", so the default-unset case fell through
     // to the digital "00:00" timer indefinitely.
     if (expired && block.on_expire_action != "auto_advance") {
+        // SPEC-401-A R23 — match iOS ContentBlockStandaloneViews.swift
+        // :154-160. iOS forces `.font(.subheadline.weight(.semibold))` +
+        // `.foregroundColor(.secondary)` on the expiry text regardless of
+        // the timer's display style; default copy is "Time's up!" not
+        // "Expired". Android was reusing the timer's giant `fontSize` +
+        // `textColor` and the wrong default string — visually broken on
+        // any timer larger than ~15sp (most paywall timers run 32-48sp).
         Text(
-            text = block.expired_text ?: "Expired",
-            fontSize = fontSize,
-            color = textColor,
+            text = block.expired_text ?: "Time's up!",
+            fontSize = 15.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -5499,7 +5507,9 @@ private fun FormInputSignatureBlock(
         // started drawing.
         if (lines.isEmpty() && currentLine.isEmpty()) {
             Text(
-                text = "Draw your signature here",
+                // SPEC-401-A R23 — match iOS FormInputBlockViews.swift:1825
+                // ("Draw your signature above"). Android was "...here".
+                text = "Draw your signature above",
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )
