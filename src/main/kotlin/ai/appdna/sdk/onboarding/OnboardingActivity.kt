@@ -985,6 +985,25 @@ internal fun OnboardingFlowHost(
 
     val currentStep = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
 
+    // SPEC-401-A R19 — adapt status bar icon tint to onboarding background
+    // luminance. With edge-to-edge layout, the system status bar paints over
+    // our content; without setting `isAppearanceLightStatusBars` based on
+    // background luminance, white system icons are invisible on a light
+    // onboarding background and vice versa. iOS handles this automatically
+    // via `preferredStatusBarStyle` inheritance from the parent VC.
+    val bgColorForStatusBar = MaterialTheme.colorScheme.background
+    val view = androidx.compose.ui.platform.LocalView.current
+    androidx.compose.runtime.SideEffect {
+        val window = (view.context as? android.app.Activity)?.window
+        if (window != null) {
+            val luminance = 0.2126 * bgColorForStatusBar.red +
+                0.7152 * bgColorForStatusBar.green +
+                0.0722 * bgColorForStatusBar.blue
+            androidx.core.view.WindowInsetsControllerCompat(window, view)
+                .isAppearanceLightStatusBars = luminance > 0.5
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()

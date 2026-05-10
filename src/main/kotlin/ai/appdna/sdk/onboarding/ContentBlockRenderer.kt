@@ -2745,10 +2745,29 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
         // inconsistent with iOS.
         when (if (variant == "orbiting_icons") "circular" else variant) {
             "circular" -> {
+                // SPEC-401-A R19 — match iOS ContentBlockStandaloneViews
+                // .swift:228-248. iOS rotates the indicator continuously via
+                // `spinAngle = 360` repeatForever AND displays the current
+                // loading item's label below the circle. Android previously
+                // rendered a static circle with no caption.
+                val infiniteTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "loading_spin")
+                val spinAngle by infiniteTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                        animation = androidx.compose.animation.core.tween(
+                            durationMillis = 1500,
+                            easing = androidx.compose.animation.core.LinearEasing,
+                        ),
+                    ),
+                    label = "loading_spin_angle",
+                )
                 Box(contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(
                         progress = overallProgress,
-                        modifier = Modifier.size(80.dp),
+                        modifier = Modifier
+                            .size(80.dp)
+                            .graphicsLayer { rotationZ = spinAngle },
                         color = progressColor,
                         trackColor = progressColor.copy(alpha = 0.2f),
                         strokeWidth = 6.dp,
@@ -2756,9 +2775,27 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                     if (showPercentage) {
                         Text(
                             text = "${(overallProgress * 100).toInt()}%",
-                            fontSize = 18.sp,
+                            // SPEC-401-A R19 — match iOS line 232:
+                            // `.font(.system(size: 16, weight: .bold))
+                            // .foregroundColor(progressCol)`. Was 18.sp +
+                            // text_color; now 16.sp + progress fill color.
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
-                            color = textColor,
+                            color = progressColor,
+                        )
+                    }
+                }
+                // SPEC-401-A R19 — current loading item caption matching iOS
+                // lines 240-248. Renders the item.label of the in-progress
+                // item (clamped to last item when finished).
+                if (items.isNotEmpty()) {
+                    val currentIdx = completedCount.coerceAtMost(items.size - 1)
+                    items.getOrNull(currentIdx)?.label?.takeIf { it.isNotBlank() }?.let { label ->
+                        Text(
+                            text = label,
+                            fontSize = 14.sp,
+                            color = textColor.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
                         )
                     }
                 }
@@ -2768,8 +2805,12 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                     progress = overallProgress,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp)),
+                        // SPEC-401-A R19 — match iOS lines 259+262:
+                        // `RoundedRectangle(cornerRadius: 4)` filling
+                        // `height: 8`. Was 6dp/3dp on Android (visibly
+                        // thinner bar).
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
                     color = progressColor,
                     trackColor = progressColor.copy(alpha = 0.2f),
                 )
@@ -2851,7 +2892,11 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
  */
 @Composable
 private fun CircularGaugeBlock(block: ContentBlock) {
-    val value = (block.gauge_value ?: block.progress_value ?: block.default_value ?: 0.0).toFloat()
+    // SPEC-401-A R19 — match iOS ContentBlockStandaloneViews.swift:679
+    // which only checks `gauge_value ?? progress_value ?? 0`. Android also
+    // fell through to `block.default_value` which iOS ignores — same JSON
+    // `{ "default_value": 75 }` rendered as 0 on iOS, 75 on Android.
+    val value = (block.gauge_value ?: block.progress_value ?: 0.0).toFloat()
     val minVal = (block.min_value ?: 0.0).toFloat()
     // SPEC-401-A R11 — full port of iOS `CircularGaugeBlockView`
     // (ContentBlockStandaloneViews.swift:673-907). Variants: `arc`
@@ -2867,7 +2912,11 @@ private fun CircularGaugeBlock(block: ContentBlock) {
     val sizePx = if (variant == "speedometer") maxOf(rawSize, 240.0) else rawSize
     val size = sizePx.dp
     val strokeW = (block.stroke_width ?: 14.0).toFloat()
-    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: block.active_color ?: "#6366F1")
+    // SPEC-401-A R19 — match iOS line 690 fallback chain `bar_color ??
+    // active_color ?? "#6366F1"`. Android also honored `fill_color` which
+    // iOS doesn't — console-published `fill_color` rendered only on
+    // Android.
+    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.active_color ?: "#6366F1")
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val labelColor = StyleEngine.parseColor(block.label_color ?: block.text_color ?: "#000000")
     val labelFontSize = (block.label_font_size ?: block.font_size ?: 24.0).sp
@@ -3750,7 +3799,10 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
             // Missing fields preserve the previous hardcoded behavior.
             if (!block.badge_text.isNullOrEmpty()) {
                 val badgeScale = (block.badge_size ?: 1.0).toFloat()
-                val badgeFontSize = 10.sp * badgeScale
+                // SPEC-401-A R19 — match iOS ContentBlockStandaloneViews.swift
+                // :1709 `badgeFontSize: CGFloat = 11 * badgeScale` (caption2
+                // ≈ 11pt). Was 10.sp on Android.
+                val badgeFontSize = 11.sp * badgeScale
                 val badgeHPadding = (6f * badgeScale).dp
                 val badgeVPadding = (2f * badgeScale).dp
                 val badgeRadius = (block.badge_corner_radius ?: 999.0).dp
@@ -3760,6 +3812,20 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     "bottom_leading" -> Alignment.BottomStart
                     else -> Alignment.TopEnd   // top_trailing is the default
                 }
+                // SPEC-401-A R19 — match iOS lines 1716-1733 which use
+                // `.offset(x: ±avatarSize * 0.35, y: ±avatarSize * 0.35)`
+                // to OVERLAP the badge into the avatar's NE corner. Android's
+                // `.align(badgeAlignment)` alone pinned to inner Box edge with
+                // no overlap, leaving the badge sitting outside the avatar
+                // visually. Direction signs derived from corner alignment.
+                val overlapPx = (avatarSize.value * 0.35f).dp
+                val (offsetX, offsetY) = when (badgeAlignment) {
+                    Alignment.TopEnd -> overlapPx to -overlapPx
+                    Alignment.TopStart -> -overlapPx to -overlapPx
+                    Alignment.BottomEnd -> overlapPx to overlapPx
+                    Alignment.BottomStart -> -overlapPx to overlapPx
+                    else -> 0.dp to 0.dp
+                }
                 Text(
                     text = block.badge_text,
                     fontSize = badgeFontSize,
@@ -3767,6 +3833,7 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
                     modifier = Modifier
                         .align(badgeAlignment)
+                        .offset(x = offsetX, y = offsetY)
                         .background(
                             StyleEngine.parseColor(block.badge_bg_color ?: "#EF4444"),
                             RoundedCornerShape(badgeRadius),
