@@ -5359,7 +5359,36 @@ private fun FormInputSelectBlock(
                                     }
                                 }
                                 Spacer(Modifier.width(8.dp))
-                                Text(text = option.label, fontSize = 14.sp)
+                                // SPEC-401-A R83 (Lens C P1) — apply per-option
+                                // title_color/title_font_size/title_font_weight
+                                // + render subtitle matching iOS
+                                // FormInputBlockViews.swift:546-585. Was
+                                // hardcoded 14sp + ignored subtitle line.
+                                Column {
+                                    Text(
+                                        text = option.label,
+                                        fontSize = (option.title_font_size ?: 14.0).sp,
+                                        color = option.title_color?.let { StyleEngine.parseColor(it) }
+                                            ?: Color.Unspecified,
+                                        fontWeight = option.title_font_weight?.let { wStr ->
+                                            ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
+                                                "thin" -> 100; "extralight", "ultralight" -> 200
+                                                "light" -> 300; "normal", "regular" -> 400
+                                                "medium" -> 500; "semibold" -> 600
+                                                "bold" -> 700; "extrabold", "heavy" -> 800
+                                                "black" -> 900; else -> 400
+                                            })
+                                        } ?: FontWeight.Normal,
+                                    )
+                                    option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                                        Text(
+                                            text = subtitle,
+                                            fontSize = (option.subtitle_font_size ?: 12.0).sp,
+                                            color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
+                                                ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -5406,7 +5435,33 @@ private fun FormInputSelectBlock(
                                                 Spacer(Modifier.height(4.dp))
                                             }
                                         }
-                                        Text(text = option.label, fontSize = 14.sp, textAlign = TextAlign.Center)
+                                        // SPEC-401-A R83 (Lens C P1) — per-option
+                                        // styling + subtitle (grid branch).
+                                        Text(
+                                            text = option.label,
+                                            fontSize = (option.title_font_size ?: 14.0).sp,
+                                            color = option.title_color?.let { StyleEngine.parseColor(it) }
+                                                ?: Color.Unspecified,
+                                            fontWeight = option.title_font_weight?.let { wStr ->
+                                                ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
+                                                    "thin" -> 100; "extralight", "ultralight" -> 200
+                                                    "light" -> 300; "normal", "regular" -> 400
+                                                    "medium" -> 500; "semibold" -> 600
+                                                    "bold" -> 700; "extrabold", "heavy" -> 800
+                                                    "black" -> 900; else -> 400
+                                                })
+                                            } ?: FontWeight.Normal,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                        option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                                            Text(
+                                                text = subtitle,
+                                                fontSize = (option.subtitle_font_size ?: 12.0).sp,
+                                                color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
+                                                    ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                textAlign = TextAlign.Center,
+                                            )
+                                        }
                                     }
                                 }
                             }
