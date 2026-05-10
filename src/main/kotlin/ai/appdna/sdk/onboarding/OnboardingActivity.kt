@@ -1097,7 +1097,10 @@ internal fun OnboardingFlowHost(
                     "none" -> { /* explicit suppress */ }
                     "dots" -> {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            // SPEC-401-A R55 (Lens A R55 #12, P2) — 8→16dp matching
+                            // iOS OnboardingRenderer.swift:203 .padding(.horizontal)
+                            // (system default 16pt).
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
                         ) {
                             for (i in 1..totalSteps) {
@@ -1123,7 +1126,9 @@ internal fun OnboardingFlowHost(
                     }
                     "segmented_bar" -> {
                         Row(
-                            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+                            // SPEC-401-A R55 (Lens A R55 #12, P2) — 8→16dp matching
+                            // iOS OnboardingRenderer.swift:215 .padding(.horizontal).
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             for (i in 1..totalSteps) {
@@ -2918,9 +2923,11 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         config.subtitle?.let {
             // SPEC-401-A R48 (Lens A #4) — horizontal padding 32dp.
             // Title→subtitle gap supplied by outer spacedBy(24).
+            // SPEC-401-A R55 (Lens A R55 #7, P2) — 16→17sp matching iOS
+            // WelcomeStepView.swift:39-40 .body (~17pt).
             Text(
                 text = it.interpolated(),
-                fontSize = 16.sp,
+                fontSize = 17.sp,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                 modifier = Modifier.padding(horizontal = 32.dp),
@@ -2982,10 +2989,10 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                 modifier = Modifier.semantics { heading() },
             )
         }
-        config.subtitle?.let {
-            Spacer(Modifier.height(8.dp))
-            Text(text = it.interpolated(), fontSize = 15.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
-        }
+        // SPEC-401-A R55 (Lens A R55 #2, P2) — DROP config.subtitle from
+        // QuestionStep. iOS QuestionStepView.swift:53-103 renders only
+        // title + options + CTA — no subtitle. Was an Android-only extra
+        // line that diverged from iOS canon.
         Spacer(Modifier.height(24.dp))
 
         // SPEC-401-A R49 (Lens A #6) — 2-column grid mirrors iOS
@@ -3027,6 +3034,14 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         // element_style.corner_radius. iOS QuestionStepView.swift:111
         // defaults to 12pt. Was hardcoded 12dp.
         val optionCornerRadius = (config.element_style?.corner_radius ?: 12.0).dp
+        // SPEC-401-A R55 (Lens A R55 #5, P3) — unselected border color iOS
+        // chain at QuestionStepView.swift:42-45: when border.color set,
+        // use that × 0.3; else `Color.white.opacity(0.15)`. Was deriving
+        // from accentColor which incorrectly substituted background.color
+        // when only background was authored.
+        val unselectedBorderColor = config.element_style?.border?.color
+            ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it).copy(alpha = 0.3f) }
+            ?: Color.White.copy(alpha = 0.15f)
         // SPEC-401-A R52 (Lens A R52 #1 P0) — wrap option grid in
         // Box(weight=1f).verticalScroll so the title stays pinned top and
         // the CTA pinned bottom (mirrors iOS QuestionStepView.swift:65-78
@@ -3050,7 +3065,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                             .heightIn(min = 80.dp)
                             .border(
                                 if (isSelected) 2.dp else 1.dp,
-                                if (isSelected) accentColor else accentColor.copy(alpha = 0.3f),
+                                if (isSelected) accentColor else unselectedBorderColor,
                                 RoundedCornerShape(optionCornerRadius),
                             )
                             .clickable {
@@ -3089,7 +3104,9 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                             option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
                                 Text(
                                     text = sub.interpolated(),
-                                    fontSize = 13.sp,
+                                    // SPEC-401-A R55 (Lens A R55 #3, P3) — 13→12sp
+                                    // matching iOS QuestionStepView.swift:138 .caption.
+                                    fontSize = 12.sp,
                                     color = if (optionTextColor != Color.Unspecified)
                                         optionTextColor.copy(alpha = 0.65f)
                                     else
@@ -3126,12 +3143,13 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             // of 24dp wrapper-padding. Bottom 32dp matches iOS.
             modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 32.dp).height(54.dp),
             shape = RoundedCornerShape(14.dp),
-            // SPEC-401-A R48 (Lens C #3) — lock CTA color to iOS-canonical
-            // #6366F1 (was MaterialTheme primary — bled through host theme
-            // overrides). iOS QuestionStepView.swift:97 uses fixed accentColor
-            // chain falling back to #6366F1; disabled state uses Color.gray.
+            // SPEC-401-A R55 (Lens A R55 #4, P1) — use accentColor (already
+            // computed at line 2945-2949) so element_style.border.color or
+            // element_style.background.color overrides reach the CTA.
+            // iOS QuestionStepView.swift:97 uses the same accent chain.
+            // Was hardcoded #6366F1 — brand-themed flows lost their CTA color.
             colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF6366F1),
+                containerColor = accentColor,
                 disabledContainerColor = Color.Gray,
             ),
         ) {

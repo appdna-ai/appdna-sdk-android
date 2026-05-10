@@ -439,7 +439,10 @@ fun ChatStepComposable(
                             // the media field on the floor.
                             Column(
                                 modifier = Modifier.weight(1f, fill = false),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                // SPEC-401-A R55 (Lens A R55 #9, P3) — 6→4dp
+                                // matching iOS ChatStepView.swift:176
+                                // VStack(spacing: 4).
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 if (msg.content.isNotBlank()) {
                                     Text(
@@ -455,7 +458,10 @@ fun ChatStepComposable(
                                         contentDescription = media.alt_text,
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .heightIn(max = 220.dp)
+                                            // SPEC-401-A R55 (Lens A R55 #8, P2) — 220→150dp
+                                            // matching iOS ChatStepView.swift:185-187
+                                            // .frame(maxHeight: 150).
+                                            .heightIn(max = 150.dp)
                                             .clip(RoundedCornerShape(12.dp)),
                                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                                     )

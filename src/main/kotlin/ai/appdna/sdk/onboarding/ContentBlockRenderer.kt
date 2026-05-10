@@ -2161,7 +2161,9 @@ private fun SocialLoginBlock(
                 )
                 Text(
                     text = loc?.invoke("block.${block.id}.divider", dividerText) ?: dividerText,
-                    fontSize = 14.sp,
+                    // SPEC-401-A R55 (Lens A R55 #1, P3) — 14→15sp matching iOS
+                    // ContentBlockRendererView.swift:713 .subheadline (~15pt).
+                    fontSize = 15.sp,
                     // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
                     // iOS .secondary (ContentBlockRendererView.swift:714).
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
@@ -4393,7 +4395,11 @@ fun EntranceAnimationWrapper(
 /** Label composable for form field blocks. */
 @Composable
 private fun FormFieldLabel(block: ContentBlock) {
-    val label = block.field_label ?: block.label ?: block.text
+    // SPEC-401-A R55 (Lens A R55 #11, P2) — match iOS canonical fallback chain
+    // at FormInputBlockViews.swift:11 `block.field_label ?? block.rating_label
+    // ?? block.text`. Was missing rating_label so payloads using only that
+    // field on a `rating` block rendered no label on Android.
+    val label = block.field_label ?: block.rating_label ?: block.label ?: block.text
     if (!label.isNullOrEmpty()) {
         val required = block.field_required ?: false
         Row {
@@ -5133,14 +5139,33 @@ private fun FormInputSliderBlock(
     val fieldId = block.field_id ?: block.id
     val minVal = (block.min_value ?: 0.0).toFloat()
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    val stepVal = (block.step_value ?: 0.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
+    // field_style.track_color (or block.track_color) per iOS
+    // FormInputBlockViews.swift slider track. Was Material default purple.
+    val trackCol = StyleEngine.parseColor(block.field_style?.track_color ?: block.track_color ?: "#E5E7EB")
     // OB-6 audit follow-up — restore saved value on back nav.
     var value by remember {
         mutableStateOf(
             (inputValues[fieldId] as? Number)?.toFloat()
                 ?: (block.default_picker_value ?: minVal.toDouble()).toFloat()
         )
+    }
+    // SPEC-401-A R55 (Lens C R55 #2, P2) — discrete step gradations matching
+    // iOS `Slider(value:in:step:)` at FormInputBlockViews.swift. With step=0.5
+    // on 0–10 range Android was continuous; iOS snaps to 21 stops.
+    val stepCount = if (stepVal > 0f) {
+        ((maxVal - minVal) / stepVal - 1).toInt().coerceAtLeast(0)
+    } else 0
+    // SPEC-401-A R55 (Lens C R55 #2 cont., P2) — value formatting honors
+    // fractional step so 7.5 doesn't display as 8. Matches iOS
+    // String(format: "%.1f", value) when step < 1.
+    val displayValue = if (stepVal > 0f && stepVal < 1f) {
+        "%.1f".format(value)
+    } else {
+        "${value.roundToInt()}"
     }
 
     Column(
@@ -5153,7 +5178,7 @@ private fun FormInputSliderBlock(
         ) {
             FormFieldLabel(block)
             Text(
-                text = "${value.roundToInt()}$unitStr",
+                text = "$displayValue$unitStr",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = fillCol,
@@ -5167,9 +5192,11 @@ private fun FormInputSliderBlock(
                 inputValues[fieldId] = it.toDouble()
             },
             valueRange = minVal..maxVal,
+            steps = stepCount,
             colors = SliderDefaults.colors(
                 thumbColor = fillCol,
                 activeTrackColor = fillCol,
+                inactiveTrackColor = trackCol,
             ),
             modifier = Modifier.fillMaxWidth(),
         )
@@ -5421,8 +5448,12 @@ private fun FormInputRangeSliderBlock(
     val fieldId = block.field_id ?: block.id
     val minVal = (block.min_value ?: 0.0).toFloat()
     val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    val stepVal = (block.step_value ?: 0.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
+    // field_style.track_color (or block.track_color) per iOS.
+    val trackCol = StyleEngine.parseColor(block.field_style?.track_color ?: block.track_color ?: "#E5E7EB")
     // OB-6 audit follow-up — restore saved range on back nav.
     // Saved range is stored as Map<"min","max"> under fieldId per the
     // write sites below (Slider onValueChange + LaunchedEffect).
@@ -5433,6 +5464,13 @@ private fun FormInputRangeSliderBlock(
     var highValue by remember {
         mutableStateOf((savedMap?.get("max") as? Number)?.toFloat() ?: maxVal)
     }
+    // SPEC-401-A R55 (Lens C R55 #2, P2) — discrete step gradations + iOS
+    // value formatting honoring fractional step.
+    val stepCount = if (stepVal > 0f) {
+        ((maxVal - minVal) / stepVal - 1).toInt().coerceAtLeast(0)
+    } else 0
+    val low = if (stepVal > 0f && stepVal < 1f) "%.1f".format(lowValue) else "${lowValue.roundToInt()}"
+    val high = if (stepVal > 0f && stepVal < 1f) "%.1f".format(highValue) else "${highValue.roundToInt()}"
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -5444,7 +5482,7 @@ private fun FormInputRangeSliderBlock(
         ) {
             FormFieldLabel(block)
             Text(
-                text = "${lowValue.roundToInt()}$unitStr - ${highValue.roundToInt()}$unitStr",
+                text = "$low$unitStr - $high$unitStr",
                 fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
                 color = fillCol,
@@ -5463,7 +5501,8 @@ private fun FormInputRangeSliderBlock(
                     inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
                 },
                 valueRange = minVal..maxVal,
-                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol),
+                steps = stepCount,
+                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol, inactiveTrackColor = trackCol),
                 modifier = Modifier.weight(1f),
             )
         }
@@ -5479,7 +5518,8 @@ private fun FormInputRangeSliderBlock(
                     inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
                 },
                 valueRange = minVal..maxVal,
-                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol),
+                steps = stepCount,
+                colors = SliderDefaults.colors(thumbColor = fillCol, activeTrackColor = fillCol, inactiveTrackColor = trackCol),
                 modifier = Modifier.weight(1f),
             )
         }
