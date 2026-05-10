@@ -1845,35 +1845,52 @@ fun OnboardingStepView(
             }
             return
         }
+        // SPEC-401-A R52 (Lens A R50 P0 #1) — bare-VStack wrapper matching
+        // iOS legacyStepView at OnboardingRenderer.swift:1466-1490: NO outer
+        // padding, NO verticalScroll, NO verticalArrangement=Center.
+        // Each step composable owns its own padding + scroll + Spacer-based
+        // vertical layout (mirroring iOS step views). Was wrapping every
+        // step in `Column(.verticalScroll, padding(24), Center)` which:
+        //   (a) double-padded each step (24dp wrapper + 24dp inner = 48dp)
+        //   (b) made `Spacer.weight(1f)` undefined inside the infinite-tall
+        //       scroll, breaking iOS-style vertical centering on tall
+        //       screens (Welcome/Form CTA position drifted vs iOS).
+        //   (c) forced unwanted scroll on short steps.
+        // Each step now controls its own scroll behavior — Form does scroll,
+        // Welcome/Question/ValueProp/Custom use Spacer.weight for centering.
         Column(
             modifier = modifier
                 .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxSize(),
         ) {
-            when (step.type) {
-                OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
-                OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
-                OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
-                // SPEC-401-A — `info` + `permission` mirror iOS
-                // OnboardingRenderer.swift:1497 routing through
-                // CustomStepView. Authored content-blocks render via the
-                // block-based path; this handles the no-blocks fallback so
-                // configured title/subtitle/cta still appear.
-                OnboardingStep.StepType.CUSTOM,
-                OnboardingStep.StepType.INFO,
-                OnboardingStep.StepType.PERMISSION -> CustomStep(effectiveConfig, onNext)
-                OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
-                // INTERACTIVE_CHAT handled via the early return above.
-                OnboardingStep.StepType.INTERACTIVE_CHAT -> Unit
+            // Inner Box weight=1f reserves space for the step body so the
+            // skip button can sit at the bottom edge without conflict with
+            // the step's Spacer.weight pieces.
+            androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f)) {
+                when (step.type) {
+                    OnboardingStep.StepType.WELCOME -> WelcomeStep(effectiveConfig, onNext)
+                    OnboardingStep.StepType.QUESTION -> QuestionStep(effectiveConfig, onNext)
+                    OnboardingStep.StepType.VALUE_PROP -> ValuePropStep(effectiveConfig, onNext)
+                    // SPEC-401-A — `info` + `permission` mirror iOS
+                    // OnboardingRenderer.swift:1497 routing through
+                    // CustomStepView. Authored content-blocks render via the
+                    // block-based path; this handles the no-blocks fallback so
+                    // configured title/subtitle/cta still appear.
+                    OnboardingStep.StepType.CUSTOM,
+                    OnboardingStep.StepType.INFO,
+                    OnboardingStep.StepType.PERMISSION -> CustomStep(effectiveConfig, onNext)
+                    OnboardingStep.StepType.FORM -> FormStep(effectiveConfig, onNext, savedResponses)
+                    // INTERACTIVE_CHAT handled via the early return above.
+                    OnboardingStep.StepType.INTERACTIVE_CHAT -> Unit
+                }
             }
 
-            // Skip button
+            // Skip button — pinned to bottom outside step body.
             if (step.config.skip_enabled == true) {
-                Spacer(Modifier.height(16.dp))
-                TextButton(onClick = onSkip) {
+                TextButton(
+                    onClick = onSkip,
+                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
+                ) {
                     Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
                 }
             }
@@ -2881,7 +2898,15 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
     val selectedOptions = remember { mutableStateListOf<String>() }
     val isMulti = config.selection_mode == SelectionMode.MULTI
 
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    // SPEC-401-A R52 — own fillMaxSize + verticalScroll for long option
+    // lists + 24dp horizontal padding (iOS QuestionStepView.swift:79).
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 24.dp, vertical = 24.dp),
+    ) {
         config.title?.let {
             // SPEC-070-A J.11 — question step title is the screen heading.
             // SPEC-401-A R49 (Lens A #7) — title 24→22sp matching iOS
@@ -3044,19 +3069,26 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 
 @Composable
 private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
+    // SPEC-401-A R52 — own fillMaxSize + 24dp horizontal padding mirroring
+    // iOS ValuePropStepView.swift:9-56. Title gets top=24dp padding directly
+    // since the Column already pads horizontal.
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 24.dp),
+    ) {
         config.title?.let {
-            // SPEC-401-A R48 (Lens A #2 polish) — iOS .title2.bold() ≈ 22pt
-            // (was 24sp). SPEC-070-A J.11 — heading semantics.
-            // SPEC-401-A R50 (Lens A #5, P1) — iOS title padding(.horizontal,
-            // 24).padding(.top, 24) at ValuePropStepView.swift:9-56.
+            // SPEC-401-A R48 (Lens A #2 polish) — iOS .title2.bold() ≈ 22pt.
+            // SPEC-401-A R50 (Lens A #5, P1) — iOS .padding(.top, 24)
+            // (horizontal already supplied by Column).
             Text(
                 text = it.interpolated(),
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .padding(horizontal = 24.dp, vertical = 24.dp)
+                    .padding(top = 24.dp)
                     .semantics { heading() },
             )
         }
@@ -3115,7 +3147,14 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
 
 @Composable
 private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    // SPEC-401-A R52 — own fillMaxSize + Spacer.weight top/bottom for
+    // vertical centering (iOS CustomStepView.swift:9-11,43 VStack(spacing:24)
+    // { Spacer(); title; subtitle; image; Spacer(); button }).
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        Spacer(Modifier.weight(1f))
         config.title?.let {
             // SPEC-070-A J.11 — custom step title is the screen heading.
             // SPEC-401-A R50 (Lens A #4, P1) — title 24→22sp matching iOS
@@ -3161,7 +3200,10 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
         }
-        Spacer(Modifier.height(32.dp))
+        // SPEC-401-A R52 — Spacer.weight before CTA so the title+subtitle+
+        // image group vertically centers between top safe area and CTA on
+        // tall screens (iOS VStack puts a Spacer() between image + button).
+        Spacer(Modifier.weight(1f))
         Button(
             onClick = { onNext(null) },
             // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
