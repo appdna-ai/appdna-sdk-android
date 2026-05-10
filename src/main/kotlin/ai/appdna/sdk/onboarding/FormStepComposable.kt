@@ -446,8 +446,12 @@ private fun FormFieldControl(
             val step = field.config?.step ?: 1.0
             val decimalPlaces = field.config?.decimal_places ?: 0
             val current = (values[field.id] as? Number)?.toDouble() ?: min
-            val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-            val tap = androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
+            // SPEC-401-A R49 (Lens C #3, P2) — replace heavy LongPress haptic
+            // with HapticEngine LIGHT (HapticFeedbackConstants.CLOCK_TICK).
+            // iOS uses UIImpactFeedbackGenerator(style: .light) for stepper
+            // ± buttons (FormFieldRendererExtras.swift:113); LongPress
+            // produced a much heavier buzz than the gentle iOS tap.
+            val view = androidx.compose.ui.platform.LocalView.current
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -458,7 +462,7 @@ private fun FormFieldControl(
                     onClick = {
                         if (current - step >= min) {
                             values[field.id] = current - step
-                            haptic.performHapticFeedback(tap)
+                            ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
                         }
                     },
                     enabled = current - step >= min
@@ -489,7 +493,8 @@ private fun FormFieldControl(
                     onClick = {
                         if (current + step <= max) {
                             values[field.id] = current + step
-                            haptic.performHapticFeedback(tap)
+                            // SPEC-401-A R49 (Lens C #3, P2) — LIGHT haptic.
+                            ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
                         }
                     },
                     enabled = current + step <= max

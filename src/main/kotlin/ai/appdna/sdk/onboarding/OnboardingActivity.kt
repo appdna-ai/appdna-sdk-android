@@ -2887,6 +2887,21 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         // each platform. When a row has a lone option, the second slot
         // is filled with a transparent weight Spacer so the populated
         // card keeps half-width.
+        // SPEC-401-A R49 (Lens C #6, P1) — element_style passthrough.
+        // iOS QuestionStepView.swift:147-154 derives accent + container
+        // colors from element_style. Without this Android renders every
+        // brand-overridden question step in default Material primary.
+        val accentColor = config.element_style?.border?.color
+            ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+            ?: config.element_style?.background?.color
+                ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+            ?: Color(0xFF6366F1)
+        val selectedBgColor = accentColor.copy(alpha = 0.15f)
+        val optionBgColor = config.element_style?.background?.overlay
+            ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+            ?: config.element_style?.background?.color
+                ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it).copy(alpha = 0.1f) }
+            ?: MaterialTheme.colorScheme.surface
         config.options?.chunked(2)?.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -2897,9 +2912,10 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                     Card(
                         modifier = Modifier
                             .weight(1f)
-                            .then(
-                                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                                else Modifier
+                            .border(
+                                if (isSelected) 2.dp else 1.dp,
+                                if (isSelected) accentColor else accentColor.copy(alpha = 0.3f),
+                                RoundedCornerShape(12.dp),
                             )
                             .clickable {
                                 if (isMulti) {
@@ -2908,7 +2924,10 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                                     selectedOptions.clear(); selectedOptions.add(option.id)
                                 }
                             },
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected) selectedBgColor else optionBgColor,
+                        ),
                     ) {
                         Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                             option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }

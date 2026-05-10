@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -4037,12 +4038,18 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     ),
                     label = "ring_alpha_$i",
                 )
+                // SPEC-401-A R49 (Lens C #1, P1) — Modifier.scale applies a GPU
+                // transform that visually grows the already-drawn border.
+                // The legacy chained `.then(Modifier.size(ringSize * scale))`
+                // changed slot size but didn't grow the rendered ring — rings
+                // faded out in place on Android while iOS rings expand outward
+                // (iOS ContentBlockStandaloneViews.swift:1664 .scaleEffect).
                 Box(
                     modifier = Modifier
                         .size(ringSize)
                         .alpha(alpha)
-                        .border(2.dp, pulseColor.copy(alpha = 0.3f), CircleShape)
-                        .then(Modifier.size(ringSize * scale.coerceIn(1f, 1.5f))),
+                        .scale(scale.coerceIn(1f, 1.5f))
+                        .border(2.dp, pulseColor.copy(alpha = 0.3f), CircleShape),
                 )
             }
 

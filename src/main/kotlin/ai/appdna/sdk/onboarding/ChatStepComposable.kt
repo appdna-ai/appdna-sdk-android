@@ -546,9 +546,14 @@ fun ChatStepComposable(
                 Row(horizontalArrangement = Arrangement.Center) {
                     for (star in 1..5) {
                         val filled = ratingState >= star
+                        // SPEC-401-A R49 (Lens C #4, P2) — empty-star uses
+                        // same starColor as filled (iOS ChatStepView.swift
+                        // :313-315 only differentiates by glyph). Was
+                        // hardcoded slate-gray which produced inconsistent
+                        // gold-filled + slate-empty mix.
                         Text(
                             text = if (filled) "★" else "☆",
-                            color = if (filled) starColor else Color(0xFF94A3B8),
+                            color = starColor,
                             fontSize = 24.sp,
                             modifier = Modifier
                                 .padding(horizontal = 4.dp)
@@ -577,7 +582,12 @@ fun ChatStepComposable(
                 // to OutlinedButton border. Mirrors iOS ChatStepView.swift:251
                 // 1px stroke with `qrBorder` color. Was using Material3
                 // default border, ignoring the config.
-                val qrBorderColor = style?.quick_reply_border?.takeIf { it.isNotBlank() }?.let { hex(it, "#475569") } ?: qrBgColor
+                // SPEC-401-A R49 (Lens C #2, P2) — fall back to iOS-canonical
+                // slate-blue `#475569` when style.quick_reply_border is unset.
+                // iOS ChatStepView.swift:40 hardcodes that fallback so unstyled
+                // quick replies always show a visible stroke. Was falling back
+                // to qrBgColor which made the stroke invisible (fill ≈ stroke).
+                val qrBorderColor = style?.quick_reply_border?.takeIf { it.isNotBlank() }?.let { hex(it, "#475569") } ?: hex(null, "#475569")
                 items(dynamicQuickReplies, key = { it.id }) { qr ->
                     OutlinedButton(
                         onClick = {

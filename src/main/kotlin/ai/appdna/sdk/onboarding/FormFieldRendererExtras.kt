@@ -42,6 +42,10 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
@@ -197,12 +201,24 @@ internal fun RatingField(
         ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
 
     val current = (values[field.id] as? Number)?.toDouble() ?: 0.0
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val hapticType = androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress
+    // SPEC-401-A R49 (Lens C #3, P2) — replace heavy LongPress haptic with
+    // HapticEngine LIGHT (CLOCK_TICK), matching iOS .light impact at
+    // FormFieldRendererExtras.swift:113.
+    val view = androidx.compose.ui.platform.LocalView.current
 
+    // SPEC-401-A R49 (Lens C #5, P3) — combined a11y group: per-star
+    // contentDescription is rolled up into a single "Rating" semantic with
+    // stateDescription mirroring iOS combined-element pattern at
+    // FormFieldRendererExtras.swift:116. Per-star labels are dropped from
+    // the merged group and TalkBack reads "Rating, $current of $maxStars
+    // stars" once instead of star-by-star.
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
+        modifier = Modifier.semantics(mergeDescendants = true) {
+            contentDescription = "Rating"
+            stateDescription = "$current of $maxStars stars"
+        },
     ) {
         for (i in 1..maxStars) {
             val starState = when {
@@ -225,7 +241,7 @@ internal fun RatingField(
                                 val rounded = if (allowHalf) newRating else newRating.toInt().toDouble()
                                 values[field.id] = rounded
                                 errors.remove(field.id)
-                                haptic.performHapticFeedback(hapticType)
+                                ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
                             },
                         )
                     },
@@ -234,19 +250,19 @@ internal fun RatingField(
                 when (starState) {
                     1.0 -> Icon(
                         imageVector = Icons.Filled.Star,
-                        contentDescription = "Star $i (filled)",
+                        contentDescription = null,
                         tint = filledColor,
                         modifier = Modifier.size(starSize),
                     )
                     0.5 -> Icon(
                         imageVector = Icons.Filled.StarHalf,
-                        contentDescription = "Star $i (half)",
+                        contentDescription = null,
                         tint = filledColor,
                         modifier = Modifier.size(starSize),
                     )
                     else -> Icon(
                         imageVector = Icons.Outlined.StarOutline,
-                        contentDescription = "Star $i (empty)",
+                        contentDescription = null,
                         tint = emptyColor,
                         modifier = Modifier.size(starSize),
                     )
