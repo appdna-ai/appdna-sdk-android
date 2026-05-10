@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -141,10 +142,22 @@ private fun BannerMessageView(
     val cornerRadius = content.corner_radius ?: 12
 
     Box(modifier = Modifier.fillMaxSize()) {
+        // SPEC-401-A R68 (Lens C P2) — calibrated spring matches iOS
+        // BannerView.swift:30 `withAnimation(.spring(response: 0.4,
+        // dampingFraction: 0.8))`. Compose default spring is
+        // `StiffnessMediumLow / NoBouncy` — non-bouncy + slower-settling.
+        val bannerSpring = spring<IntOffset>(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)
+        val bannerFadeSpring = spring<Float>(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium)
         AnimatedVisibility(
             visible = isVisible,
-            enter = slideInVertically(initialOffsetY = { if (isTop) -it else it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { if (isTop) -it else it }) + fadeOut(),
+            enter = slideInVertically(
+                initialOffsetY = { if (isTop) -it else it },
+                animationSpec = bannerSpring,
+            ) + fadeIn(animationSpec = bannerFadeSpring),
+            exit = slideOutVertically(
+                targetOffsetY = { if (isTop) -it else it },
+                animationSpec = bannerSpring,
+            ) + fadeOut(animationSpec = bannerFadeSpring),
             modifier = Modifier.align(if (isTop) Alignment.TopCenter else Alignment.BottomCenter),
         ) {
             Card(
@@ -683,20 +696,40 @@ private fun TooltipMessageView(
         }
     }
 
-    // Overlay with semi-transparent backdrop. Tooltip pinned to BOTTOM —
-    // matches iOS TooltipView.swift:12-19 `VStack { Spacer(); content }`.
+    // SPEC-401-A R68 (Lens C P1) — tooltip is a NON-BLOCKING popover, not a
+    // modal. iOS TooltipView.swift:20 uses `Color.black.opacity(0.01)`
+    // (tap-through transparent) with NO `.onTapGesture` on the backdrop.
+    // Android was rendering 30% opaque scrim AND tap-outside-to-dismiss —
+    // visually + behaviorally a modal. Drop both: scrim opacity → 0
+    // (transparent, no visual change) + remove `clickable(onDismiss)` so
+    // host-app taps fall through. Dismiss remains via inline xmark / cta /
+    // auto-dismiss — same surface area as iOS.
     Box(
         modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.3f))
-            .clickable(onClick = onDismiss),
+            .fillMaxSize(),
         contentAlignment = Alignment.BottomCenter,
     ) {
+        // SPEC-401-A R68 (Lens C P2) — entry transition matches iOS
+        // TooltipView.swift:15-26 `if isVisible { … }.transition(.move(edge:
+        // .bottom).combined(with: .opacity))`. Drives a `var isVisible by
+        // remember` flipped to true via LaunchedEffect on first composition,
+        // so the tooltip slides up + fades in instead of popping in instant.
+        var tooltipVisible by remember { mutableStateOf(false) }
+        LaunchedEffect(Unit) { tooltipVisible = true }
+        AnimatedVisibility(
+            visible = tooltipVisible,
+            enter = slideInVertically(
+                initialOffsetY = { it },
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
+            ) + fadeIn(
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
+            ),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
-                .padding(bottom = 32.dp)
-                .clickable(enabled = false, onClick = {}),
+                .padding(bottom = 32.dp),
         ) {
             Card(
                 modifier = Modifier
@@ -816,5 +849,6 @@ private fun TooltipMessageView(
                     .background(bgColor),
             )
         }
+        } // AnimatedVisibility — SPEC-401-A R68 (Lens C P2) entry transition
     }
 }
