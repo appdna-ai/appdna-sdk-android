@@ -504,7 +504,13 @@ enum class DismissReason(val value: String) {
     PURCHASED("purchased"),
     DISMISSED("dismissed"),
     TAPPED_OUTSIDE("tappedOutside"),
-    PROGRAMMATIC("programmatic")
+    PROGRAMMATIC("programmatic"),
+    // SPEC-401-A R20 — distinguish auto-dismiss after a successful restore
+    // from a real first-time purchase. iOS PaywallManager.swift:411 emits
+    // `paywall_close { dismiss_reason: "restore_success" }`; Android was
+    // collapsing into PURCHASED → "purchased", which contaminated dashboards
+    // filtering MTPU vs restore segmentation.
+    RESTORE_SUCCESS("restore_success")
 }
 
 /**

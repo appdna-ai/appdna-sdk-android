@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -5344,12 +5345,39 @@ private fun FormInputSignatureBlock(
                 .fillMaxWidth()
                 .height(120.dp)
                 .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                .background(Color(0xFFF9FAFB))
-                .border(
-                    1.dp,
-                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
-                    RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                // SPEC-401-A R20 — match iOS FormInputBlockViews.swift:1791:
+                // background reads `field_style.background_color` (default
+                // transparent). Android was hardcoding #F9FAFB which silently
+                // overrode any console-published field background.
+                .background(
+                    block.field_style?.background_color
+                        ?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }
+                        ?.let { StyleEngine.parseColor(it) }
+                        ?: Color.Transparent
                 )
+                // SPEC-401-A R20 — match iOS FormInputBlockViews.swift:1797:
+                // `.stroke(borderColor, style: StrokeStyle(lineWidth: 1,
+                // dash: [6, 3]))`. Compose `Modifier.border` is solid only;
+                // use `drawBehind` with `PathEffect.dashPathEffect` for the
+                // dotted-stroke convention. Was rendering as solid border on
+                // Android for the same JSON.
+                .drawBehind {
+                    val cornerR = ((block.field_style?.corner_radius ?: 8.0).toFloat()) * density
+                    val borderColorParsed = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
+                    val strokeWidthPx = 1f * density
+                    drawRoundRect(
+                        color = borderColorParsed,
+                        size = size,
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeWidthPx,
+                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(6f * density, 3f * density),
+                                0f,
+                            ),
+                        ),
+                    )
+                }
                 .pointerInput(Unit) {
                     detectDragGestures(
                         onDragStart = { offset ->

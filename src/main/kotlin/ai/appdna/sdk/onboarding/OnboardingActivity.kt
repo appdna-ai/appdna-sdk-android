@@ -999,8 +999,13 @@ internal fun OnboardingFlowHost(
             val luminance = 0.2126 * bgColorForStatusBar.red +
                 0.7152 * bgColorForStatusBar.green +
                 0.0722 * bgColorForStatusBar.blue
-            androidx.core.view.WindowInsetsControllerCompat(window, view)
-                .isAppearanceLightStatusBars = luminance > 0.5
+            val controller = androidx.core.view.WindowInsetsControllerCompat(window, view)
+            controller.isAppearanceLightStatusBars = luminance > 0.5
+            // SPEC-401-A R20 — also adapt the bottom nav-bar icon tint.
+            // Same edge-to-edge problem as the status bar: without this, the
+            // host app's nav-bar tint persists into onboarding and 3-button
+            // nav icons are invisible against the onboarding background.
+            controller.isAppearanceLightNavigationBars = luminance > 0.5
         }
     }
 

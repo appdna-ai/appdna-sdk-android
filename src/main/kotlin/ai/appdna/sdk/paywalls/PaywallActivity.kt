@@ -126,9 +126,11 @@ class PaywallActivity : ComponentActivity() {
         // Surface the dismiss reason on the captured `onDismiss` slot so
         // the onboarding bridge / host can route via `on_success_target`
         // (Fix 1B already flipped didPurchase=true via the bridge so this
-        // path lands on the same outcome as a real purchase). DismissReason
-        // mirrors the values used elsewhere in this Activity.
-        snapshotOnDismiss?.invoke(DismissReason.PURCHASED)
+        // path lands on the same outcome as a real purchase).
+        // SPEC-401-A R20 — emit RESTORE_SUCCESS ("restore_success") instead
+        // of PURCHASED so dashboards filtering MTPU vs restore can segment
+        // correctly. Matches iOS PaywallManager.swift:411 dismiss_reason.
+        snapshotOnDismiss?.invoke(DismissReason.RESTORE_SUCCESS)
         finish()
     }
 
