@@ -64,6 +64,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import kotlin.math.cos
@@ -2057,9 +2059,31 @@ private fun SocialLoginBlock(
             // dead field. Mirrors iOS ContentBlockRendererView.swift:778-814:
             // "monochrome_light" \u2192 force white, "monochrome_dark" \u2192 force
             // black, default \u2192 use provider-native or button textColor.
-            val providerIconColor = when (provider.icon_style) {
+            val monoIconColor: Color? = when (provider.icon_style) {
                 "monochrome_light" -> Color.White
                 "monochrome_dark" -> Color.Black
+                else -> null
+            }
+            // SPEC-401-A R59 (Lens A P1 #2) \u2014 match iOS per-provider icon
+            // styling (ContentBlockRendererView.swift:790-805).
+            //  * google "G"  \u2192 18sp Bold (iOS uses .system(size:18, weight:.bold,
+            //    design:.rounded); Android Compose has no built-in rounded
+            //    sans-serif so we keep FontFamily.SansSerif but match size+weight)
+            //  * facebook "f" \u2192 20sp Bold + Facebook-brand-blue (#1877F2) when
+            //    no monochrome icon_style override (was 18sp regular monochrome,
+            //    losing brand identity in light buttons)
+            //  * apple emoji / email envelope / github circle keep 18sp regular
+            val providerIconFontSize = when (provider.type) {
+                "facebook" -> 20.sp
+                else -> 18.sp
+            }
+            val providerIconFontWeight = when (provider.type) {
+                "google", "facebook" -> FontWeight.Bold
+                else -> FontWeight.Normal
+            }
+            val providerIconColor: Color = when {
+                monoIconColor != null -> monoIconColor
+                provider.type == "facebook" -> Color(0xFF1877F2)
                 else -> textColor
             }
 
@@ -2098,7 +2122,7 @@ private fun SocialLoginBlock(
                             contentColor = textColor,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -2112,7 +2136,7 @@ private fun SocialLoginBlock(
                         shape = RoundedCornerShape(providerCorner),
                         colors = ButtonDefaults.textButtonColors(contentColor = textColor),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -2135,7 +2159,7 @@ private fun SocialLoginBlock(
                             contentColor = textColor,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -4024,7 +4048,13 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                 ) {
                     items(values.size) { index ->
                         val v = values[index]
-                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+                        // SPEC-401-A R59 (Lens A P3 #5) — Locale.US matches
+                        // iOS ContentBlockStandaloneViews.swift:1465
+                        // `String(format: "%.1f", val)` (POSIX locale).
+                        // Default JVM locale would render Arabic-Indic digits
+                        // ("٢٫٥") on ar/fa/bn/my locales — sister of R27
+                        // which fixed countdown + form date/time pickers.
+                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(java.util.Locale.US, v)
                         val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
                         val isCenter = index == centeredIndex
 
@@ -4037,7 +4067,21 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             // hardcoded Color.Gray. Matches iOS .secondary
                             // and renders correctly in dark mode.
                             color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.width(80.dp).padding(horizontal = 8.dp),
+                            // SPEC-401-A R59 (Lens C P2 #2) — TalkBack-announce
+                            // every selection change on the centered value. iOS
+                            // ContentBlockStandaloneViews.swift:1462-1473 uses
+                            // native `Picker(.wheel)` which auto-announces wheel
+                            // changes to VoiceOver; Compose has no equivalent so
+                            // explicit `liveRegion = Polite` is required.
+                            modifier = Modifier
+                                .width(80.dp)
+                                .padding(horizontal = 8.dp)
+                                .then(
+                                    if (isCenter) Modifier.semantics {
+                                        liveRegion = LiveRegionMode.Polite
+                                        contentDescription = display
+                                    } else Modifier
+                                ),
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -4064,7 +4108,13 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                 ) {
                     items(values.size) { index ->
                         val v = values[index]
-                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+                        // SPEC-401-A R59 (Lens A P3 #5) — Locale.US matches
+                        // iOS ContentBlockStandaloneViews.swift:1465
+                        // `String(format: "%.1f", val)` (POSIX locale).
+                        // Default JVM locale would render Arabic-Indic digits
+                        // ("٢٫٥") on ar/fa/bn/my locales — sister of R27
+                        // which fixed countdown + form date/time pickers.
+                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(java.util.Locale.US, v)
                         val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
                         val isCenter = index == centeredIndex
 
@@ -4076,7 +4126,17 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             // theme-adaptive onSurface.alpha(0.7) instead of
                             // hardcoded Color.Gray (vertical wheel mode).
                             color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            // SPEC-401-A R59 (Lens C P2 #2) — vertical-wheel
+                            // TalkBack live announce; mirrors horizontal branch.
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .then(
+                                    if (isCenter) Modifier.semantics {
+                                        liveRegion = LiveRegionMode.Polite
+                                        contentDescription = display
+                                    } else Modifier
+                                ),
                             textAlign = TextAlign.Center,
                         )
                     }
@@ -5267,11 +5327,26 @@ private fun FormInputSliderBlock(
             }
         }
 
+        // SPEC-401-A R59 (Lens C P2 #1) — discrete-step haptic tick on each
+        // step crossing matching iOS native `Slider(value:in:step:)` which
+        // auto-emits UISelectionFeedbackGenerator. Compose Slider has no
+        // equivalent so we gate on bucket-index change.
+        val sliderHapticView = androidx.compose.ui.platform.LocalView.current
+        val sliderLastBucket = remember(fieldId) {
+            mutableStateOf(if (stepVal > 0f) ((value - minVal) / stepVal).toInt() else 0)
+        }
         Slider(
             value = value,
-            onValueChange = {
-                value = it
-                inputValues[fieldId] = it.toDouble()
+            onValueChange = { v ->
+                value = v
+                inputValues[fieldId] = v.toDouble()
+                if (stepVal > 0f && maxVal > minVal) {
+                    val bucket = ((v - minVal) / stepVal).toInt()
+                    if (bucket != sliderLastBucket.value) {
+                        sliderLastBucket.value = bucket
+                        ai.appdna.sdk.core.HapticEngine.trigger(sliderHapticView, ai.appdna.sdk.core.HapticType.SELECTION)
+                    }
+                }
             },
             valueRange = minVal..maxVal,
             steps = stepCount,
@@ -5603,16 +5678,33 @@ private fun FormInputRangeSliderBlock(
             )
         }
 
+        // SPEC-401-A R59 (Lens C P2 #1) — discrete-step haptic tick on each
+        // step crossing for both range thumbs (matches iOS native Slider).
+        val rangeHapticView = androidx.compose.ui.platform.LocalView.current
+        val lowLastBucket = remember(fieldId) {
+            mutableStateOf(if (stepVal > 0f) ((lowValue - minVal) / stepVal).toInt() else 0)
+        }
+        val highLastBucket = remember(fieldId) {
+            mutableStateOf(if (stepVal > 0f) ((highValue - minVal) / stepVal).toInt() else 0)
+        }
+
         // Min slider
         Row(verticalAlignment = Alignment.CenterVertically) {
             // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
             Text("Min", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = lowValue,
-                onValueChange = {
-                    lowValue = it
+                onValueChange = { v ->
+                    lowValue = v
                     if (lowValue > highValue) highValue = lowValue
                     inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
+                    if (stepVal > 0f && maxVal > minVal) {
+                        val bucket = ((v - minVal) / stepVal).toInt()
+                        if (bucket != lowLastBucket.value) {
+                            lowLastBucket.value = bucket
+                            ai.appdna.sdk.core.HapticEngine.trigger(rangeHapticView, ai.appdna.sdk.core.HapticType.SELECTION)
+                        }
+                    }
                 },
                 valueRange = minVal..maxVal,
                 steps = stepCount,
@@ -5626,10 +5718,17 @@ private fun FormInputRangeSliderBlock(
             Text("Max", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = highValue,
-                onValueChange = {
-                    highValue = it
+                onValueChange = { v ->
+                    highValue = v
                     if (highValue < lowValue) lowValue = highValue
                     inputValues[fieldId] = mapOf("min" to lowValue.toDouble(), "max" to highValue.toDouble())
+                    if (stepVal > 0f && maxVal > minVal) {
+                        val bucket = ((v - minVal) / stepVal).toInt()
+                        if (bucket != highLastBucket.value) {
+                            highLastBucket.value = bucket
+                            ai.appdna.sdk.core.HapticEngine.trigger(rangeHapticView, ai.appdna.sdk.core.HapticType.SELECTION)
+                        }
+                    }
                 },
                 valueRange = minVal..maxVal,
                 steps = stepCount,

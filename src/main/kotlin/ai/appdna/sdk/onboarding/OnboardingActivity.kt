@@ -631,6 +631,27 @@ internal fun OnboardingFlowHost(
                     if (!edgeTarget.isNullOrBlank()) {
                         if (isPaywallTriggerTarget(edgeTarget)) {
                             presentPaywallTriggerNode(edgeTarget, depth + 1)
+                        } else if (edgeTarget.startsWith("end_") ||
+                            ((flow.graph_nodes?.get(edgeTarget) as? Map<*, *>)?.get("type") as? String) == "end") {
+                            // SPEC-401-A R59 (Lens B P1) — match iOS
+                            // navigateToTarget(edge) `end_*` / nodeType=="end"
+                            // detection (OnboardingRenderer.swift:1169-1172).
+                            // Without this, paywall outcomes whose continue
+                            // edge targets an end node fell into the step
+                            // lookup, missed, and re-ran the SAME step's
+                            // rules — re-firing the paywall_trigger up to 8
+                            // times before depth>8 force-completed with
+                            // wrong analytics.
+                            eventTracker?.track(
+                                "onboarding_completed",
+                                mapOf(
+                                    "flow_id" to flow.id,
+                                    "paywall_id" to paywallId,
+                                    "completed_via" to reason,
+                                ),
+                            )
+                            @Suppress("UNCHECKED_CAST")
+                            onFlowCompleted(responses.toMap() as Map<String, Any>)
                         } else {
                             val tIdx = flow.steps.indexOfFirst { it.id == edgeTarget }
                             if (tIdx >= 0) {
@@ -2932,33 +2953,46 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
         }
-        config.title?.let {
-            // SPEC-401-A R48 (Lens A #2) — iOS .largeTitle ≈ 34pt
-            // (was 28sp). SPEC-070-A J.11 — step title is the screen heading
-            // for a11y. Lens A #4 — horizontal padding 32dp matching iOS
-            // .padding(.horizontal, 32) (WelcomeStepView.swift:45).
-            Text(
-                text = it.interpolated(),
-                fontSize = 34.sp,
-                fontWeight = FontWeight.Bold,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .padding(horizontal = 32.dp)
-                    .semantics { heading() },
-            )
-        }
-        config.subtitle?.let {
-            // SPEC-401-A R48 (Lens A #4) — horizontal padding 32dp.
-            // Title→subtitle gap supplied by outer spacedBy(24).
-            // SPEC-401-A R55 (Lens A R55 #7, P2) — 16→17sp matching iOS
-            // WelcomeStepView.swift:39-40 .body (~17pt).
-            Text(
-                text = it.interpolated(),
-                fontSize = 17.sp,
-                textAlign = TextAlign.Center,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
-                modifier = Modifier.padding(horizontal = 32.dp),
-            )
+        // SPEC-401-A R59 (Lens A P3 #4) — iOS WelcomeStepView wraps title +
+        // subtitle in an inner `VStack(spacing: 12)` while the outer is
+        // `VStack(spacing: 24)`. Without this nesting the title↔subtitle gap
+        // was 24dp on Android vs 12pt on iOS — 2x too wide. Inner Column
+        // becomes a single child of the outer Column so outer 24dp spacing
+        // applies above and below the pair, matching iOS.
+        if (config.title != null || config.subtitle != null) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                config.title?.let {
+                    // SPEC-401-A R48 (Lens A #2) — iOS .largeTitle ≈ 34pt
+                    // (was 28sp). SPEC-070-A J.11 — step title is the
+                    // screen heading for a11y. Lens A #4 — horizontal
+                    // padding 32dp matching iOS .padding(.horizontal, 32)
+                    // (WelcomeStepView.swift:45).
+                    Text(
+                        text = it.interpolated(),
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .padding(horizontal = 32.dp)
+                            .semantics { heading() },
+                    )
+                }
+                config.subtitle?.let {
+                    // SPEC-401-A R48 (Lens A #4) — horizontal padding 32dp.
+                    // SPEC-401-A R55 (Lens A R55 #7, P2) — 16→17sp matching
+                    // iOS WelcomeStepView.swift:39-40 .body (~17pt).
+                    Text(
+                        text = it.interpolated(),
+                        fontSize = 17.sp,
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 32.dp),
+                    )
+                }
+            }
         }
         // SPEC-401-A R9 — match iOS WelcomeStepView.swift:10,47 vertical
         // distribution: `Spacer()` top + `Spacer()` bottom so content
@@ -3184,7 +3218,13 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             // Was hardcoded #6366F1 — brand-themed flows lost their CTA color.
             colors = ButtonDefaults.buttonColors(
                 containerColor = accentColor,
-                disabledContainerColor = Color.Gray,
+                // SPEC-401-A R59 (Lens C P3 #4) — accent-derived disabled
+                // matching iOS FormStepView.swift:92 pattern
+                // `Color(hex: ctaBg).opacity(0.4)` (sister of QuestionStep
+                // which uses iOS `Color.gray` adaptive). Was static
+                // Color.Gray which kept the same mid-tone in light + dark
+                // and dropped brand identity in the disabled state.
+                disabledContainerColor = accentColor.copy(alpha = 0.4f),
             ),
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
@@ -3219,6 +3259,12 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
                     .semantics { heading() },
             )
         }
+        // SPEC-401-A R59 (Lens A P2 #3) — title↔items 24dp gap matching iOS
+        // ValuePropStepView.swift:9 outer `VStack(spacing: 24)`. Outer Column
+        // has no verticalArrangement (defaults to 0); inserting a Spacer
+        // here preserves the existing CTA spacing (Button already pads
+        // top=32dp) instead of adding spacedBy on the outer column.
+        Spacer(Modifier.height(24.dp))
         // SPEC-401-A R48 (Lens A #6) — wrap items in scrollable Column so
         // long bullet lists don't clip on small screens. iOS uses ScrollView
         // (ValuePropStepView.swift:19-41).

@@ -388,6 +388,13 @@ private fun FormFieldControl(
             val unit = field.config?.unit ?: ""
             val decimalPlaces = field.config?.decimal_places ?: 0
             val current = (values[field.id] as? Number)?.toFloat() ?: min
+            // SPEC-401-A R59 (Lens C P2 #1) — discrete-step haptic tick on
+            // each step crossing matching iOS native `Slider(step:)` which
+            // auto-emits UISelectionFeedbackGenerator. Compose Slider has
+            // no equivalent; gate on bucket-index change so continuous
+            // sliders (step==0) stay silent.
+            val sliderHapticView = androidx.compose.ui.platform.LocalView.current
+            val sliderLastBucket = remember(field.id) { mutableStateOf(if (step > 0) ((current - min) / step).toInt() else 0) }
 
             Text(
                 text = "${formatNumber(current, decimalPlaces)}${if (unit.isNotEmpty()) " $unit" else ""}",
@@ -396,7 +403,16 @@ private fun FormFieldControl(
             )
             Slider(
                 value = current,
-                onValueChange = { values[field.id] = it.toDouble() },
+                onValueChange = { v ->
+                    values[field.id] = v.toDouble()
+                    if (step > 0 && max > min) {
+                        val bucket = ((v - min) / step).toInt()
+                        if (bucket != sliderLastBucket.value) {
+                            sliderLastBucket.value = bucket
+                            ai.appdna.sdk.core.HapticEngine.trigger(sliderHapticView, ai.appdna.sdk.core.HapticType.SELECTION)
+                        }
+                    }
+                },
                 valueRange = min..max,
                 steps = if (step > 0 && max > min) ((max - min) / step).toInt() - 1 else 0,
                 modifier = Modifier.fillMaxWidth()

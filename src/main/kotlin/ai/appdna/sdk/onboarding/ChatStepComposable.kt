@@ -778,7 +778,12 @@ fun ChatStepComposable(
                     }
                 }
                 if (step.config.skip_enabled == true) {
-                    TextButton(onClick = onSkip) { Text("Skip", color = Color.Gray, fontSize = 12.sp) }
+                    // SPEC-401-A R59 (Lens C P3 #3) — theme-adaptive secondary
+                    // text matching iOS ChatStepView.swift:398 `.foregroundColor(.gray)`
+                    // (UIColor.systemGray adapts to dark mode). Was static
+                    // Color.Gray (#888) which gave poor contrast on dark
+                    // backgrounds and didn't shift between light/dark.
+                    TextButton(onClick = onSkip) { Text("Skip", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), fontSize = 12.sp) }
                 }
             }
         } else {

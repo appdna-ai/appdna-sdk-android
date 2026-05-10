@@ -78,7 +78,12 @@ internal class OnboardingFlowManager(
                 ))
             },
             onFlowCompleted = { responses ->
-                val durationMs = System.currentTimeMillis() - startTime
+                // SPEC-401-A R59 (Lens B P3) — emit as Int matching iOS
+                // OnboardingFlowManager.swift:84 `Int(... * 1000)`. Without
+                // .toInt() the event payload carries a Long; downstream BQ
+                // schema + dashboards typed against Int from iOS see type
+                // drift on Android-only telemetry.
+                val durationMs = (System.currentTimeMillis() - startTime).toInt()
                 eventTracker.track("onboarding_flow_completed", mapOf(
                     "flow_id" to flow.id,
                     "total_steps" to flow.steps.size,
