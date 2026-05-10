@@ -100,6 +100,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
@@ -4451,39 +4452,63 @@ private fun FormInputTextBlock(
         val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
         val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
         val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
-        androidx.compose.material3.OutlinedTextField(
-            value = text,
-            onValueChange = {
-                text = it
-                inputValues[fieldId] = it
-            },
-            placeholder = {
-                Text(
-                    text = block.field_placeholder ?: "",
-                    color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
-                )
-            },
-            // SPEC-401-A R11 — match iOS UIKitTextField `returnKeyType: .done`
-            // (FormInputBlockViews.swift:93). Without `imeAction = Done` the
-            // soft keyboard's return key shows the platform default ("Enter"
-            // newline) which (a) doesn't dismiss the keyboard and (b) gives
-            // no visual cue that the form is complete.
-            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                keyboardType = kbType,
-                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
-            ),
-            shape = RoundedCornerShape(cornerRadius),
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = true,
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                focusedContainerColor = focusedBgColor,
-                unfocusedContainerColor = bgColor,
-                focusedBorderColor = focusedBorderColor,
-                unfocusedBorderColor = borderColor,
-            ),
-        )
+        // SPEC-401-A R55 (Lens C R54 #3, P2) — honor field_style.border_width
+        // (and focused_border_width) by drawing the border on an outer Box
+        // and zeroing OutlinedTextField's built-in border colors. Compose's
+        // OutlinedTextField doesn't expose border thickness through `colors=`
+        // so authored 2/3/4dp widths were silently dropped (always 1dp
+        // unfocused / 2dp focused). iOS FormInputBlockViews.swift:103-106
+        // reads `block.field_style?.border_width ?? 1`.
+        val borderWidth = (block.field_style?.border_width ?: 1.0).dp
+        // Focus uses authored width if set, else iOS-equivalent 2dp accent.
+        val focusedBorderWidth = (block.field_style?.border_width ?: 2.0).dp
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isFocused by interactionSource.collectIsFocusedAsState()
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = if (isFocused) focusedBorderWidth else borderWidth,
+                    color = if (isFocused) focusedBorderColor else borderColor,
+                    shape = RoundedCornerShape(cornerRadius),
+                ),
+        ) {
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    inputValues[fieldId] = it
+                },
+                placeholder = {
+                    Text(
+                        text = block.field_placeholder ?: "",
+                        color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
+                    )
+                },
+                // SPEC-401-A R11 — match iOS UIKitTextField `returnKeyType: .done`
+                // (FormInputBlockViews.swift:93). Without `imeAction = Done` the
+                // soft keyboard's return key shows the platform default ("Enter"
+                // newline) which (a) doesn't dismiss the keyboard and (b) gives
+                // no visual cue that the form is complete.
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = kbType,
+                    imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                ),
+                shape = RoundedCornerShape(cornerRadius),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                interactionSource = interactionSource,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = textColor,
+                    unfocusedTextColor = textColor,
+                    focusedContainerColor = focusedBgColor,
+                    unfocusedContainerColor = bgColor,
+                    // Built-in border zeroed; outer Box draws the authored width.
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
+            )
+        }
     }
 }
 
@@ -4515,31 +4540,53 @@ private fun FormInputTextAreaBlock(
         val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
         val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
         val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
-        androidx.compose.material3.OutlinedTextField(
-            value = text,
-            onValueChange = {
-                text = it
-                inputValues[fieldId] = it
-            },
-            placeholder = {
-                Text(
-                    text = block.field_placeholder ?: "",
-                    color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
-                )
-            },
-            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
-            modifier = Modifier.fillMaxWidth(),
-            singleLine = false,
-            minLines = minLines,
-            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                focusedTextColor = textColor,
-                unfocusedTextColor = textColor,
-                focusedContainerColor = focusedBgColor,
-                unfocusedContainerColor = bgColor,
-                focusedBorderColor = focusedBorderColor,
-                unfocusedBorderColor = borderColor,
-            ),
-        )
+        // SPEC-401-A R55 (Lens C R54 #3, P2) — same border_width pattern as
+        // FormInputTextBlock above. Compose's OutlinedTextField has no border
+        // thickness API on `colors=`, so authored field_style.border_width
+        // was silently dropped. Outer Box draws the border; inner field uses
+        // transparent built-in border colors.
+        val cornerRadius = (block.field_style?.corner_radius ?: 8.0).dp
+        val borderWidth = (block.field_style?.border_width ?: 1.0).dp
+        val focusedBorderWidth = (block.field_style?.border_width ?: 2.0).dp
+        val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+        val isFocused by interactionSource.collectIsFocusedAsState()
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .border(
+                    width = if (isFocused) focusedBorderWidth else borderWidth,
+                    color = if (isFocused) focusedBorderColor else borderColor,
+                    shape = RoundedCornerShape(cornerRadius),
+                ),
+        ) {
+            androidx.compose.material3.OutlinedTextField(
+                value = text,
+                onValueChange = {
+                    text = it
+                    inputValues[fieldId] = it
+                },
+                placeholder = {
+                    Text(
+                        text = block.field_placeholder ?: "",
+                        color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
+                    )
+                },
+                shape = RoundedCornerShape(cornerRadius),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = false,
+                minLines = minLines,
+                interactionSource = interactionSource,
+                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                    focusedTextColor = textColor,
+                    unfocusedTextColor = textColor,
+                    focusedContainerColor = focusedBgColor,
+                    unfocusedContainerColor = bgColor,
+                    // Built-in border zeroed; outer Box draws the authored width.
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                ),
+            )
+        }
     }
 }
 
