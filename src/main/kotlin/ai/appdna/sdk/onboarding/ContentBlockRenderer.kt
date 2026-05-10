@@ -4250,6 +4250,18 @@ private fun FormInputTextBlock(
             else -> androidx.compose.ui.text.input.KeyboardType.Text
         }
 
+        // SPEC-401-A R42 (Lens C #1) — wire field_style.text_color +
+        // background_color + focused_background_color + border_color so
+        // OutlinedTextField actually applies the console-authored
+        // theming. iOS FormInputBlockViews.swift:88-106 reads + applies
+        // all of these. Android previously parsed border_color but never
+        // threaded it into `colors=`/`border=` modifier — so authored
+        // borders were silently invisible. Same payload rendered styled
+        // on iOS and Material-default on Android.
+        val textColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
+        val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
         androidx.compose.material3.OutlinedTextField(
             value = text,
             onValueChange = {
@@ -4274,6 +4286,14 @@ private fun FormInputTextBlock(
             shape = RoundedCornerShape(cornerRadius),
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedTextColor = textColor,
+                unfocusedTextColor = textColor,
+                focusedContainerColor = focusedBgColor,
+                unfocusedContainerColor = bgColor,
+                focusedBorderColor = focusedBorderColor,
+                unfocusedBorderColor = borderColor,
+            ),
         )
     }
 }
@@ -4298,17 +4318,38 @@ private fun FormInputTextAreaBlock(
     ) {
         FormFieldLabel(block)
 
+        // SPEC-401-A R42 (Lens C #1) — same field_style wiring as
+        // FormInputTextBlock above; was ignoring all field_style except
+        // corner_radius.
+        val textColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
+        val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
+        val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
         androidx.compose.material3.OutlinedTextField(
             value = text,
             onValueChange = {
                 text = it
                 inputValues[fieldId] = it
             },
-            placeholder = { Text(block.field_placeholder ?: "") },
+            placeholder = {
+                Text(
+                    text = block.field_placeholder ?: "",
+                    color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
+                )
+            },
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
             modifier = Modifier.fillMaxWidth(),
             singleLine = false,
             minLines = minLines,
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedTextColor = textColor,
+                unfocusedTextColor = textColor,
+                focusedContainerColor = focusedBgColor,
+                unfocusedContainerColor = bgColor,
+                focusedBorderColor = focusedBorderColor,
+                unfocusedBorderColor = borderColor,
+            ),
         )
     }
 }

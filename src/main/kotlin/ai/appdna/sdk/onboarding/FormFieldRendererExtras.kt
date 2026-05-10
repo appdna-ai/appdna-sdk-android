@@ -452,7 +452,11 @@ private fun ImageCropDialog(
                         .fillMaxWidth()
                         .aspectRatio(ratio)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Color.Black),
+                        // SPEC-401-A R42 (Lens C #2) — theme-aware backdrop
+                        // (was hardcoded Color.Black). Harsh against
+                        // transparent PNGs in dark mode; iOS lets the
+                        // system surface show through.
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                 ) {
                     ai.appdna.sdk.core.NetworkImage(
                         url = uri.toString(),
