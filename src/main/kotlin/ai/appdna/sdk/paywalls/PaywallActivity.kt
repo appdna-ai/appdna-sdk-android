@@ -62,9 +62,13 @@ import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.automirrored.filled.StarHalf
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.TextStyle
 import kotlinx.coroutines.launch
 // SPEC-070-A J.11 — accessibility string resources (Close / Restore /
@@ -1377,6 +1381,14 @@ private fun PaywallSectionView(
                                 else -> Modifier
                             }
                         )
+                        // SPEC-401-A R85 (Lens C F1) — radio-button role + selected
+                        // semantics so TalkBack reads "Selected, <plan name>" matching
+                        // iOS SwiftUI Button + isSelected in PaywallRenderer.swift:2131.
+                        // Was bare Card → "Card" with no selection state.
+                        .semantics(mergeDescendants = true) {
+                            role = Role.RadioButton
+                            selected = isSelected
+                        }
                         .clickable { onPlanSelect(plan.id) },
                     shape = cardShape,
                     elevation = CardDefaults.cardElevation(defaultElevation = elevation),
@@ -2373,7 +2385,7 @@ private fun PaywallSectionView(
             PaywallCountdownSection(section = section, loc = loc)
         }
         "legal" -> {
-            PaywallLegalSection(section = section, loc = loc)
+            PaywallLegalSection(section = section, loc = loc, onRestore = onRestore)
         }
         "divider" -> {
             PaywallDividerSection(section = section)
@@ -2478,6 +2490,7 @@ private fun PaywallCountdownSection(
 private fun PaywallLegalSection(
     section: PaywallSection,
     loc: (String, String) -> String,
+    onRestore: () -> Unit = {},
 ) {
     val textColor = section.data?.color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.5f)
     val fontSize = section.data?.font_size ?: 11f
@@ -2522,9 +2535,19 @@ private fun PaywallLegalSection(
                         text = link.label,
                         color = accentColor,
                         fontSize = fontSize.sp,
+                        // SPEC-401-A R85 (Lens A F4 P0) — route restore-action
+                        // links to onRestore callback matching iOS
+                        // PaywallRenderer.swift:931-938. Was unconditionally
+                        // launching ACTION_VIEW with link.url which for restore
+                        // was empty/sentinel — tap was no-op (or crashed) and
+                        // hosting users could not restore from the legal block.
                         modifier = Modifier.clickable {
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link.url))
-                            context.startActivity(intent)
+                            if (link.action == "restore") {
+                                onRestore()
+                            } else if (link.url.isNotBlank()) {
+                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link.url))
+                                context.startActivity(intent)
+                            }
                         },
                     )
                 }
@@ -2799,11 +2822,16 @@ private fun PaywallTimelineSection(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier.width(24.dp),
                 ) {
-                    val statusColor = when (item.status) {
+                    val baseStatusColor = when (item.status) {
                         "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
                         "current" -> parseHexColor(section.data.current_color ?: "#6366F1")
                         else -> parseHexColor(section.data.upcoming_color ?: "#666666")
                     }
+                    // SPEC-401-A R85 (Lens A F2 P1) \u2014 honor per-item color
+                    // override matching iOS PaywallRenderer.swift:1265,1288.
+                    // Was ignoring TimelineItem.color \u2192 author cannot tint a
+                    // single milestone differently.
+                    val statusColor = item.color?.let { parseHexColor(it) } ?: baseStatusColor
                     Box(
                         modifier = Modifier.size(24.dp).clip(CircleShape).background(statusColor),
                         contentAlignment = Alignment.Center,
@@ -2817,15 +2845,22 @@ private fun PaywallTimelineSection(
                             modifier = Modifier
                                 .width(2.dp)
                                 .height(if (isCompact) 12.dp else 24.dp)
-                                .background(parseHexColor(section.data.line_color ?: "#333333")),
+                                // SPEC-401-A R85 (Lens A F3) \u2014 connector
+                                // default #FFFFFF (was #333333) matches iOS
+                                // PaywallRenderer.swift:1257 default.
+                                .background(parseHexColor(section.data.line_color ?: "#FFFFFF")),
                         )
                     }
                 }
 
                 // Content column
                 Column(modifier = Modifier.weight(1f)) {
+                    // SPEC-401-A R85 (Lens A F3) \u2014 title font size honors
+                    // section.data.font_size (default 14) matching iOS
+                    // PaywallRenderer.swift:1258. Was hardcoded 14sp.
+                    val titleFontSize = (section.data.font_size ?: 14f).sp
                     item.title?.let {
-                        Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = 14.sp)
+                        Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = titleFontSize)
                     }
                     item.subtitle?.let {
                         Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)

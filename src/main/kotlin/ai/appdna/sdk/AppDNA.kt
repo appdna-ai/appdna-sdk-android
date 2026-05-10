@@ -708,10 +708,12 @@ object AppDNA {
             return
         }
         tracker.track(event, properties)
-        // Evaluate surveys on every tracked event (v0.3)
-        surveyManager?.onEvent(event, properties)
-        // SPEC-070-A A.9: evaluate in-app message triggers on every event.
+        // SPEC-401-A R85 (Lens B F1) — message-then-survey order matches iOS
+        // AppDNA.swift:265-267. The first surface to call show() wins via the
+        // global isPresenting guard, so reverse-order Android was producing
+        // a different surface than iOS for events that triggered both.
         messageManager?.onEvent(event, properties ?: emptyMap())
+        surveyManager?.onEvent(event, properties)
     }
 
     /**

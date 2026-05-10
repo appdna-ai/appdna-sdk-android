@@ -11,6 +11,10 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -651,7 +655,17 @@ fun SurveyScreen(
         }
 
         // SPEC-085: Thank-you Lottie on completion + SPEC-088: Interpolated thank-you text
-        if (showCompletion) {
+        // SPEC-401-A R85 (Lens C F2 P2) — fade-in matches iOS withAnimation at
+        // SurveyRenderer.swift:373 (showThankYou). Was popping in instantly.
+        // rememberReduceMotion gating happens via the AnimationModifiers
+        // helpers; here we use a small tween directly since AnimatedVisibility
+        // uses its own enter/exit specs and survey thank-you is a one-shot.
+        AnimatedVisibility(
+            visible = showCompletion,
+            enter = fadeIn(animationSpec = tween(220)),
+            exit = fadeOut(animationSpec = tween(150)),
+        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             if (config.appearance.thankyouLottieUrl != null) {
                 Spacer(Modifier.height(8.dp))
                 LottieBlockView(
@@ -679,7 +693,8 @@ fun SurveyScreen(
                 ),
                 modifier = Modifier.padding(top = 12.dp),
             )
-        }
+        } // Column
+        } // AnimatedVisibility (R85 Lens C F2)
 
         // SPEC-085: Confetti on completion
         if (showCompletion && config.appearance.thankyouParticleEffect != null) {
