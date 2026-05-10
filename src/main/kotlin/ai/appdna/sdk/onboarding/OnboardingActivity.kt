@@ -2241,40 +2241,54 @@ private fun ThreeZoneBlockLayout(
             // keyboard; bottom zone leaves room via padding(bottom = 80dp)
             // (iOS uses safeAreaInset with intrinsic height — 80dp covers
             // the typical CTA + small footer).
+            // SPEC-401-A R55 (Lens A R54 #1, P1) — outer
+            // verticalArrangement = spacedBy(12.dp) matching iOS
+            // ThreeZoneStepLayout.swift:41 VStack(spacing: 12). Per-zone
+            // top-pads (16dp on top, 20dp on center) reapplied via
+            // ContentBlockRendererView's wrapping Box modifier so the
+            // iOS-canonical gap top→center = 12 + 20 = 32pt is preserved.
+            // Was Spacer(20dp) only = 20dp, drift 12dp.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(bottom = if (bottom.isNotEmpty()) 80.dp else 0.dp)
                     .verticalScroll(rememberScrollState())
                     .padding(horizontal = horizontalPadding),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 if (top.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    ContentBlockRendererView(
-                        blocks = top,
-                        onAction = onAction,
-                        toggleValues = toggleValues,
-                        inputValues = inputValues,
-                        loc = loc,
-                        responses = responses,
-                        hookData = hookData,
-                        currentStepIndex = currentStepIndex,
-                        totalSteps = totalSteps,
-                    )
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.padding(top = 16.dp),
+                    ) {
+                        ContentBlockRendererView(
+                            blocks = top,
+                            onAction = onAction,
+                            toggleValues = toggleValues,
+                            inputValues = inputValues,
+                            loc = loc,
+                            responses = responses,
+                            hookData = hookData,
+                            currentStepIndex = currentStepIndex,
+                            totalSteps = totalSteps,
+                        )
+                    }
                 }
                 if (center.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(20.dp))
-                    ContentBlockRendererView(
-                        blocks = center,
-                        onAction = onAction,
-                        toggleValues = toggleValues,
-                        inputValues = inputValues,
-                        loc = loc,
-                        responses = responses,
-                        hookData = hookData,
-                        currentStepIndex = currentStepIndex,
-                        totalSteps = totalSteps,
-                    )
+                    androidx.compose.foundation.layout.Box(
+                        modifier = Modifier.padding(top = 20.dp),
+                    ) {
+                        ContentBlockRendererView(
+                            blocks = center,
+                            onAction = onAction,
+                            toggleValues = toggleValues,
+                            inputValues = inputValues,
+                            loc = loc,
+                            responses = responses,
+                            hookData = hookData,
+                            currentStepIndex = currentStepIndex,
+                            totalSteps = totalSteps,
+                        )
+                    }
                 }
             }
         }
