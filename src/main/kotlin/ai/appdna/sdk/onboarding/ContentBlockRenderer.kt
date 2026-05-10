@@ -1859,7 +1859,12 @@ private fun PageIndicatorBlock(block: ContentBlock, currentStepIndex: Int = 0, t
     val dotSpacing = (block.dot_spacing ?: 8.0).dp
     val activeDotWidth = block.active_dot_width?.dp
 
-    val hAlign = when (block.alignment ?: block.icon_alignment) {
+    // SPEC-401-A R45 (Lens A #6) — match iOS PageIndicator alignment
+    // resolution: only `block.alignment` is read (no icon_alignment
+    // fallback). ContentBlockRendererView.swift:646-652. A block
+    // authored with icon_alignment but no alignment laid out wrong
+    // on Android.
+    val hAlign = when (block.alignment) {
         "left" -> Arrangement.Start
         "right" -> Arrangement.End
         else -> Arrangement.Center
@@ -1915,7 +1920,9 @@ private fun SocialLoginBlock(
     val providers = block.providers?.filter { it.enabled } ?: return
     val buttonStyle = block.button_style ?: "filled"
     val cornerRadius = (block.button_corner_radius ?: 12.0).dp
-    val buttonHeight = (block.button_height ?: 48.0).dp
+    // SPEC-401-A R45 (Lens A #5) — match iOS social_login default
+    // button height 50pt (was 48dp). ContentBlockRendererView.swift:676.
+    val buttonHeight = (block.button_height ?: 50.0).dp
     val spacing = (block.spacing ?: 12.0).dp
     val showDivider = block.show_divider ?: false
     val dividerText = block.divider_text ?: "or"
@@ -3675,7 +3682,10 @@ private fun CustomViewBlock(block: ContentBlock) {
         Text(
             text = block.placeholder_text ?: "[$key]",
             fontSize = 12.sp,
-            color = Color.Gray,
+            // SPEC-401-A R45 — theme-adaptive secondary (was Color.Gray).
+            // CustomViewBlock placeholder fallback. iOS .secondary
+            // (ContentBlockRendererView.swift:1361).
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth().padding(8.dp),
         )
@@ -3812,7 +3822,9 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
         // `rating_label ?? text ?? label`; Android only knew `label`
         // so console-authored labels via either field were lost.
         (block.rating_label ?: block.text ?: block.label)?.let { label ->
-            Text(text = label, fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
+            // SPEC-401-A R45 — theme-adaptive wheel_picker label (was Color.Gray).
+            // iOS .secondary (ContentBlockStandaloneViews.swift:1451).
+            Text(text = label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), modifier = Modifier.padding(bottom = 8.dp))
         }
 
         if (isHorizontal) {
@@ -5009,7 +5021,8 @@ private fun FormInputSegmentedBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, Color.Gray.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                // SPEC-401-A R45 — theme-adaptive segmented border (was Color.Gray).
+                .border(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
         ) {
             options.forEach { option ->
                 val isSelected = selectedValue == option.value
@@ -5335,7 +5348,16 @@ private fun FormInputPlaceholderBlock(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                .background(Color(0xFFF9FAFB))
+                // SPEC-401-A R45 — honour field_style.background_color
+                // (was hardcoded white #F9FAFB). iOS reads field_style
+                // background_color or transparent fallback
+                // (FormInputBlockViews.swift:1304).
+                .background(
+                    block.field_style?.background_color
+                        ?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }
+                        ?.let { StyleEngine.parseColor(it) }
+                        ?: Color.Transparent
+                )
                 .border(
                     1.dp,
                     StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
@@ -5346,7 +5368,9 @@ private fun FormInputPlaceholderBlock(
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(text = icon, fontSize = 16.sp)
-                Text(text = label, fontSize = 14.sp, color = Color.Gray)
+                // SPEC-401-A R45 — theme-adaptive label (was Color.Gray).
+                // iOS .secondary (FormInputBlockViews.swift:1297-1300).
+                Text(text = label, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
             }
         }
     }
@@ -5458,7 +5482,8 @@ private fun FormInputLocationPlaceholder(
                         // in favor of `HorizontalDivider` (same API surface,
                         // distinct widget). Pre-emptive switch silences runtime
                         // warnings + unblocks the next BOM bump (1.4 removes).
-                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        // SPEC-401-A R45 — theme-adaptive divider (was Color.LightGray).
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                     }
                 }
             }
@@ -5677,7 +5702,9 @@ private fun FormInputImagePickerPlaceholder(
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(text = "\uD83D\uDDBC", fontSize = 16.sp)
-                    Text(text = "Tap to pick image", fontSize = 14.sp, color = Color.Gray)
+                    // SPEC-401-A R45 — theme-adaptive prompt (was Color.Gray).
+                    // iOS .secondary (FormInputBlockViews.swift:1720).
+                    Text(text = "Tap to pick image", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
                 }
             }
         }
@@ -5832,7 +5859,8 @@ private fun StubBlockPlaceholder(typeName: String) {
         Text(
             text = "[$typeName]",
             fontSize = 10.sp,
-            color = Color.Gray.copy(alpha = 0.5f),
+            // SPEC-401-A R45 — theme-adaptive stub label (was Color.Gray).
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()

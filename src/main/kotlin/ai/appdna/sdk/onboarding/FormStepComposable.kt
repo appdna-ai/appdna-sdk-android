@@ -23,6 +23,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.appdna.sdk.core.interpolated
+import ai.appdna.sdk.core.StyleEngine
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -120,10 +121,13 @@ fun FormStep(
             }
 
             config.subtitle?.let {
-                Spacer(Modifier.height(4.dp))
+                // SPEC-401-A R45 (Lens A #2 + #3) — match iOS FormStepView.swift:34-43
+                // VStack(spacing: 20) → title→subtitle gap 20pt (was 4dp)
+                // and .body font ≈ 17pt (was 15sp).
+                Spacer(Modifier.height(20.dp))
                 Text(
                     text = it.interpolated(),
-                    fontSize = 15.sp,
+                    fontSize = 17.sp,
                     color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
                 )
             }
@@ -173,6 +177,16 @@ fun FormStep(
         // Now the button stays tappable; on tap with missing required fields,
         // populate `errors[fieldId]` for each missing field so the inline red
         // text under each input is the equivalent feedback channel.
+        // SPEC-401-A R45 (Lens A #1) — honour element_style.background.color
+        // + corner_radius. iOS FormStepView.swift:71-94 reads
+        // `config.element_style?.background?.color ?? "#6366F1"` and
+        // `corner_radius ?? 14`. Android was using Material default
+        // (M3 primary purple) and hardcoded 14dp shape regardless of
+        // brand authoring. Now reads element_style background + corner_radius.
+        val ctaBgColor = config.element_style?.background?.color
+            ?.let { StyleEngine.parseColor(it) }
+            ?: StyleEngine.parseColor("#6366F1")
+        val ctaCornerRadius = (config.element_style?.corner_radius ?: 14.0).dp
         Button(
             onClick = {
                 errors.clear()
@@ -205,12 +219,15 @@ fun FormStep(
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
-                .height(52.dp)
+                // SPEC-401-A R45 (Lens A #4) — iOS CTA frame.height(54)
+                // (was 52.dp).
+                .height(54.dp)
                 // Match iOS visual cue: `bg.opacity(0.4)` when canSubmit is
                 // false. Compose Button's containerColor doesn't have an
                 // opacity hook, so use graphicsLayer alpha on the whole CTA.
                 .graphicsLayer { alpha = if (canSubmit) 1.0f else 0.4f },
-            shape = RoundedCornerShape(14.dp)
+            shape = RoundedCornerShape(ctaCornerRadius),
+            colors = ButtonDefaults.buttonColors(containerColor = ctaBgColor),
         ) {
             Text(
                 text = (config.cta_text ?: "Continue").interpolated(),
