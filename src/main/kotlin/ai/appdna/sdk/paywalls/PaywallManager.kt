@@ -122,6 +122,21 @@ internal class PaywallManager(
             ),
         )
 
+        // SPEC-401-A R78 (Lens A P1) — prefetch all paywall image URLs
+        // before launching Activity, mirroring iOS PaywallManager.swift
+        // :96-148 + collectImageURLs at :154-198. Was missing — every
+        // paywall presentation showed AsyncImage placeholder flash on
+        // background, hero, plan icons, testimonial avatars while iOS
+        // rendered fully loaded. Walks background, layout.background, all
+        // sections (header image_url, reviews avatar_urls, plans
+        // image_urls, testimonials, items[].image_url).
+        try {
+            val urls = collectImageURLs(config)
+            if (urls.isNotEmpty()) {
+                ai.appdna.sdk.core.ImagePreloader(activity.applicationContext).prefetch(urls)
+            }
+        } catch (_: Throwable) { /* never block presentation on prefetch */ }
+
         // Launch the PaywallActivity
         PaywallActivity.launch(
             context = activity,
@@ -469,5 +484,31 @@ internal class PaywallManager(
      */
     internal fun shutdown() {
         scope.cancel()
+    }
+
+    /**
+     * SPEC-401-A R78 (Lens A P1) — gather every image URL referenced by a
+     * paywall config, mirroring iOS PaywallManager.swift:154-198
+     * `collectImageURLs`. Includes background, layout.background, all
+     * sections (header image_url, plans image_urls, reviews avatar_urls,
+     * items[].image_url, plans[].image_url at section + carousel pages
+     * children). Filters to http(s) URLs.
+     */
+    private fun collectImageURLs(config: ai.appdna.sdk.paywalls.PaywallConfig): List<String> {
+        val urls = mutableListOf<String>()
+        fun addIfHttp(s: String?) {
+            val u = s?.trim().orEmpty()
+            if (u.startsWith("http://") || u.startsWith("https://")) urls.add(u)
+        }
+        addIfHttp(config.background?.image_url)
+        addIfHttp(config.layout.background?.image_url)
+        config.sections.forEach { sec ->
+            val d = sec.data
+            addIfHttp(d?.image_url)
+            d?.reviews?.forEach { addIfHttp(it.avatar_url) }
+            d?.plans?.forEach { addIfHttp(it.image_url) }
+            d?.items?.forEach { item -> addIfHttp(item.icon) }
+        }
+        return urls.distinct()
     }
 }

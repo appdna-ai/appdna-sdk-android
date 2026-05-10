@@ -1478,24 +1478,36 @@ internal fun OnboardingFlowHost(
                             }
 
                             coroutineScope.launch {
-                                val result = delegate.onBeforeStepAdvance(
-                                    flowId = flow.id,
-                                    fromStepId = step.id,
-                                    stepIndex = currentIndex,
-                                    stepType = step.type.value,
-                                    responses = responses.toMap(),
-                                    stepData = data
-                                )
-                                hookFinished.set(true)
-                                graceTimerJob.cancel()
-                                val durationMs = System.currentTimeMillis() - startTime
-                                isProcessing = false
-                                trackHookEvent("onboarding_hook_completed", step, mapOf(
-                                    "hook_type" to "client",
-                                    "result" to resultName(result),
-                                    "duration_ms" to durationMs,
-                                ))
-                                handleHookResult(result, step)
+                                // SPEC-401-A R78 (Lens B P1) — wrap in
+                                // NonCancellable so `onboarding_hook_completed`
+                                // still fires (and handleHookResult cleanup
+                                // runs) even when host backgrounds/dismisses
+                                // the modal mid-await. Without this, scope-
+                                // cancellation cancels the suspending delegate
+                                // call and the started/completed event pair
+                                // breaks. iOS unstructured `Task { … }` at
+                                // OnboardingRenderer.swift:489-511 is
+                                // independent of view lifetime — same effect.
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                    val result = delegate.onBeforeStepAdvance(
+                                        flowId = flow.id,
+                                        fromStepId = step.id,
+                                        stepIndex = currentIndex,
+                                        stepType = step.type.value,
+                                        responses = responses.toMap(),
+                                        stepData = data
+                                    )
+                                    hookFinished.set(true)
+                                    graceTimerJob.cancel()
+                                    val durationMs = System.currentTimeMillis() - startTime
+                                    isProcessing = false
+                                    trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                        "hook_type" to "client",
+                                        "result" to resultName(result),
+                                        "duration_ms" to durationMs,
+                                    ))
+                                    handleHookResult(result, step)
+                                }
                             }
                         } else {
                             val hookConfig = step.hook?.takeIf { it.enabled }
@@ -1510,35 +1522,41 @@ internal fun OnboardingFlowHost(
                             ))
 
                             coroutineScope.launch {
-                                val result = executeWebhook(
-                                    flow = flow,
-                                    step = step,
-                                    data = data,
-                                    responses = responses.toMap(),
-                                    hookConfig = hookConfig,
-                                    currentIndex = currentIndex,
-                                    attempt = 0,
-                                    onRetry = { attemptNum ->
-                                        trackHookEvent("onboarding_hook_retry", step, mapOf(
-                                            "attempt_number" to attemptNum
-                                        ))
-                                    },
-                                    onError = { errorType, errorMsg ->
-                                        trackHookEvent("onboarding_hook_error", step, mapOf(
-                                            "hook_type" to "server",
-                                            "error_type" to errorType,
-                                            "error_message" to errorMsg,
-                                        ))
-                                    }
-                                )
-                                val durationMs = System.currentTimeMillis() - startTime
-                                isProcessing = false
-                                trackHookEvent("onboarding_hook_completed", step, mapOf(
-                                    "hook_type" to "server",
-                                    "result" to resultName(result),
-                                    "duration_ms" to durationMs,
-                                ))
-                                handleHookResult(result, step)
+                                // SPEC-401-A R78 (Lens B P1) — same
+                                // NonCancellable wrap for server hook;
+                                // ETL hook-duration percentiles depend on
+                                // started/completed event pairing.
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                                    val result = executeWebhook(
+                                        flow = flow,
+                                        step = step,
+                                        data = data,
+                                        responses = responses.toMap(),
+                                        hookConfig = hookConfig,
+                                        currentIndex = currentIndex,
+                                        attempt = 0,
+                                        onRetry = { attemptNum ->
+                                            trackHookEvent("onboarding_hook_retry", step, mapOf(
+                                                "attempt_number" to attemptNum
+                                            ))
+                                        },
+                                        onError = { errorType, errorMsg ->
+                                            trackHookEvent("onboarding_hook_error", step, mapOf(
+                                                "hook_type" to "server",
+                                                "error_type" to errorType,
+                                                "error_message" to errorMsg,
+                                            ))
+                                        }
+                                    )
+                                    val durationMs = System.currentTimeMillis() - startTime
+                                    isProcessing = false
+                                    trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                        "hook_type" to "server",
+                                        "result" to resultName(result),
+                                        "duration_ms" to durationMs,
+                                    ))
+                                    handleHookResult(result, step)
+                                }
                             }
                             } else {
                                 advanceOrComplete()
