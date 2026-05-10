@@ -2628,7 +2628,14 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                         StyleEngine.applyTextStyle(titleBaseStyle, block.title_style)
                     } else titleBaseStyle
 
-                    Text(text = titleText, style = titleStyle)
+                    // SPEC-401-A R17 — match iOS ContentBlockRendererView.swift
+                    // :903 + :909 chained `.applyTextStyle(block.title_style)` /
+                    // `.applyTextStyle(block.subtitle_style)` which apply
+                    // `.textCase(.uppercase|.lowercase)` from `text_transform`.
+                    // Compose TextStyle has no equivalent of textCase, so we
+                    // route the raw string through `applyTransform()` (same
+                    // pattern HeadingBlock + TextBlock use).
+                    Text(text = block.title_style.applyTransform(titleText), style = titleStyle)
 
                     item.subtitle?.let { subtitle ->
                         val subtitleText = loc?.invoke("block.${block.id}.item.$index.subtitle", subtitle) ?: subtitle
@@ -2637,7 +2644,7 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                             StyleEngine.applyTextStyle(subtitleBaseStyle, block.subtitle_style)
                         } else subtitleBaseStyle
 
-                        Text(text = subtitleText, style = subtitleEffective)
+                        Text(text = block.subtitle_style.applyTransform(subtitleText), style = subtitleEffective)
                     }
                 }
             }

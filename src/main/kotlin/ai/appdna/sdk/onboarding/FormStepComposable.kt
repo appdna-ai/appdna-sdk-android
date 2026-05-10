@@ -13,6 +13,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -164,6 +165,14 @@ fun FormStep(
         }
 
         // CTA
+        // SPEC-401-A R17 — match iOS FormStepView.swift:77-115. iOS keeps the
+        // button always-tappable and on tap with `canSubmit == false` shows a
+        // 2.5s bottom toast naming the first missing required field. Android
+        // previously used `enabled = canSubmit` which rendered a greyed-out
+        // CTA the user could not click → no feedback on what was missing.
+        // Now the button stays tappable; on tap with missing required fields,
+        // populate `errors[fieldId]` for each missing field so the inline red
+        // text under each input is the equivalent feedback channel.
         Button(
             onClick = {
                 errors.clear()
@@ -192,12 +201,15 @@ fun FormStep(
                     onNext(response as Map<String, Any>)
                 }
             },
-            enabled = canSubmit,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 24.dp)
                 .padding(bottom = 32.dp)
-                .height(52.dp),
+                .height(52.dp)
+                // Match iOS visual cue: `bg.opacity(0.4)` when canSubmit is
+                // false. Compose Button's containerColor doesn't have an
+                // opacity hook, so use graphicsLayer alpha on the whole CTA.
+                .graphicsLayer { alpha = if (canSubmit) 1.0f else 0.4f },
             shape = RoundedCornerShape(14.dp)
         ) {
             Text(
