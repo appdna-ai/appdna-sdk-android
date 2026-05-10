@@ -426,7 +426,14 @@ internal fun OnboardingFlowHost(
     // amendment `.stay(message:)`). Mirrors the existing error banner pair.
     var successMessage by remember { mutableStateOf<String?>(null) }
     var showSuccess by remember { mutableStateOf(false) }
-    val configOverrides = remember { mutableStateMapOf<String, StepConfigOverride>() }
+    // SPEC-401-A R57 (Lens B P1) — read from VM so onBeforeStepRender
+    // overrides survive Activity recreation. Was composable-scoped
+    // `remember` which reset on rotation/locale/dark-mode toggle while
+    // sister state (currentIndex/responses/navHistory) survived,
+    // causing a flash of original config until LaunchedEffect re-awaited
+    // onBeforeStepRender. Mirrors iOS @State preservation via SwiftUI
+    // view-identity diffing.
+    val configOverrides = viewModel?.configOverrides ?: remember { mutableStateMapOf() }
 
     val progress = if (flow.steps.isNotEmpty()) {
         (currentIndex + 1).toFloat() / flow.steps.size

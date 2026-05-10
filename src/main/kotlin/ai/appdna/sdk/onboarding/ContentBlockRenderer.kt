@@ -3432,6 +3432,11 @@ private fun CircularGaugeBlock(block: ContentBlock) {
 private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
     val fieldId = block.field_id ?: block.id
     val highlightColor = StyleEngine.parseColor(block.highlight_color ?: "#6366F1")
+    // SPEC-401-A R57 (Lens C R57 #2, P3) — host View for SELECTION haptic on
+    // wheel-column tap, mirroring iOS UIPickerView/UIDatePicker auto-emitting
+    // selectionChanged() on every wheel snap (system behavior on iOS 13+).
+    // Sibling WheelPickerBlock (line ~3953) already fires SELECTION haptic.
+    val view = androidx.compose.ui.platform.LocalView.current
 
     // Simple day/month/year selectors
     val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -3474,6 +3479,9 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .clickable {
                                 selectedMonth = index + 1
                                 inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
+                                // haptic mirrors iOS UIPickerView system tick.
+                                ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
                             },
                         textAlign = TextAlign.Center,
                     )
@@ -3510,6 +3518,9 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .clickable {
                                 selectedDay = day
                                 inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
+                                // haptic mirrors iOS UIPickerView system tick.
+                                ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
                             },
                         textAlign = TextAlign.Center,
                     )
@@ -3544,6 +3555,9 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .clickable {
                                 selectedYear = year
                                 inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
+                                // haptic mirrors iOS UIPickerView system tick.
+                                ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
                             },
                         textAlign = TextAlign.Center,
                     )
@@ -5277,6 +5291,12 @@ private fun FormInputStepperBlock(
     val maxVal = (block.max_value_picker ?: 100.0).toInt()
     val stepVal = (block.step_value ?: 1.0).toInt()
     val unitStr = block.unit ?: ""
+    // SPEC-401-A R57 (Lens C R57 #1, P2) — host View for haptic feedback on
+    // +/- tap. Mirrors iOS UIStepper auto-emitting click haptic on every
+    // increment/decrement (system behavior). Sibling FormStepComposable.kt
+    // legacy-form path already fires LIGHT haptic on the same buttons —
+    // this content-block path was missing it.
+    val view = androidx.compose.ui.platform.LocalView.current
     // OB-6 audit follow-up — restore saved value on back nav.
     var value by remember {
         mutableStateOf(
@@ -5301,7 +5321,15 @@ private fun FormInputStepperBlock(
             // labels via VoiceOver; Compose OutlinedButton wrapping a "-"/
             // "+" Text glyph reads as just the punctuation character.
             OutlinedButton(
-                onClick = { if (value - stepVal >= minVal) { value -= stepVal; inputValues[fieldId] = value } },
+                onClick = {
+                    if (value - stepVal >= minVal) {
+                        value -= stepVal
+                        inputValues[fieldId] = value
+                        // SPEC-401-A R57 (Lens C R57 #1, P2) — LIGHT haptic
+                        // mirrors iOS UIStepper system click haptic.
+                        ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
+                    }
+                },
                 modifier = Modifier
                     .size(40.dp)
                     .semantics { contentDescription = "Decrease" },
@@ -5321,7 +5349,15 @@ private fun FormInputStepperBlock(
                 textAlign = TextAlign.Center,
             )
             OutlinedButton(
-                onClick = { if (value + stepVal <= maxVal) { value += stepVal; inputValues[fieldId] = value } },
+                onClick = {
+                    if (value + stepVal <= maxVal) {
+                        value += stepVal
+                        inputValues[fieldId] = value
+                        // SPEC-401-A R57 (Lens C R57 #1, P2) — LIGHT haptic
+                        // mirrors iOS UIStepper system click haptic.
+                        ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.LIGHT)
+                    }
+                },
                 modifier = Modifier
                     .size(40.dp)
                     .semantics { contentDescription = "Increase" },

@@ -94,6 +94,22 @@ internal class OnboardingViewModel : ViewModel() {
         androidx.compose.runtime.mutableStateListOf()
 
     /**
+     * SPEC-401-A R57 (Lens B P1) — `onBeforeStepRender` overrides survive
+     * Activity recreation (rotation, locale change, dark/light toggle,
+     * process-death restore). Was a composable-scoped `remember`; resets
+     * on every recreation while sister state ([currentIndex] / [responses]
+     * / [navigationHistory]) survives. Mirrors iOS
+     * `OnboardingRenderer.swift:27` `@State private var configOverrides`
+     * (preserved by SwiftUI view-identity diffing on the modal hosting
+     * controller). Without VM hoisting, any flow whose host returns a
+     * non-nil [StepConfigOverride] from `onBeforeStepRender` flashed
+     * the ORIGINAL config for the gap between recomposition and the
+     * `LaunchedEffect(currentIndex)`-driven re-await of
+     * `onBeforeStepRender` resolving.
+     */
+    val configOverrides: SnapshotStateMap<String, StepConfigOverride> = mutableStateMapOf()
+
+    /**
      * Snapshot index restored by [OnboardingActivity.onCreate] from
      * `savedInstanceState`. Read once by the Compose host's initial-state
      * seed, then cleared.
@@ -162,6 +178,10 @@ internal class OnboardingViewModel : ViewModel() {
         // instance), but the contract of reset() is "drop every
         // reference held by this VM" — keeping these aligned.
         navigationHistory.clear()
+        // SPEC-401-A R57 (Lens B P1) — clear override map alongside other
+        // flow-scoped state so a re-presented onboarding doesn't see stale
+        // overrides from a previous flow.
+        configOverrides.clear()
         isBound = false
     }
 
