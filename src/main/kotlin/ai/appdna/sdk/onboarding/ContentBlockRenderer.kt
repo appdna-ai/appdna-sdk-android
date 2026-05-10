@@ -2541,7 +2541,10 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
     val upcomingColor = StyleEngine.parseColor(block.upcoming_color ?: "#D1D5DB")
     val showLine = block.show_line ?: true
     val isCompact = block.compact ?: false
-    val itemSpacing = if (isCompact) 12.dp else 24.dp
+    // SPEC-401-A R16 — match iOS ContentBlockRendererView.swift connector
+    // min-height (compact 20pt / regular 32pt). Android was 12/24, making
+    // timelines look cramped side-by-side.
+    val itemSpacing = if (isCompact) 20.dp else 32.dp
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -2562,14 +2565,17 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 // Left column: status indicator + connecting line
+                // SPEC-401-A R16 — match iOS ContentBlockRendererView.swift:878-887
+                // dimensions: 28pt circle + 12pt checkmark + 10pt current dot
+                // (Android was 24/14/8 — visibly tighter side-by-side).
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(24.dp),
+                    modifier = Modifier.width(28.dp),
                 ) {
                     // Status circle
                     Box(
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(28.dp)
                             .clip(CircleShape)
                             .background(statusColor),
                         contentAlignment = Alignment.Center,
@@ -2579,12 +2585,12 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                                 imageVector = Icons.Filled.Check,
                                 contentDescription = "Completed",
                                 tint = Color.White,
-                                modifier = Modifier.size(14.dp),
+                                modifier = Modifier.size(12.dp),
                             )
                         } else if (item.status == "current") {
                             Box(
                                 modifier = Modifier
-                                    .size(8.dp)
+                                    .size(10.dp)
                                     .clip(CircleShape)
                                     .background(Color.White),
                             )
@@ -2608,9 +2614,14 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     val titleText = loc?.invoke("block.${block.id}.item.$index.title", item.title) ?: item.title
+                    // SPEC-401-A R16 — match iOS ContentBlockRendererView.swift
+                    // :902 — `.subheadline.weight(.semibold)` for ALL items;
+                    // status only varies foregroundColor. Android was flipping
+                    // to FontWeight.Normal for non-current items, dropping the
+                    // semibold weight on completed/upcoming rows.
                     val titleBaseStyle = TextStyle(
                         fontSize = 16.sp,
-                        fontWeight = if (item.status == "current") FontWeight.SemiBold else FontWeight.Normal,
+                        fontWeight = FontWeight.SemiBold,
                         color = if (item.status == "upcoming") Color.Gray else Color.Unspecified,
                     )
                     val titleStyle = if (block.title_style != null) {
@@ -3787,6 +3798,17 @@ private fun PricingCardBlock(
                 onAction("select_plan_id:${plan.id}")
             },
             modifier = modifier
+                // SPEC-401-A R16 — match iOS ContentBlockStandaloneViews.swift
+                // :1911 highlighted shadow (`.shadow(color: isHighlighted ?
+                // accent.opacity(0.15) : .clear, radius: 4, y: 2)`). Without
+                // this the "best value" plan loses its accent-tinted lift on
+                // Android; Card's default elevation is 0 because we override
+                // containerColor.
+                .shadow(
+                    elevation = if (isHighlighted) 4.dp else 0.dp,
+                    shape = RoundedCornerShape(12.dp),
+                    spotColor = accentColor.copy(alpha = 0.15f),
+                )
                 .border(
                     width = if (isSelected || isHighlighted) 2.dp else 1.dp,
                     color = if (isSelected) accentColor else if (isHighlighted) accentColor else Color.Gray.copy(alpha = 0.3f),
@@ -3794,7 +3816,13 @@ private fun PricingCardBlock(
                 ),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isSelected) accentColor.copy(alpha = 0.05f) else Color.Transparent,
+                // SPEC-401-A R16 — match iOS ContentBlockStandaloneViews.swift
+                // :1902 unselected uses `Color(.systemBackground)` (opaque
+                // surface). Android's `Color.Transparent` left plan cards
+                // visibly without a backplate when the page background was
+                // tinted. Use MaterialTheme.colorScheme.surface so the card
+                // adopts the right opaque color in light/dark themes.
+                containerColor = if (isSelected) accentColor.copy(alpha = 0.05f) else MaterialTheme.colorScheme.surface,
             ),
         ) {
             Column(

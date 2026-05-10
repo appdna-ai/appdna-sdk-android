@@ -614,7 +614,12 @@ fun ChatStepComposable(
                         "completion_reason" to "max_turns",
                         "user_turn_count" to userTurnCount,
                         "total_messages" to messages.size,
-                        "duration_ms" to (System.currentTimeMillis() - startTime),
+                        // SPEC-401-A R16 — `.toInt()` to match iOS Int payload
+                        // at ChatStepView.swift:589 + the regular completion
+                        // paths (lines 303 + 317). Was emitting Long here only
+                        // on this safety-net path → schema drift across the
+                        // three chat_completed call sites.
+                        "duration_ms" to (System.currentTimeMillis() - startTime).toInt(),
                     ))
                 }
             }
