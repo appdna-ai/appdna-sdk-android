@@ -2162,21 +2162,13 @@ private fun ThreeZoneBlockLayout(
     val visibleBlocks = blocks.filter { block ->
         evaluateVisibilityCondition(block.visibility_condition, responses = responses, hookData = hookData)
     }
-    val anyZoned = visibleBlocks.any { !it.zone.isNullOrBlank() }
-    if (!anyZoned) {
-        ContentBlockRendererView(
-            blocks = visibleBlocks,
-            onAction = onAction,
-            toggleValues = toggleValues,
-            inputValues = inputValues,
-            loc = loc,
-            responses = responses,
-            hookData = hookData,
-            currentStepIndex = currentStepIndex,
-            totalSteps = totalSteps,
-        )
-        return
-    }
+    // SPEC-401-A R55 (Lens A R54 #2, P1) — drop the `!anyZoned` early
+    // return so the unzoned case still runs through the partition + zone
+    // render path, getting responsive horizontal padding + scroll wrapper
+    // + keyboard-dismiss tap + bottom-zone safeArea inset for free.
+    // iOS ThreeZoneStepLayout.swift:109-122 always partitions and routes
+    // unzoned blocks to top via `default: top.append`. Was bypassing all
+    // those wrappers when no block had an explicit zone.
     // SPEC-401-A — iOS partition (`ThreeZoneStepLayout.swift:113-119`)
     // routes UNKNOWN/empty zones to TOP via `default: top.append(block)`,
     // not center. Earlier Android comment was factually wrong about iOS.
