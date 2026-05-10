@@ -2282,6 +2282,10 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.padding(horizontal = 8.dp),
+                        // SPEC-401-A R46 (Lens A #5) — value→label 4pt gap
+                        // matching iOS VStack(spacing: 4)
+                        // (ContentBlockStandaloneViews.swift:138).
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         Text(
                             text = value.toString().padStart(2, '0'),
@@ -2907,8 +2911,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                             .size(80.dp)
                             .graphicsLayer { rotationZ = spinAngle },
                         color = progressColor,
+                        // SPEC-401-A R46 (Lens A #6) — iOS lineWidth: 5 (was 6dp).
+                        // ContentBlockStandaloneViews.swift:224,227.
                         trackColor = progressColor.copy(alpha = 0.2f),
-                        strokeWidth = 6.dp,
+                        strokeWidth = 5.dp,
                     )
                     if (showPercentage) {
                         Text(
@@ -2952,7 +2958,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                         .height(8.dp)
                         .clip(RoundedCornerShape(4.dp)),
                     color = progressColor,
-                    trackColor = progressColor.copy(alpha = 0.2f),
+                    // SPEC-401-A R46 (Lens A #9) — neutral track (was tinted
+                    // copy of progressColor at 0.2). iOS uses Color.gray.opacity(0.2)
+                    // (ContentBlockStandaloneViews.swift:258).
+                    trackColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f),
                 )
                 if (showPercentage) {
                     Text(
@@ -2985,9 +2994,13 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                             modifier = Modifier.size(24.dp),
                             contentAlignment = Alignment.Center,
                         ) {
+                            // SPEC-401-A R46 (Lens A #7) — match iOS state
+                            // language at ContentBlockStandaloneViews.swift:275-288:
+                            // completed = checkmark.circle.fill (check inside
+                            // filled circle); pending = hollow Circle().stroke.
                             if (isCompleted) {
                                 Icon(
-                                    imageVector = Icons.Filled.Check,
+                                    imageVector = Icons.Filled.CheckCircle,
                                     contentDescription = "Done",
                                     tint = checkColor,
                                     modifier = Modifier.size(20.dp),
@@ -2999,11 +3012,16 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                                     strokeWidth = 2.dp,
                                 )
                             } else {
+                                // Hollow ring matching iOS .stroke pending.
                                 Box(
                                     modifier = Modifier
                                         .size(20.dp)
                                         .clip(CircleShape)
-                                        .background(Color.Gray.copy(alpha = 0.2f)),
+                                        .border(
+                                            width = 1.5.dp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                                            shape = CircleShape,
+                                        ),
                                 )
                             }
                         }
@@ -3011,10 +3029,14 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                         Text(
                             text = item.label,
                             fontSize = 15.sp,
+                            // SPEC-401-A R46 (Lens A #8) — match iOS color logic
+                            // at ContentBlockStandaloneViews.swift:294-295:
+                            // current and completed both .primary; pending
+                            // .secondary. No weight switch (iOS .font(.subheadline)
+                            // is regular always; was SemiBold-on-current drift).
                             color = when {
-                                isCompleted -> textColor
-                                isCurrent -> textColor
-                                else -> textColor.copy(alpha = 0.4f)
+                                isCompleted || isCurrent -> textColor
+                                else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             },
                             fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Normal,
                         )

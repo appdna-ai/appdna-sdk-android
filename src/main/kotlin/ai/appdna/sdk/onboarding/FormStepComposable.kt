@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ai.appdna.sdk.core.interpolated
 import ai.appdna.sdk.core.StyleEngine
+import androidx.compose.ui.draw.clip
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -93,7 +94,10 @@ fun FormStep(
             modifier = Modifier
                 .weight(1f)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 16.dp),
+                // SPEC-401-A R46 (Lens A #4) — match iOS FormStepView.swift:61-62
+                // `padding(.top, 16) + padding(.bottom, 24)`. Was vertical=16dp
+                // both edges (16dp bottom on Android vs 24pt on iOS).
+                .padding(start = 24.dp, end = 24.dp, top = 16.dp, bottom = 24.dp),
             horizontalAlignment = Alignment.Start
         ) {
             // SPEC-070-A finalization B4 P1 — image_url header above the
@@ -104,7 +108,11 @@ fun FormStep(
                     url = url,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 120.dp),
+                        .heightIn(max = 120.dp)
+                        // SPEC-401-A R46 (Lens A #3) — match iOS
+                        // .clipShape(RoundedRectangle(cornerRadius: 12))
+                        // (FormStepView.swift:29). Was sharp corners.
+                        .clip(RoundedCornerShape(12.dp)),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     contentDescription = null,
                 )
@@ -151,7 +159,9 @@ fun FormStep(
                             )
                         }
                     }
-                    Spacer(Modifier.height(4.dp))
+                    // SPEC-401-A R46 (Lens A #2) — iOS label→control gap 6pt
+                    // (FormStepView.swift:47 VStack(spacing: 6)). Was 4dp.
+                    Spacer(Modifier.height(6.dp))
                 }
 
                 FormFieldControl(field, values, errors)
@@ -164,7 +174,9 @@ fun FormStep(
                     )
                 }
 
-                Spacer(Modifier.height(16.dp))
+                // SPEC-401-A R46 (Lens A #1) — iOS field→field gap 20pt
+                // (FormStepView.swift:20 VStack(spacing: 20)). Was 16dp.
+                Spacer(Modifier.height(20.dp))
             }
         }
 
