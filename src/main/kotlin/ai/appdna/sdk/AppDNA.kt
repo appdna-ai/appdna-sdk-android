@@ -1115,7 +1115,16 @@ object AppDNA {
 
         // 1. Analytics
         try {
-            trackPushTapped(pushId, actionId ?: actionType)
+            // SPEC-401-A R81 (Lens B P2) — body-tap (no actionId / actionType)
+            // emits the same sentinel iOS UNNotificationDefaultActionIdentifier
+            // ships ("com.apple.UNNotificationDefaultActionIdentifier") so
+            // BigQuery `action` column is non-null and equality-filterable on
+            // both platforms. Was emitting null — broke "default tap vs
+            // custom action" dashboards mixing platforms.
+            val resolvedAction = actionId
+                ?: actionType
+                ?: "com.apple.UNNotificationDefaultActionIdentifier"
+            trackPushTapped(pushId, resolvedAction)
         } catch (e: Throwable) {
             Log.warning("handlePushTap: trackPushTapped threw: ${e.message}")
         }

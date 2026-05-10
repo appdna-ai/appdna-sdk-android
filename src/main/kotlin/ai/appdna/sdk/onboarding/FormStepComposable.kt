@@ -713,7 +713,18 @@ private fun TimeField(
 
     OutlinedButton(
         onClick = {
+            // SPEC-401-A R81 (Lens A P1) — seed picker with previously-saved
+            // time matching iOS FormStepView.swift:365-377 binding which
+            // returns `values[field.id] as? Date ?? Date()`. Was always
+            // seeding with current wall-clock — re-opening after picking
+            // 09:30 displayed "now" instead of the saved choice. Misleading
+            // UX during edit/cancel flows.
             val cal = Calendar.getInstance()
+            val savedTime = timeStr.takeIf { it.matches(Regex("\\d{2}:\\d{2}")) }
+            if (savedTime != null) {
+                cal.set(Calendar.HOUR_OF_DAY, savedTime.substringBefore(':').toInt())
+                cal.set(Calendar.MINUTE, savedTime.substringAfter(':').toInt())
+            }
             TimePickerDialog(
                 context,
                 { _, hour, minute ->
