@@ -3237,9 +3237,12 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
     // SPEC-401-A R52 — own fillMaxSize + Spacer.weight top/bottom for
     // vertical centering (iOS CustomStepView.swift:9-11,43 VStack(spacing:24)
     // { Spacer(); title; subtitle; image; Spacer(); button }).
+    // SPEC-401-A R55 (Lens A R53 #3, P2) — outer spacedBy(24) matching
+    // iOS VStack(spacing: 24); drops explicit Spacer(24)s.
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         Spacer(Modifier.weight(1f))
         config.title?.let {
@@ -3258,9 +3261,7 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
             )
         }
         config.subtitle?.let {
-            // SPEC-401-A R52 (Lens A R52 #3, P1) — title↔subtitle 8→24dp
-            // matching iOS CustomStepView.swift:9 VStack(spacing: 24).
-            Spacer(Modifier.height(24.dp))
+            // Title→subtitle 24dp gap supplied by outer spacedBy(24).
             // SPEC-401-A R50 (Lens A #4) — subtitle horizontal padding 32 per iOS.
             // SPEC-401-A R51 (Lens A #8, P2) — 15→17sp matching iOS .body.
             Text(
