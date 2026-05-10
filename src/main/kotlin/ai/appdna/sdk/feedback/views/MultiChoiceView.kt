@@ -1,14 +1,15 @@
 package ai.appdna.sdk.feedback.views
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -40,6 +41,12 @@ fun MultiChoiceView(
 
         question.options?.forEach { option ->
             val isSelected = option.id in selectedIds
+            // SPEC-401-A R66 (Lens C P1) — single click target via
+            // `Modifier.toggleable(role = Role.Checkbox)` mirrors iOS
+            // `Button { … }` wrapping the row. Inner Checkbox has
+            // `onCheckedChange = null` so the entire row is the single tap
+            // target with one TalkBack focus stop reading
+            // "Checkbox, checked/unchecked, <option text>".
             if (optionStyle != null) {
                 // SPEC-084: Gap #21 — apply full style engine token to option card
                 Surface(
@@ -48,10 +55,14 @@ fun MultiChoiceView(
                             .fillMaxWidth()
                             .padding(vertical = 4.dp)
                             .applyContainerStyle(optionStyle)
-                            .clickable {
-                                val updated = if (isSelected) selectedIds - option.id else selectedIds + option.id
-                                onAnswer(SurveyAnswer(question.id, updated))
-                            }
+                            .toggleable(
+                                value = isSelected,
+                                role = Role.Checkbox,
+                                onValueChange = { checked ->
+                                    val updated = if (checked) selectedIds + option.id else selectedIds - option.id
+                                    onAnswer(SurveyAnswer(question.id, updated))
+                                },
+                            )
                     },
                     color = Color.Transparent
                 ) {
@@ -61,10 +72,7 @@ fun MultiChoiceView(
                     ) {
                         Checkbox(
                             checked = isSelected,
-                            onCheckedChange = { checked ->
-                                val updated = if (checked) selectedIds + option.id else selectedIds - option.id
-                                onAnswer(SurveyAnswer(question.id, updated))
-                            }
+                            onCheckedChange = null,
                         )
                         option.icon?.let { Text(it, modifier = Modifier.padding(end = 8.dp)) }
                         Text(option.text)
@@ -76,10 +84,14 @@ fun MultiChoiceView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
-                        .clickable {
-                            val updated = if (isSelected) selectedIds - option.id else selectedIds + option.id
-                            onAnswer(SurveyAnswer(question.id, updated))
-                        },
+                        .toggleable(
+                            value = isSelected,
+                            role = Role.Checkbox,
+                            onValueChange = { checked ->
+                                val updated = if (checked) selectedIds + option.id else selectedIds - option.id
+                                onAnswer(SurveyAnswer(question.id, updated))
+                            },
+                        ),
                     shape = RoundedCornerShape(8.dp),
                     border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
                 ) {
@@ -89,10 +101,7 @@ fun MultiChoiceView(
                     ) {
                         Checkbox(
                             checked = isSelected,
-                            onCheckedChange = { checked ->
-                                val updated = if (checked) selectedIds + option.id else selectedIds - option.id
-                                onAnswer(SurveyAnswer(question.id, updated))
-                            }
+                            onCheckedChange = null,
                         )
                         option.icon?.let { Text(it, modifier = Modifier.padding(end = 8.dp)) }
                         Text(option.text)

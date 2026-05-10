@@ -35,7 +35,12 @@ fun RatingQuestionView(
     // SPEC-070-A finalization S-35 — prefer Firestore-canonical `max`
     // over legacy `max_rating`. `resolvedMax` already does this resolution.
     val maxRating = question.ratingConfig?.resolvedMax ?: 5
-    val style = question.ratingConfig?.style ?: "star"
+    // SPEC-401-A R66 (Lens A P1) — prefer Firestore-canonical `icon` over
+    // legacy `style` via `resolvedIcon`. iOS RatingQuestionView.swift:13 uses
+    // `rating_config?.resolvedIcon`. Android was reading `.style` directly so
+    // server-side `rating_config.icon: "heart"` rendered as legacy default
+    // "star" when only `icon` was set.
+    val style = question.ratingConfig?.resolvedIcon ?: "star"
     val selectedRating = answer?.answer as? Int ?: 0
 
     val filledIcon = when (style) {

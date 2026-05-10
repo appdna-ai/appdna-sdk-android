@@ -38,10 +38,15 @@ fun FreeTextView(
         OutlinedTextField(
             value = text,
             onValueChange = { newValue ->
-                if (newValue.length <= maxLength) {
-                    text = newValue
-                    onAnswer(SurveyAnswer(question.id, newValue))
-                }
+                // SPEC-401-A R66 (Lens A P1) — truncate paste-overflow instead of
+                // silently rejecting. iOS FreeTextView.swift:42-44 uses
+                // `String(newValue.prefix(maxLength))` so a 600-char paste into
+                // a 500-char field yields the first 500 chars. Android was
+                // dropping the entire input when length>max, leaving the
+                // textfield blank after a long paste.
+                val truncated = if (newValue.length > maxLength) newValue.take(maxLength) else newValue
+                text = truncated
+                onAnswer(SurveyAnswer(question.id, truncated))
             },
             placeholder = { Text(placeholder) },
             modifier = Modifier

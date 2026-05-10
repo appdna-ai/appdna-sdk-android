@@ -1,5 +1,6 @@
 package ai.appdna.sdk.feedback.views
 
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
@@ -40,9 +41,16 @@ fun EmojiScaleView(
 
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             emojis.forEach { emoji ->
+                // SPEC-401-A R66 (Lens C P2) — `Spring.StiffnessHigh` (~10000)
+                // approximates iOS `.spring(response: 0.3)` (≈ stiffness 438
+                // critical, but the iOS critically-damped feel reads as
+                // "snappy" matching `StiffnessHigh`). Compose default
+                // `spring()` uses `StiffnessMedium` (~1500) with `dampingRatio`
+                // `NoBouncy` (1.0) which feels visibly slower than the iOS
+                // emoji bounce on `EmojiScaleView.swift:29`.
                 val scale by animateFloatAsState(
                     targetValue = if (selectedEmoji == emoji) 1.3f else 1.0f,
-                    animationSpec = spring(),
+                    animationSpec = spring(stiffness = Spring.StiffnessHigh),
                     label = "emojiScale"
                 )
 
