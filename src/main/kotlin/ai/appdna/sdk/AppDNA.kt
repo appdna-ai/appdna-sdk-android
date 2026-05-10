@@ -1752,6 +1752,13 @@ object AppDNA {
             try { ai.appdna.sdk.screens.ScreenHostActivity.clearActiveLaunches() } catch (_: Throwable) {}
             try { ai.appdna.sdk.paywalls.PaywallActivity.clearActiveLaunches() } catch (_: Throwable) {}
             try { ai.appdna.sdk.feedback.SurveyActivity.clearActiveLaunches() } catch (_: Throwable) {}
+            // SPEC-401-A R73 (Lens B P1) — drop pending OnboardingActivity
+            // launch payload too. Was leaking OnboardingFlowConfig + delegate
+            // + EventTracker + 5 lambda closures across shutdown→configure;
+            // also a race where presentOnboarding()+shutdown() before
+            // ActivityManager dispatched onCreate left activity launching
+            // with stale (nulled-queue) EventTracker.
+            try { ai.appdna.sdk.onboarding.OnboardingActivity.clearActiveLaunches() } catch (_: Throwable) {}
 
             // SPEC-070-A finalization R3 P0 (Lens D) — drop the pre-configure
             // FCM token buffer too so a re-configure() doesn't replay a stale

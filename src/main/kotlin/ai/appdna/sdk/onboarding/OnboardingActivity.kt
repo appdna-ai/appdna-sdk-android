@@ -321,6 +321,23 @@ class OnboardingActivity : ComponentActivity() {
             return p
         }
 
+        /**
+         * SPEC-401-A R73 (Lens B P1) — drop pending launch payload on SDK
+         * shutdown so OnboardingFlowConfig + delegate + EventTracker + 5
+         * lambda closures don't leak across `AppDNA.shutdown()` →
+         * `configure()`. Mirrors PaywallActivity / SurveyActivity /
+         * ScreenHostActivity `clearActiveLaunches()` (called from
+         * `AppDNA.shutdown()` at AppDNA.kt:1752-1754). Without this,
+         * `presentOnboarding()` immediately followed by `shutdown()` could
+         * leave Activity launching with a stale EventTracker whose queue
+         * was nulled — onboarding step events become silent no-ops.
+         */
+        @JvmStatic
+        @Synchronized
+        internal fun clearActiveLaunches() {
+            pendingLaunchPayload = null
+        }
+
         internal fun launch(
             context: Context,
             flow: OnboardingFlowConfig,
