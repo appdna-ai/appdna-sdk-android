@@ -2329,7 +2329,12 @@ private fun buildAnnotatedStringWithLinks(text: String): androidx.compose.ui.tex
 
 @Composable
 private fun PaywallDividerSection(section: PaywallSection) {
-    val dividerColor = section.data?.color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.2f)
+    // SPEC-401-A R75 (Lens A P2) — divider default `#E5E7EB` matches iOS
+    // PaywallRenderer.swift:1003 `data?.color ?? "#E5E7EB"` (light gray
+    // hairline). Was `Color.White.copy(alpha = 0.2f)` — invisible on
+    // light-themed paywalls. iOS uses an absolute hex default that works
+    // on both light + dark; mirror that here.
+    val dividerColor = section.data?.color?.let { parseHexColor(it) } ?: parseHexColor("#E5E7EB")
     val thickness = section.data?.thickness ?: 1f
     val lineStyle = section.data?.line_style ?: "solid"
     val mTop = section.data?.margin_top ?: 8f
@@ -2351,7 +2356,11 @@ private fun PaywallDividerSection(section: PaywallSection) {
                 DividerLine(color = dividerColor, thickness = thickness, style = lineStyle, modifier = Modifier.weight(1f))
                 Text(
                     text = labelText,
-                    color = section.data.label_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.5f),
+                    // SPEC-401-A R75 (Lens A P2) — divider label default
+                    // `#9CA3AF` matches iOS PaywallRenderer.swift:1017
+                    // `data?.labelColor ?? "#9CA3AF"`. Was 50%-white —
+                    // invisible on light paywalls.
+                    color = section.data.label_color?.let { parseHexColor(it) } ?: parseHexColor("#9CA3AF"),
                     fontSize = (section.data.label_font_size ?: 12f).sp,
                     modifier = Modifier
                         .padding(horizontal = 12.dp)
