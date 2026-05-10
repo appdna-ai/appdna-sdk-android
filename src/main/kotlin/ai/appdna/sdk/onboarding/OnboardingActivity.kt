@@ -121,10 +121,16 @@ class OnboardingActivity : ComponentActivity() {
             viewModel.restoredStepIndex = savedIndex.coerceAtLeast(0)
             viewModel.restoredResponses = savedResponsesJson?.let { json ->
                 try {
-                    val obj = org.json.JSONObject(json)
-                    val map = mutableMapOf<String, Any>()
-                    obj.keys().forEach { k -> obj.opt(k)?.let { map[k] = it } }
-                    map
+                    // SPEC-401-A R33 P1 — deep-convert JSONObject/JSONArray
+                    // → Map/List recursively. iOS Codable round-trip yields
+                    // native [String:Any]; Android `obj.opt(k)` returns raw
+                    // JSONObject/JSONArray for nested values, which then
+                    // fails `as? Map<String, Any?>` cast in
+                    // NextStepRuleEvaluator.kt:50, falling through to the
+                    // `else -> true` branch and picking the wrong route
+                    // for any form/multi-select/chat-transcript step after
+                    // process death.
+                    fromJsonAny(org.json.JSONObject(json)) as? Map<String, Any>
                 } catch (_: Throwable) { null }
             }
             // SPEC-070-A finalization P0 audit-8 D2 — restore navigationHistory
@@ -1079,13 +1085,19 @@ internal fun OnboardingFlowHost(
                         }
                     }
                     "fraction" -> {
+                        // SPEC-401-A R33 — match iOS OnboardingRenderer.swift:218
+                        // `"\(current+1)/\(total)"` (no spaces) at
+                        // `.font(.caption.monospacedDigit())` ~12pt monospaced.
+                        // Android was rendering `"3 / 10"` at 14sp non-mono so
+                        // digits jittered on each tick.
                         Text(
-                            text = "$current / $totalSteps",
+                            text = "$current/$totalSteps",
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 4.dp),
                             textAlign = TextAlign.Center,
-                            fontSize = 14.sp,
+                            fontSize = 12.sp,
+                            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onBackground,
                         )
                     }
@@ -1615,6 +1627,27 @@ private fun interpolateVariables(value: String): String {
     // SPEC-088: Delegate to shared TemplateEngine
     val ctx = ai.appdna.sdk.core.TemplateEngine.buildContext()
     return ai.appdna.sdk.core.TemplateEngine.interpolate(value, ctx)
+}
+
+/**
+ * SPEC-401-A R33 P1 — recursively convert JSONObject/JSONArray trees into
+ * native Map/List so downstream code (NextStepRuleEvaluator,
+ * AppDNAOnboardingDelegate, host code reading `responses[stepId]`) sees
+ * the same shape iOS Codable round-trips into Foundation types. Without
+ * this, restored responses for form/multi-select/chat steps surface as
+ * raw JSONObject/JSONArray and fail every `as? Map`/`as? List` cast.
+ */
+private fun fromJsonAny(value: Any?): Any? = when (value) {
+    null, org.json.JSONObject.NULL -> null
+    is org.json.JSONObject -> {
+        val map = mutableMapOf<String, Any?>()
+        value.keys().forEach { k -> map[k] = fromJsonAny(value.opt(k)) }
+        map
+    }
+    is org.json.JSONArray -> {
+        (0 until value.length()).map { i -> fromJsonAny(value.opt(i)) }
+    }
+    else -> value
 }
 
 @Composable
