@@ -69,6 +69,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import kotlin.math.cos
@@ -2633,11 +2634,22 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
 
     val annotatedString = parseMarkdownToAnnotatedString(content, baseTextStyle, linkColor)
 
+    // SPEC-401-A R82 (Lens C P2) — TalkBack link semantics. iOS Text with
+    // markdown AttributedString announces "[link text], link" via inherent
+    // AccessibilityTraits.link. Compose ClickableText with no `Modifier
+    // .semantics { role = Role.Button }` reads as plain text — WCAG 4.1.2
+    // Name/Role/Value compliance gap on every legal/rich_text block with
+    // [label](url) syntax (Terms/Privacy most common).
+    val hasLinks = annotatedString.getStringAnnotations(tag = "URL", start = 0, end = annotatedString.length).isNotEmpty()
     ClickableText(
         text = annotatedString,
         style = baseTextStyle,
         maxLines = block.max_lines ?: Int.MAX_VALUE,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = if (hasLinks) {
+            Modifier.fillMaxWidth().semantics { role = androidx.compose.ui.semantics.Role.Button }
+        } else {
+            Modifier.fillMaxWidth()
+        },
         onClick = { offset ->
             annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
                 .firstOrNull()?.let { annotation ->

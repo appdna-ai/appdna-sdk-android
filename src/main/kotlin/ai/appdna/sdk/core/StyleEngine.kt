@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.sin
@@ -181,7 +182,18 @@ object StyleEngine {
         val resolvedLineHeight = config.line_height
             ?.let { ((it) * (config.font_size ?: base.fontSize.value.toDouble())).sp }
             ?: base.lineHeight
-        val resolvedLetterSpacing = config.letter_spacing?.sp ?: base.letterSpacing
+        // SPEC-401-A R82 (Lens C P2) — letter_spacing in `.em` not `.sp`.
+        // iOS `.kerning(CGFloat(spacing))` is in POINTS (no Dynamic Type
+        // scaling). Compose `.sp` ramps with `fontScale`, so 130% font-scale
+        // user sees letter_spacing balloon to 130% of authored value while
+        // iOS holds steady. Converting to em via `letter_spacing / font_size`
+        // gives a font-size-relative tracking ratio that's stable across
+        // accessibility scaling (em is a fraction of the text's own font
+        // size, not the system scale factor).
+        val resolvedLetterSpacing = config.letter_spacing?.let { spacing ->
+            val baseFontPx = (config.font_size ?: base.fontSize.value.toDouble()).coerceAtLeast(1.0)
+            (spacing / baseFontPx).em
+        } ?: base.letterSpacing
         return base.copy(
             fontFamily = resolvedFamily,
             fontSize = resolvedSize,

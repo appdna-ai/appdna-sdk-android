@@ -80,7 +80,10 @@ fun ConfettiOverlay(
                     color = effectColors[i % effectColors.size],
                     size = (4f + Math.random().toFloat() * 8f),
                     speedX = (-50f + Math.random().toFloat() * 100f),
-                    speedY = (200f + Math.random().toFloat() * 400f),
+                    // SPEC-401-A R82 (Lens C P1) — speedY is now a fraction
+                    // of canvas height (0.6..1.0) so particles always reach
+                    // bottom of tall devices.
+                    speedY = (0.6f + Math.random().toFloat() * 0.4f),
                     rotation = Math.random().toFloat() * 360f,
                 )
             }
@@ -88,9 +91,18 @@ fun ConfettiOverlay(
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val t = progress.value
+            // SPEC-401-A R82 (Lens C P1) — fall distance is the actual canvas
+            // height (+50 buffer), matching iOS ConfettiOverlay.swift:91-95
+            // which animates to `UIScreen.main.bounds.height + 50`. Was
+            // hardcoded `200..600 px` — particles never reached the bottom
+            // of tall devices (Pixel 6/7 ≈ 3120 px, tablets larger). Heavy
+            // confetti looked stunted vs iOS full-screen rain.
+            val fallDistance = size.height + 50f
             particles.forEach { particle ->
                 val x = particle.startX / 1000f * size.width + particle.speedX * t
-                val y = particle.startY + particle.speedY * t
+                // particle.speedY is now a 0..1 multiplier of fallDistance
+                // so the slowest particles travel ~33% canvas, fastest 100%.
+                val y = particle.startY + particle.speedY * fallDistance * t
                 val alpha = (1f - t).coerceIn(0f, 1f)
 
                 if (y < size.height + 50) {
