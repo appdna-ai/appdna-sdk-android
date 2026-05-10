@@ -474,8 +474,18 @@ internal fun OnboardingFlowHost(
     }
 
     // SPEC-083: Before-render hook + step viewed tracking
+    // SPEC-401-A R58 (Lens B P2) — gate by VM-scoped lastViewedStepIndex so
+    // onBeforeStepRender + onStepViewed only fire on genuine currentIndex
+    // changes, NOT on every Activity recreation (rotation, locale change,
+    // dark/light toggle, process-death restore). Without this, hosts whose
+    // onBeforeStepRender does network work pay duplicate billing per
+    // rotation; ETL sees inflated `onboarding_step_viewed` counts. Mirrors
+    // iOS `OnboardingRenderer.swift:421-438` `.onAppear` semantics on a
+    // view tagged with `.id(currentIndex)` — fires once per index change
+    // (including back-nav re-visits via id swap) but NOT on rotation.
     LaunchedEffect(currentIndex) {
-        if (currentIndex < flow.steps.size) {
+        if (currentIndex < flow.steps.size && currentIndex != viewModel?.lastViewedStepIndex) {
+            viewModel?.lastViewedStepIndex = currentIndex
             val step = flow.steps[currentIndex]
             delegate?.let { d ->
                 val override = d.onBeforeStepRender(

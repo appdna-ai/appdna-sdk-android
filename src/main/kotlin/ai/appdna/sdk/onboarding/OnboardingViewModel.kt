@@ -110,6 +110,21 @@ internal class OnboardingViewModel : ViewModel() {
     val configOverrides: SnapshotStateMap<String, StepConfigOverride> = mutableStateMapOf()
 
     /**
+     * SPEC-401-A R58 (Lens B P2) — gate `LaunchedEffect(currentIndex)` so
+     * onBeforeStepRender + onStepViewed only fire ONCE per currentIndex
+     * change, not on every Activity recreation (rotation, locale change,
+     * dark/light toggle, process-death restore). iOS
+     * `OnboardingRenderer.swift:421-438` binds handleStepAppear to
+     * `.onAppear` on a view with `.id(currentIndex)`; SwiftUI fires
+     * onAppear once per currentIndex change even across back-nav
+     * re-visits, but NOT on rotation. Without this guard, hosts whose
+     * `onBeforeStepRender` does network work pay duplicate billing per
+     * rotation and ETL sees inflated `onboarding_step_viewed` counts.
+     * `-1` sentinel means "no step has been emitted yet".
+     */
+    var lastViewedStepIndex: Int = -1
+
+    /**
      * Snapshot index restored by [OnboardingActivity.onCreate] from
      * `savedInstanceState`. Read once by the Compose host's initial-state
      * seed, then cleared.
@@ -182,6 +197,10 @@ internal class OnboardingViewModel : ViewModel() {
         // flow-scoped state so a re-presented onboarding doesn't see stale
         // overrides from a previous flow.
         configOverrides.clear()
+        // SPEC-401-A R58 (Lens B P2) — clear viewed-index sentinel so the
+        // re-presented onboarding fires onBeforeStepRender + onStepViewed
+        // for its own first step.
+        lastViewedStepIndex = -1
         isBound = false
     }
 
