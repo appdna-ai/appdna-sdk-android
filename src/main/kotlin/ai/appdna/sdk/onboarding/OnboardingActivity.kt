@@ -1341,7 +1341,13 @@ internal fun OnboardingFlowHost(
                             trackHookEvent("onboarding_hook_started", step, mapOf("hook_type" to "client"))
 
                             // Grace timer — only show spinner if hook hasn't returned within 300ms.
-                            coroutineScope.launch {
+                            // SPEC-401-A R51 (Lens B #4 P3) — capture the timer Job so
+                            // the hook completion can cancel it. Without cancellation, a
+                            // bursty hook completion right at the 300ms boundary could
+                            // race the timer's `if (!hookFinished.get())` check and
+                            // leave a stuck spinner. iOS uses
+                            // DispatchWorkItem.cancel() at OnboardingRenderer.swift:502.
+                            val graceTimerJob = coroutineScope.launch {
                                 kotlinx.coroutines.delay(300)
                                 if (!hookFinished.get()) {
                                     isProcessing = true
@@ -1358,6 +1364,7 @@ internal fun OnboardingFlowHost(
                                     stepData = data
                                 )
                                 hookFinished.set(true)
+                                graceTimerJob.cancel()
                                 val durationMs = System.currentTimeMillis() - startTime
                                 isProcessing = false
                                 trackHookEvent("onboarding_hook_completed", step, mapOf(
@@ -2366,10 +2373,13 @@ private fun BlockBasedStepView(
             if (block.field_required != true) continue
             val fieldId = block.field_id ?: block.id
             val v = inputValues[fieldId]
+            // SPEC-401-A R51 (Lens B #2 P2 + #3 P3) — match iOS canAdvance
+            // semantics at OnboardingRenderer.swift:1501-1502:
+            //   isBlank() → isEmpty()  (whitespace-only strings advance on iOS)
+            //   drop Collection branch  (iOS only checks `[String: Any]` Map)
             val empty = when (v) {
                 null -> true
-                is String -> v.isBlank()
-                is Collection<*> -> v.isEmpty()
+                is String -> v.isEmpty()
                 is Map<*, *> -> v.isEmpty()
                 else -> false
             }
@@ -2407,11 +2417,11 @@ private fun BlockBasedStepView(
         if (requiresValidation) {
             val (ok, fieldLabel) = canAdvance()
             if (!ok) {
-                val msg = if (fieldLabel != null) {
-                    "$fieldLabel is required"
-                } else {
-                    "Please complete required fields"
-                }
+                // SPEC-401-A R51 (Lens C #3, P3) — match iOS toast copy at
+                // OnboardingRenderer.swift:1393 `"Please fill in <field>"`.
+                // Was Android-bespoke `"<field> is required"` — analytics
+                // filtering on the toast text would split between platforms.
+                val msg = "Please fill in ${fieldLabel ?: "required fields"}"
                 // SPEC-401-A R35 — surface as in-app pill instead of system
                 // Toast (iOS OnboardingRenderer.swift:1383-1402).
                 validationMessage = msg
@@ -2906,12 +2916,29 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             ?: config.element_style?.background?.color
                 ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
             ?: Color(0xFF6366F1)
-        val selectedBgColor = accentColor.copy(alpha = 0.15f)
+        // SPEC-401-A R51 (Lens A #12, P2) — iOS QuestionStepView.swift:24-27
+        // piggy-backs `element_style.shadow.color` as the selected_bg override
+        // before falling back to accent×0.15. Authored payloads with that key
+        // were dropped on Android.
+        val selectedBgColor = config.element_style?.shadow?.color
+            ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+            ?: accentColor.copy(alpha = 0.15f)
         val optionBgColor = config.element_style?.background?.overlay
             ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
             ?: config.element_style?.background?.color
                 ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it).copy(alpha = 0.1f) }
             ?: MaterialTheme.colorScheme.surface
+        // SPEC-401-A R51 (Lens A #11, P2) — element_style.text_style.color
+        // resolves the option label color. iOS QuestionStepView.swift:48-51,
+        // 132, 139. Brand-themed payloads with text_style.color set kept
+        // showing default Material on Android.
+        val optionTextColor = config.element_style?.text_style?.color
+            ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+            ?: Color.Unspecified
+        // SPEC-401-A R51 (Lens A #13, P2) — option corner_radius from
+        // element_style.corner_radius. iOS QuestionStepView.swift:111
+        // defaults to 12pt. Was hardcoded 12dp.
+        val optionCornerRadius = (config.element_style?.corner_radius ?: 12.0).dp
         config.options?.chunked(2)?.forEach { row ->
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -2926,7 +2953,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                             .border(
                                 if (isSelected) 2.dp else 1.dp,
                                 if (isSelected) accentColor else accentColor.copy(alpha = 0.3f),
-                                RoundedCornerShape(12.dp),
+                                RoundedCornerShape(optionCornerRadius),
                             )
                             .clickable {
                                 if (isMulti) {
@@ -2935,7 +2962,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                                     selectedOptions.clear(); selectedOptions.add(option.id)
                                 }
                             },
-                        shape = RoundedCornerShape(12.dp),
+                        shape = RoundedCornerShape(optionCornerRadius),
                         colors = CardDefaults.cardColors(
                             containerColor = if (isSelected) selectedBgColor else optionBgColor,
                         ),
@@ -2951,16 +2978,24 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             option.icon?.let { Text(text = it, fontSize = 32.sp) }
+                            // SPEC-401-A R51 (Lens A #10, P2 + #11) — 15sp medium
+                            // matches iOS .subheadline.weight(.medium); pass through
+                            // optionTextColor from element_style.text_style.color.
                             Text(
                                 text = option.label.interpolated(),
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = optionTextColor,
                                 textAlign = TextAlign.Center,
                             )
                             option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
                                 Text(
                                     text = sub.interpolated(),
                                     fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                    color = if (optionTextColor != Color.Unspecified)
+                                        optionTextColor.copy(alpha = 0.65f)
+                                    else
+                                        MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
                                     textAlign = TextAlign.Center,
                                 )
                             }
@@ -3099,9 +3134,10 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         config.subtitle?.let {
             Spacer(Modifier.height(8.dp))
             // SPEC-401-A R50 (Lens A #4) — subtitle horizontal padding 32 per iOS.
+            // SPEC-401-A R51 (Lens A #8, P2) — 15→17sp matching iOS .body.
             Text(
                 text = it.interpolated(),
-                fontSize = 15.sp,
+                fontSize = 17.sp,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
                 modifier = Modifier.padding(horizontal = 32.dp),

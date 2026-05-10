@@ -1994,7 +1994,12 @@ private fun SocialLoginBlock(
             // each color independently.
             val (defaultBg, defaultText, defaultBorder) = when (provider.type) {
                 "apple" -> Triple(Color(0xFF000000), Color.White, Color(0xFF000000))
-                "google" -> Triple(Color.White, Color(0xFF1F1F1F), Color(0xFFDADCE0))
+                // SPEC-401-A R51 (Lens A #7, P1) — Google brand bg `#4285F4`
+                // matches iOS ContentBlockRendererView.swift:828-836 (iOS comment
+                // at :723 explicitly states "Google=#4285F4"). Was rendering as
+                // a white outlined button on Android while iOS shipped the blue
+                // filled button — same payload, two different visuals.
+                "google" -> Triple(Color(0xFF4285F4), Color.White, Color(0xFF4285F4))
                 "facebook" -> Triple(Color(0xFF1877F2), Color.White, Color(0xFF1877F2))
                 "github" -> Triple(Color(0xFF24292F), Color.White, Color(0xFF24292F))
                 "email" -> Triple(
@@ -2939,8 +2944,15 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                     label = "loading_spin_angle",
                 )
                 Box(contentAlignment = Alignment.Center) {
+                    // SPEC-401-A R51 (Lens C #2, P2) — guarantee a visible 5%
+                    // arc even at 0% progress. Mirrors iOS
+                    // ContentBlockStandaloneViews.swift:226
+                    // `Circle().trim(from: 0, to: max(0.05, overallProgress))`.
+                    // Without this the rotation animation is invisible (zero-
+                    // length arc) for the first ~600ms of every step before
+                    // any item ticks complete — user sees a static ring.
                     CircularProgressIndicator(
-                        progress = overallProgress,
+                        progress = overallProgress.coerceAtLeast(0.05f),
                         modifier = Modifier
                             .size(80.dp)
                             .graphicsLayer { rotationZ = spinAngle },
