@@ -119,7 +119,12 @@ class SurveyActivity : ComponentActivity() {
                     isEnabled = false
                     @Suppress("DEPRECATION")
                     onBackPressedDispatcher.onBackPressed()
-                    pendingCallback?.invoke(SurveyResult.Dismissed(0))
+                    // SPEC-401-A R67 (Lens B P2) — read live answered count
+                    // from provider so dismiss event reports real progress
+                    // (parity with iOS SurveyRenderer.swift:253-255 which
+                    // reads `answers.count` at the dismiss callsite).
+                    val answered = surveyAnsweredCountProvider?.invoke() ?: 0
+                    pendingCallback?.invoke(SurveyResult.Dismissed(answered))
                     cleanup()
                 }
             }
@@ -178,6 +183,17 @@ class SurveyActivity : ComponentActivity() {
         @Volatile internal var surveyBackHandler: (() -> Boolean)? = null
 
         /**
+         * SPEC-401-A R67 (Lens B P2) — provider for live answered count so
+         * Activity-level system-back dismiss can pass the real count to
+         * `SurveyResult.Dismissed(answeredCount)` instead of hardcoding 0.
+         * iOS SurveyRenderer.swift:253-255 reads `answers.count` at the
+         * dismiss callsite. Without this, Android `survey_dismissed` events
+         * always reported `questions_answered: 0` regardless of partial
+         * progress — broke abandonment funnels mixing platforms.
+         */
+        @Volatile internal var surveyAnsweredCountProvider: (() -> Int)? = null
+
+        /**
          * SPEC-070-A finalization R3 P0 (Lens D) — drop pending captures
          * on SDK shutdown so SurveyConfig + callback closures don't leak.
          * Called from `AppDNA.shutdown()`.
@@ -188,6 +204,7 @@ class SurveyActivity : ComponentActivity() {
             pendingCallback = null
             questionAnsweredCallback = null
             surveyBackHandler = null
+            surveyAnsweredCountProvider = null
         }
 
         @JvmStatic
@@ -245,7 +262,14 @@ fun SurveyScreen(
                 false
             }
         }
-        onDispose { SurveyActivity.surveyBackHandler = null }
+        // SPEC-401-A R67 (Lens B P2) — expose live answered count so the
+        // Activity-level system-back dismiss callsite can pass the real
+        // count to SurveyResult.Dismissed instead of hardcoding 0.
+        SurveyActivity.surveyAnsweredCountProvider = { answers.size }
+        onDispose {
+            SurveyActivity.surveyBackHandler = null
+            SurveyActivity.surveyAnsweredCountProvider = null
+        }
     }
     var showCompletion by remember { mutableStateOf(false) }
     val currentView = LocalView.current
@@ -630,7 +654,14 @@ fun BottomSheetSurveyWrapper(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (config.appearance.dismissAllowed) onDismiss(0)
+                // SPEC-401-A R67 (Lens B P2) — read live answered count from
+                // SurveyScreen's provider (set in DisposableEffect) so the
+                // backdrop-tap dismiss reports real progress, not 0. Mirrors
+                // iOS SurveyRenderer.swift:253-255 reading `answers.count`.
+                if (config.appearance.dismissAllowed) {
+                    val answered = SurveyActivity.surveyAnsweredCountProvider?.invoke() ?: 0
+                    onDismiss(answered)
+                }
             },
         contentAlignment = Alignment.BottomCenter
     ) {
@@ -684,7 +715,14 @@ fun ModalSurveyWrapper(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                if (config.appearance.dismissAllowed) onDismiss(0)
+                // SPEC-401-A R67 (Lens B P2) — read live answered count from
+                // SurveyScreen's provider (set in DisposableEffect) so the
+                // backdrop-tap dismiss reports real progress, not 0. Mirrors
+                // iOS SurveyRenderer.swift:253-255 reading `answers.count`.
+                if (config.appearance.dismissAllowed) {
+                    val answered = SurveyActivity.surveyAnsweredCountProvider?.invoke() ?: 0
+                    onDismiss(answered)
+                }
             },
         contentAlignment = Alignment.Center
     ) {

@@ -163,7 +163,12 @@ data class CTAAction(
 data class TriggerRules(
     val event: String,
     val conditions: List<TriggerCondition>? = null,
-    val frequency: String = "every_time", // "once", "once_per_session", "every_time", "max_times"
+    // SPEC-401-A R66 (Lens A P1) — default `once` (NOT `every_time`) matches
+    // iOS MessageManager.swift:58 `config.trigger_rules?.frequency ?? .once`.
+    // A message authored with no `frequency` field shipped from the console
+    // would show every event-fire on Android vs once on iOS — inflating
+    // Android impressions and breaking message-volume parity.
+    val frequency: String = "once", // "once", "once_per_session", "every_time", "max_times"
     val max_displays: Int? = null,
     val delay_seconds: Int? = null,
 )

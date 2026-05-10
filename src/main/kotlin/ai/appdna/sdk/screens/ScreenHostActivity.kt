@@ -104,10 +104,18 @@ class ScreenHostActivity : ComponentActivity() {
         // ScreenPresenter; Android equivalent is the per-Activity enter/exit
         // anim pair applied immediately after the Intent fires. Falls back to
         // platform default ("none") when the value is unknown or missing.
+        // SPEC-401-A R67 (Lens C P1) — `slide_up` now uses custom
+        // R.anim.appdna_slide_up_in (vertical translateY 100%→0) matching
+        // iOS UIModalTransitionStyle.coverVertical at
+        // ScreenPresenter.swift:80. Stock `slide_in_left` is horizontal —
+        // visible cross-platform divergence.
+        // (Lens C R67 P2) — unknown / null transition defaults to slide_up
+        // matching iOS `default: return .coverVertical` at
+        // ScreenPresenter.swift:84.
         @Suppress("DEPRECATION")
         when (config.transition) {
             "slide_up" -> overridePendingTransition(
-                android.R.anim.slide_in_left, // Android lacks slide-up bottom; closest stock anim
+                ai.appdna.sdk.R.anim.appdna_slide_up_in,
                 android.R.anim.fade_out,
             )
             "slide_left" -> overridePendingTransition(
@@ -119,7 +127,10 @@ class ScreenHostActivity : ComponentActivity() {
                 android.R.anim.fade_out,
             )
             "none" -> overridePendingTransition(0, 0)
-            else -> { /* platform default */ }
+            else -> overridePendingTransition(
+                ai.appdna.sdk.R.anim.appdna_slide_up_in,
+                android.R.anim.fade_out,
+            )
         }
 
         setContent {
@@ -161,7 +172,32 @@ class ScreenHostActivity : ComponentActivity() {
     }
 
     private fun cleanup() {
+        // SPEC-401-A R67 (Lens C P1) — pair the symmetric exit animation to
+        // the entry transition so dismiss matches present. iOS
+        // `modalTransitionStyle` (ScreenPresenter.swift:20) is symmetric;
+        // Android requires explicit `overridePendingTransition` AFTER finish().
+        val transition = launchToken?.let { activeLaunches[it]?.config?.transition }
         finish()
+        @Suppress("DEPRECATION")
+        when (transition) {
+            "slide_up" -> overridePendingTransition(
+                android.R.anim.fade_in,
+                ai.appdna.sdk.R.anim.appdna_slide_down_out,
+            )
+            "slide_left" -> overridePendingTransition(
+                android.R.anim.slide_in_left,
+                android.R.anim.slide_out_right,
+            )
+            "fade" -> overridePendingTransition(
+                android.R.anim.fade_in,
+                android.R.anim.fade_out,
+            )
+            "none" -> overridePendingTransition(0, 0)
+            else -> overridePendingTransition(
+                android.R.anim.fade_in,
+                ai.appdna.sdk.R.anim.appdna_slide_down_out,
+            )
+        }
     }
 
     override fun onDestroy() {

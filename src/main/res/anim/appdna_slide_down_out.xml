@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SPEC-401-A R67 (Lens C P1) — vertical slide-to-bottom exit anim paired
+  with appdna_slide_up_in for symmetric present + dismiss when
+  config.transition == "slide_up". Mirrors iOS UIModalTransitionStyle's
+  symmetric enter/exit pairing on .coverVertical.
+-->
+<translate xmlns:android="http://schemas.android.com/apk/res/android"
+    android:fromYDelta="0"
+    android:toYDelta="100%p"
+    android:duration="@android:integer/config_mediumAnimTime" />
