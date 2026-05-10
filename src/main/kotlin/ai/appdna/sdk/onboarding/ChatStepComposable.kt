@@ -729,7 +729,15 @@ fun ChatStepComposable(
             }
             val label = chatConfig.completion_cta_text ?: step.config.cta_text ?: "Continue"
 
-            Column(modifier = Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            // SPEC-401-A R56→R57 (Lens A R56 #10, P3) — match iOS
+            // ChatStepView.swift:394 `.padding(.horizontal, 20)` + line 401
+            // `.padding(.vertical, 16)`. Was uniform `padding(16)` so the
+            // button was 8dp narrower horizontally and the CTA-to-Skip gap
+            // was 8dp wider vertically than iOS.
+            Column(
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
                 when (variant) {
                     "text" -> {
                         TextButton(

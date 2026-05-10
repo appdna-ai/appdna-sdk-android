@@ -1650,7 +1650,10 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                 }
                 Text(
                     text = loc?.invoke("block.${block.id}.item.$index", item) ?: item,
-                    style = if (block.style != null) StyleEngine.applyTextStyle(TextStyle(fontSize = 16.sp), block.style) else TextStyle(fontSize = 16.sp),
+                    // SPEC-401-A R56→R57 (Lens A R56 #8, P3) — list item base 17sp
+                    // matches iOS .body which inherits ambient default at
+                    // ContentBlockRendererView.swift:447 list item Text. Was 16sp.
+                    style = if (block.style != null) StyleEngine.applyTextStyle(TextStyle(fontSize = 17.sp), block.style) else TextStyle(fontSize = 17.sp),
                 )
             }
         }
@@ -2411,7 +2414,9 @@ private fun RatingBlock(
             val displayLabel = loc?.invoke("block.${block.id}.label", label) ?: label
             Text(
                 text = displayLabel,
-                fontSize = 14.sp,
+                // SPEC-401-A R56→R57 (Lens A R56 #6, P3) — 15sp matches iOS
+                // .subheadline (ContentBlockStandaloneViews.swift:23). Was 14sp.
+                fontSize = 15.sp,
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
@@ -3008,7 +3013,9 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                         // .secondary when block.text_color unset (iOS line 244).
                         Text(
                             text = label,
-                            fontSize = 14.sp,
+                            // SPEC-401-A R56→R57 (Lens A R56 #7, P3) — 15sp matches
+                            // iOS .subheadline (ContentBlockStandaloneViews.swift:243).
+                            fontSize = 15.sp,
                             color = if (block.text_color == null)
                                 MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             else textColor.copy(alpha = 0.7f),
@@ -5305,8 +5312,11 @@ private fun FormInputStepperBlock(
             }
             Text(
                 text = "$value$unitStr",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                // SPEC-401-A R56→R57 (Lens A R56 #9, P3) — 17sp Medium matches iOS
+                // .body.weight(.medium) (FormInputBlockViews.swift:1035). Was 18sp
+                // SemiBold — 1pt larger, one weight notch heavier.
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f),
                 textAlign = TextAlign.Center,
             )
