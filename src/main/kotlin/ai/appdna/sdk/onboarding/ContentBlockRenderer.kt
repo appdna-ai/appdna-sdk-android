@@ -6088,31 +6088,63 @@ private fun FormInputColorBlock(
     ) {
         FormFieldLabel(block)
 
-        androidx.compose.foundation.layout.FlowRow(
+        // SPEC-401-A R73 (Lens A P2 #1) — fixed 5-col grid matches iOS
+        // FormInputBlockViews.swift:1257 `LazyVGrid(columns: 5)`. FlowRow
+        // packed 7-10+ swatches per row depending on screen width while
+        // iOS always renders 2×5 layout for 10 colors. Same authored
+        // preset rendered visibly different across phones / iOS.
+        val cols = 5
+        val chunked = presetColors.chunked(cols)
+        Column(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            presetColors.forEach { color ->
-                val isSelected = selectedColor == color
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
-                        .background(StyleEngine.parseColor(color))
-                        .border(
-                            width = if (isSelected) 3.dp else 0.dp,
-                            // SPEC-401-A R44 — theme-adaptive selection ring
-                            // (was Color.DarkGray — invisible on dark surface).
-                            // iOS uses Color.primary at FormInputBlockViews.swift:1264.
-                            color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
-                            shape = CircleShape,
-                        )
-                        .clickable {
-                            selectedColor = color
-                            inputValues[fieldId] = color
-                        },
-                )
+            chunked.forEach { rowColors ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    rowColors.forEach { color ->
+                        val isSelected = selectedColor == color
+                        // SPEC-401-A R73 (Lens A P2 #2) — selection-ring inset
+                        // mirrors iOS FormInputBlockViews.swift:1264-1266
+                        // `.stroke(...).padding(2)`: outer Box draws the ring,
+                        // inner Box (the swatch fill) sits with 2dp inset so a
+                        // 2dp halo gap separates ring from color. Was drawing
+                        // border directly on the swatch — visually thickened
+                        // it by 3dp instead of overlaying with a gap.
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .aspectRatio(1f)
+                                .clip(CircleShape)
+                                .border(
+                                    width = if (isSelected) 2.dp else 0.dp,
+                                    // SPEC-401-A R44 — theme-adaptive selection ring
+                                    // (was Color.DarkGray — invisible on dark surface).
+                                    // iOS uses Color.primary at FormInputBlockViews.swift:1264.
+                                    color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                                    shape = CircleShape,
+                                )
+                                .clickable {
+                                    selectedColor = color
+                                    inputValues[fieldId] = color
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(if (isSelected) 4.dp else 0.dp)
+                                    .clip(CircleShape)
+                                    .background(StyleEngine.parseColor(color))
+                            )
+                        }
+                    }
+                    // Pad shorter last row so swatches stay same width as
+                    // full-row swatches (avoids stretching to full width).
+                    repeat(cols - rowColors.size) { Spacer(Modifier.weight(1f)) }
+                }
             }
         }
     }
