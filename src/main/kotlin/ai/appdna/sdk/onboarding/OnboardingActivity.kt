@@ -2870,15 +2870,19 @@ private fun BlockBasedStepView(
 
 @Composable
 private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
+    // SPEC-401-A R55 (Lens A R53 #3, P2) — outer Column uses
+    // verticalArrangement = spacedBy(24.dp) matching iOS
+    // WelcomeStepView.swift VStack(spacing: 24). All explicit
+    // Spacer(Modifier.height(...)) drops are folded into the spacing
+    // so iOS and Android compute identical inter-element gaps.
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth().fillMaxHeight()
+        modifier = Modifier.fillMaxWidth().fillMaxHeight(),
+        verticalArrangement = Arrangement.spacedBy(24.dp),
     ) {
         // SPEC-401-A — flexible top spacer instead of fixed 48dp.
         // iOS uses Spacer() top + Spacer() between image-block and
         // CTA so the content vertically centers on tall screens.
-        // Fixed 48dp top-aligned the content; on tablets the layout
-        // looked top-heavy compared to iOS.
         Spacer(Modifier.weight(1f))
         // SPEC-401-A — legacy step image_url. Mirrors iOS WelcomeStepView
         // .swift:13-21 — 280×280dp ContentScale.Fit (matches scaledToFit)
@@ -2895,7 +2899,6 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
                     .clip(RoundedCornerShape(16.dp)),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
-            Spacer(Modifier.height(24.dp))
         }
         config.title?.let {
             // SPEC-401-A R48 (Lens A #2) — iOS .largeTitle ≈ 34pt
@@ -2913,8 +2916,8 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
             )
         }
         config.subtitle?.let {
-            Spacer(Modifier.height(12.dp))
             // SPEC-401-A R48 (Lens A #4) — horizontal padding 32dp.
+            // Title→subtitle gap supplied by outer spacedBy(24).
             Text(
                 text = it.interpolated(),
                 fontSize = 16.sp,
@@ -2925,9 +2928,7 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         }
         // SPEC-401-A R9 — match iOS WelcomeStepView.swift:10,47 vertical
         // distribution: `Spacer()` top + `Spacer()` bottom so content
-        // vertically centers on tall screens. Previous Android layout
-        // used a single top weight + fixed gaps; on tablets the title
-        // group sat top-heavy with a wide gap between CTA and bottom edge.
+        // vertically centers on tall screens.
         Spacer(Modifier.weight(1f))
         // SPEC-401-A R48 (Lens A #1+#5) — CTA height 54dp matching iOS
         // .frame(height: 54); horizontal/bottom padding matching iOS
