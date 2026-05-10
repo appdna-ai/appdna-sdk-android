@@ -935,7 +935,16 @@ internal object OnboardingConfigParser {
                             // Console-authored per-option styling now reaches
                             // the renderer instead of being dropped on parse.
                             InputOption(
-                                value = fm["id"] as? String ?: fm["value"] as? String ?: "",
+                                // SPEC-401-A R37 — match iOS canonical
+                                // value-first fallback (ContentBlockTypes.swift:358-360
+                                // `let rawValue = decode(.value); self.value =
+                                // rawValue ?? rawId`). Was id-first → response
+                                // payload reported display id instead of
+                                // authored canonical answer code, breaking
+                                // server-side analytics joins + next_step_rule
+                                // comparisons + webhook payloads when console
+                                // author set both id and value.
+                                value = fm["value"] as? String ?: fm["id"] as? String ?: "",
                                 label = fm["label"] as? String ?: "",
                                 image_url = fm["image_url"] as? String,
                                 id = fm["id"] as? String,
@@ -1150,6 +1159,52 @@ internal object OnboardingConfigParser {
                     // is a colon-encoded ratio string ("1:2") on both platforms
                     // (iOS ContentBlockTypes.swift, Android data class line 634).
                     column_ratios = bm["column_ratios"] as? String,
+
+                    // SPEC-401-A R37 Lens A — same-pattern parser drift
+                    // continuation of R36. These four fields are declared on the
+                    // data class + read first by their respective renderers but
+                    // never populated from JSON.
+
+                    // P0 — `field_style` envelope (FormFieldBlockStyle, 17
+                    // styling tokens) is read by every form_input_* renderer
+                    // (text/slider/select/chips/rating/toggle/etc) but parser
+                    // dropped it entirely; console-authored field styling
+                    // silently fell through to hardcoded defaults
+                    // (#D1D5DB borders, 8.0 radius, #374151 labels).
+                    field_style = (bm["field_style"] as? Map<*, *>)?.let { fs ->
+                        FormFieldBlockStyle(
+                            background_color = fs["background_color"] as? String,
+                            border_color = fs["border_color"] as? String,
+                            border_width = (fs["border_width"] as? Number)?.toDouble(),
+                            corner_radius = (fs["corner_radius"] as? Number)?.toDouble(),
+                            text_color = fs["text_color"] as? String,
+                            placeholder_color = fs["placeholder_color"] as? String,
+                            font_size = (fs["font_size"] as? Number)?.toDouble(),
+                            focused_border_color = fs["focused_border_color"] as? String,
+                            label_color = fs["label_color"] as? String,
+                            label_font_size = (fs["label_font_size"] as? Number)?.toDouble(),
+                            error_border_color = fs["error_border_color"] as? String,
+                            error_text_color = fs["error_text_color"] as? String,
+                            track_color = fs["track_color"] as? String,
+                            fill_color = fs["fill_color"] as? String,
+                            thumb_color = fs["thumb_color"] as? String,
+                            toggle_on_color = fs["toggle_on_color"] as? String,
+                            toggle_off_color = fs["toggle_off_color"] as? String,
+                        )
+                    },
+
+                    // P1 — `filled_segments` parser previously folded it into
+                    // active_segments fallback, but renderer at
+                    // ContentBlockRenderer.kt:2561 reads filled_segments first
+                    // (`block.filled_segments ?: block.active_segments`).
+                    // Author intent was lost when only filled_segments was set.
+                    filled_segments = (bm["filled_segments"] as? Number)?.toInt(),
+
+                    // P1 — Rating canonical iOS-first names (R3 added the
+                    // renderer fallback at lines 2301-2306 but parser never
+                    // reads them; rating fell through to default colours).
+                    filled_color = bm["filled_color"] as? String,
+                    empty_color = bm["empty_color"] as? String,
                     z_index = (bm["z_index"] as? Number)?.toDouble(),
                     image_fit = bm["image_fit"] as? String,
                     view_key = bm["view_key"] as? String,

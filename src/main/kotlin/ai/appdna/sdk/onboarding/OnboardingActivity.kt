@@ -35,7 +35,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextAlign
@@ -1436,7 +1440,12 @@ internal fun OnboardingFlowHost(
                     text = errorMessage ?: "",
                     color = Color.White,
                     fontSize = 14.sp,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        // SPEC-401-A R37 (Lens C #4) — assertive a11y
+                        // announce when the error banner mounts. iOS auto-
+                        // announces SwiftUI Text inserted into the hierarchy.
+                        .semantics { liveRegion = LiveRegionMode.Assertive },
                 )
                 val errorDismissCd = stringResource(R.string.appdna_a11y_onboarding_dismiss_error)
                 IconButton(
@@ -1480,7 +1489,11 @@ internal fun OnboardingFlowHost(
                     text = successMessage ?: "",
                     color = Color.White,
                     fontSize = 14.sp,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        // SPEC-401-A R37 (Lens C #4) — polite a11y announce
+                        // for success banner mount (lower priority than error).
+                        .semantics { liveRegion = LiveRegionMode.Polite },
                 )
                 val successDismissCd = stringResource(R.string.appdna_a11y_onboarding_dismiss_success)
                 IconButton(
@@ -1519,6 +1532,16 @@ internal fun OnboardingFlowHost(
                                 event.changes.forEach { it.consume() }
                             }
                         }
+                    }
+                    // SPEC-401-A R37 (Lens C #3) — TalkBack announcement
+                    // when overlay appears + traversal trap. iOS SwiftUI
+                    // ProgressView is auto-announced by VoiceOver and modal
+                    // overlays trap a11y focus. Compose needs explicit
+                    // liveRegion + isTraversalGroup.
+                    .semantics(mergeDescendants = true) {
+                        liveRegion = LiveRegionMode.Polite
+                        contentDescription = loadingText
+                        isTraversalGroup = true
                     },
                 contentAlignment = Alignment.Center
             ) {
@@ -2741,6 +2764,9 @@ private fun BlockBasedStepView(
                     text = validationMessage ?: "",
                     color = Color.White,
                     fontSize = 14.sp,
+                    // SPEC-401-A R37 (Lens C #4) — assertive announce so
+                    // screen-reader users know why Continue didn't advance.
+                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
                 )
             }
         }

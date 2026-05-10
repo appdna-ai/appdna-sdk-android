@@ -63,6 +63,7 @@ import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.roundToInt
@@ -2336,6 +2337,16 @@ private fun RatingBlock(
         Row(
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
+            // SPEC-401-A R37 (Lens C #2) — combine per-star semantics into
+            // one a11y element + announce current rating as state.
+            // iOS ContentBlockStandaloneViews.swift:47,54-55 wraps the
+            // HStack with `accessibilityElement(children: .combine)` +
+            // `accessibilityValue("X of Y stars")`. Without this TalkBack
+            // reads "Star 1, Star 2, ... Star 5" but never the chosen value.
+            modifier = Modifier.semantics(mergeDescendants = true) {
+                contentDescription = "Rating"
+                stateDescription = "${selectedRating} of $maxStars stars"
+            },
         ) {
             for (i in 1..maxStars) {
                 // SPEC-401-A R3 — half-star rendering when allow_half:
