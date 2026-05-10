@@ -2224,10 +2224,46 @@ private fun PaywallCountdownSection(
     loc: (String, String) -> String,
 ) {
     val duration = section.data?.duration_seconds ?: section.data?.countdown_seconds ?: 3600
+    // SPEC-401-A R76 (Lens C P1) — render label + layout (boxed/banner/
+    // inline) + background_color matching iOS PaywallRenderer.swift
+    // :875-901 `countdownSectionView`. DTOs already carry `label`,
+    // `label_text`, `background_color` (PaywallConfig.kt:168/182/237) and
+    // decoder maps them — pure renderer gap before this fix. Console-
+    // authored "Offer ends in 23:59:42" boxed banner with red-tinted
+    // backdrop now renders identically across platforms.
+    val labelText = section.data?.label_text ?: section.data?.label
+    val layout = section.data?.layout ?: ""
+    val bgHex = section.data?.background_color ?: when (layout) {
+        "boxed", "banner" -> "#FEF2F2"
+        else -> null
+    }
+    val bgColor = bgHex?.let { parseHexColor(it) }
+    val cornerRadius = when (layout) {
+        "boxed" -> 12.dp
+        "banner" -> 0.dp
+        else -> 0.dp
+    }
+    val needsContainer = layout == "boxed" || layout == "banner" || bgColor != null
+
+    val outerModifier = Modifier.fillMaxWidth()
+        .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
+        .let { if (needsContainer && bgColor != null) it.background(bgColor, RoundedCornerShape(cornerRadius)) else it }
+        .let { if (needsContainer) it.padding(vertical = 12.dp, horizontal = 16.dp) else it }
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+        modifier = outerModifier,
     ) {
+        if (!labelText.isNullOrBlank()) {
+            Text(
+                text = loc("countdown.label", labelText),
+                color = section.data?.label_color?.let { parseHexColor(it) }
+                    ?: parseHexColor("#7F1D1D"),
+                fontSize = (section.data?.label_font_size ?: 14f).sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
         CountdownTimer(
             seconds = duration,
             valueTextStyle = section.style?.elements?.get("value")?.text_style,

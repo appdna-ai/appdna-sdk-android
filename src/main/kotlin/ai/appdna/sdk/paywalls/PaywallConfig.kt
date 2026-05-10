@@ -183,6 +183,12 @@ data class PaywallSectionData(
     val label_color: String? = null,
     val label_bg_color: String? = null,
     val label_font_size: Float? = null,
+    // SPEC-401-A R76 (Lens C P1) — countdown section layout selector
+    // ("boxed", "banner", or null/inline) matching iOS PaywallRenderer.swift
+    // :875-901. Determines whether the countdown timer renders inside a
+    // RoundedRectangle (boxed = 12dp corner) or a Rectangle (banner = 0dp)
+    // with `background_color` fill, or naked inline.
+    val layout: String? = null,
 
     // SPEC-089d: Sticky footer section
     val cta_text: String? = null,
@@ -942,6 +948,8 @@ internal object PaywallConfigParser {
                 label_color = d["label_color"] as? String,
                 label_bg_color = d["label_bg_color"] as? String,
                 label_font_size = (d["label_font_size"] as? Number)?.toFloat(),
+                // SPEC-401-A R76 (Lens C P1) — countdown layout selector.
+                layout = d["layout"] as? String,
                 // SPEC-089d: Sticky footer section
                 cta_text = d["cta_text"] as? String,
                 cta_bg_color = d["cta_bg_color"] as? String,

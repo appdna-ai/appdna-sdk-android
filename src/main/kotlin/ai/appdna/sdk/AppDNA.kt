@@ -1311,9 +1311,17 @@ object AppDNA {
      * Register a callback that fires when the SDK is fully initialized.
      */
     fun onReady(callback: () -> Unit) {
+        // SPEC-401-A R76 (Lens B P2) — always invoke `callback` on the main
+        // thread, matching iOS AppDNA.swift:733-741 + :1098-1102 which
+        // wraps with `DispatchQueue.main.async`. Was running inline on the
+        // synchronized(this) thread (which could be Main if called from
+        // Activity.onCreate, but a worker/coroutine context kept the
+        // callback on a background thread — host code touching findViewById
+        // / Compose recomposition / ViewModel mutation in `onReady` would
+        // throw or violate main-thread contract).
         synchronized(this) {
             if (isConfigured) {
-                callback()
+                android.os.Handler(android.os.Looper.getMainLooper()).post(callback)
             } else {
                 readyCallbacks.add(callback)
             }
@@ -1444,8 +1452,14 @@ object AppDNA {
 
             val callbacks = ArrayList(readyCallbacks)
             readyCallbacks.clear()
+            // SPEC-401-A R76 (Lens B P2) — bootstrap drain runs on
+            // Dispatchers.IO. Force `cb()` onto Main matching iOS
+            // AppDNA.swift:1098-1102 `DispatchQueue.main.async { cb() }`.
+            // Hosts touching findViewById / Compose / ViewModel in onReady
+            // would otherwise crash on the cold path.
+            val main = android.os.Handler(android.os.Looper.getMainLooper())
             for (cb in callbacks) {
-                cb()
+                main.post(cb)
             }
         }
     }
