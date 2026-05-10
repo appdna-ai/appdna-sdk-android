@@ -907,6 +907,13 @@ internal object OnboardingConfigParser {
                                 label = lm["label"] as? String ?: "",
                                 duration_ms = (lm["duration_ms"] as? Number)?.toInt() ?: 1000,
                                 icon = lm["icon"] as? String,
+                                // SPEC-401-A R35 orbit-variant per-item fields.
+                                // Until R36 these were declared on LoadingItem
+                                // but never read from JSON.
+                                icon_url = lm["icon_url"] as? String,
+                                icon_bg_color = lm["icon_bg_color"] as? String,
+                                icon_size = (lm["icon_size"] as? Number)?.toFloat(),
+                                icon_orbit_angle = (lm["icon_orbit_angle"] as? Number)?.toFloat(),
                             )
                         } else null
                     }?.toImmutableList(),
@@ -999,6 +1006,156 @@ internal object OnboardingConfigParser {
                     wrap = bm["wrap"] as? Boolean,
                     justify = bm["justify"] as? String,
                     align_items = bm["align_items"] as? String,
+
+                    // ============================================================
+                    // SPEC-401-A R36 — Lens A P0 systemic parser drift fix.
+                    // Many ContentBlock fields were declared on the data class
+                    // and read by the renderer (often added by R3/R7/R10/R13/
+                    // R15/R16/R35) but never populated from the Firestore JSON
+                    // payload. Each "honour canonical first" fix was thus
+                    // shadowed by the parser; console-authored values silently
+                    // fell through to defaults. Adding all of them here so
+                    // every prior R-round renderer fix actually receives data.
+                    // ============================================================
+
+                    // Lottie/Rive canonical short names (iOS ContentBlockTypes.swift).
+                    // Console flow.schema.ts:225-244 emits these — NOT the
+                    // legacy `lottie_*`/`rive_*` aliases — so authoring
+                    // `autoplay: false` was always lost on Android.
+                    autoplay = bm["autoplay"] as? Boolean,
+                    loop = bm["loop"] as? Boolean,
+                    muted = bm["muted"] as? Boolean,
+                    controls = bm["controls"] as? Boolean,
+                    inline_playback = bm["inline_playback"] as? Boolean,
+                    lottie_height = (bm["lottie_height"] as? Number)?.toDouble(),
+                    lottie_width = (bm["lottie_width"] as? Number)?.toDouble(),
+                    play_on_scroll = bm["play_on_scroll"] as? Boolean,
+                    play_on_tap = bm["play_on_tap"] as? Boolean,
+                    color_overrides = (bm["color_overrides"] as? Map<*, *>)?.entries
+                        ?.mapNotNull { (k, v) ->
+                            val ks = k as? String ?: return@mapNotNull null
+                            val vs = v as? String ?: return@mapNotNull null
+                            ks to vs
+                        }?.toMap(),
+                    artboard = bm["artboard"] as? String,
+                    state_machine = bm["state_machine"] as? String,
+                    rive_inputs = @Suppress("UNCHECKED_CAST") (bm["rive_inputs"] as? Map<String, Any>),
+                    trigger_on_step_complete = bm["trigger_on_step_complete"] as? String,
+
+                    // PricingCard fields (iOS ContentBlockTypes.swift PricingPlan).
+                    // PricingCardBlock at ContentBlockRenderer.kt:4006 reads
+                    // block.pricing_plans which was always null — card always
+                    // empty.
+                    pricing_plans = (bm["pricing_plans"] as? List<*>)?.mapNotNull { pp ->
+                        if (pp is Map<*, *>) {
+                            @Suppress("UNCHECKED_CAST")
+                            val pm = pp as Map<String, Any>
+                            PricingPlan(
+                                id = pm["id"] as? String ?: "",
+                                label = pm["label"] as? String ?: pm["title"] as? String ?: "",
+                                price = pm["price"] as? String ?: "",
+                                period = pm["period"] as? String ?: "",
+                                badge = pm["badge"] as? String,
+                                is_highlighted = pm["is_highlighted"] as? Boolean
+                                    ?: pm["highlighted"] as? Boolean
+                                    ?: false,
+                            )
+                        } else null
+                    }?.toImmutableList(),
+                    pricing_layout = bm["pricing_layout"] as? String,
+
+                    // Rich text canonical (R4)
+                    markdown_content = bm["markdown_content"] as? String,
+                    rich_text_variant = bm["rich_text_variant"] as? String,
+
+                    // Social-login R13 below-inputs CTA layout
+                    email_login_placement = bm["email_login_placement"] as? String,
+                    email_cta_spacing_below = (bm["email_cta_spacing_below"] as? Number)?.toDouble(),
+
+                    // Rating canonical R3
+                    default_rating = (bm["default_rating"] as? Number)?.toDouble(),
+                    rating_label = bm["rating_label"] as? String,
+
+                    // ProgressBar canonical (Phase F + R3)
+                    total_segments = (bm["total_segments"] as? Number)?.toInt(),
+                    progress_value = (bm["progress_value"] as? Number)?.toDouble(),
+                    progress_variant = bm["progress_variant"] as? String,
+                    bar_color = bm["bar_color"] as? String,
+                    bar_height = (bm["bar_height"] as? Number)?.toDouble(),
+
+                    // WheelPicker (Phase F + R35 horizontal/haptic)
+                    min_value = (bm["min_value"] as? Number)?.toDouble(),
+                    max_value_picker = (bm["max_value_picker"] as? Number)?.toDouble(),
+                    step_value = (bm["step_value"] as? Number)?.toDouble(),
+                    default_picker_value = (bm["default_picker_value"] as? Number)?.toDouble(),
+                    unit = bm["unit"] as? String,
+                    unit_position = bm["unit_position"] as? String,
+                    visible_items = (bm["visible_items"] as? Number)?.toInt(),
+                    wheel_orientation = bm["wheel_orientation"] as? String,
+                    orientation = bm["orientation"] as? String,
+                    highlight_color = bm["highlight_color"] as? String,
+                    haptic_on_scroll = bm["haptic_on_scroll"] as? Boolean,
+
+                    // DateWheelPicker (Phase F)
+                    min_date = bm["min_date"] as? String,
+                    max_date = bm["max_date"] as? String,
+                    default_date_value = bm["default_date_value"] as? String,
+
+                    // PulsingAvatar (Phase F + R3)
+                    pulse_color = bm["pulse_color"] as? String,
+                    pulse_ring_count = (bm["pulse_ring_count"] as? Number)?.toInt(),
+                    pulse_speed = (bm["pulse_speed"] as? Number)?.toDouble(),
+                    border_width = (bm["border_width"] as? Number)?.toDouble(),
+                    border_color = bm["border_color"] as? String,
+                    image_shape = bm["image_shape"] as? String,
+                    image_corner_radius = (bm["image_corner_radius"] as? Number)?.toDouble(),
+                    badge_position = bm["badge_position"] as? String,
+                    badge_size = (bm["badge_size"] as? Number)?.toDouble(),
+
+                    // StarBackground (Phase F) — density/speed are String tokens
+                    // ("low"/"medium"/"high", "slow"/"normal"/"fast") on the
+                    // data class; iOS reads the same shape.
+                    particle_type = bm["particle_type"] as? String,
+                    density = bm["density"] as? String,
+                    speed = bm["speed"] as? String,
+                    secondary_color = bm["secondary_color"] as? String,
+                    size_range = (bm["size_range"] as? List<*>)?.mapNotNull { (it as? Number)?.toDouble() }?.toImmutableList(),
+                    fullscreen = bm["fullscreen"] as? Boolean,
+
+                    // CircularGauge (Phase F — block previously rendered fully default)
+                    gauge_value = (bm["gauge_value"] as? Number)?.toDouble(),
+                    max_value = (bm["max_value"] as? Number)?.toDouble(),
+                    gauge_variant = bm["gauge_variant"] as? String,
+                    gradient_start_color = bm["gradient_start_color"] as? String,
+                    gradient_end_color = bm["gradient_end_color"] as? String,
+                    arrow_color = bm["arrow_color"] as? String,
+                    arrow_stroke_width = (bm["arrow_stroke_width"] as? Number)?.toDouble(),
+                    min_label = bm["min_label"] as? String,
+                    max_label = bm["max_label"] as? String,
+                    min_max_font_size = (bm["min_max_font_size"] as? Number)?.toDouble(),
+                    min_max_color = bm["min_max_color"] as? String,
+                    percentage_location = bm["percentage_location"] as? String,
+                    sublabel = bm["sublabel"] as? String,
+                    stroke_width = (bm["stroke_width"] as? Number)?.toDouble(),
+                    label_color = bm["label_color"] as? String,
+                    label_font_size = (bm["label_font_size"] as? Number)?.toDouble(),
+                    animate = bm["animate"] as? Boolean,
+                    animation_duration_ms = (bm["animation_duration_ms"] as? Number)?.toInt(),
+
+                    // AnimatedLoading variant (R3) — block.variant alias works,
+                    // but loading_variant is the canonical name iOS reads.
+                    loading_variant = bm["loading_variant"] as? String,
+
+                    // Container/positioning (multiple R-rounds) — column_ratios
+                    // is a colon-encoded ratio string ("1:2") on both platforms
+                    // (iOS ContentBlockTypes.swift, Android data class line 634).
+                    column_ratios = bm["column_ratios"] as? String,
+                    z_index = (bm["z_index"] as? Number)?.toDouble(),
+                    image_fit = bm["image_fit"] as? String,
+                    view_key = bm["view_key"] as? String,
+                    custom_config = @Suppress("UNCHECKED_CAST") (bm["custom_config"] as? Map<String, Any>),
+                    placeholder_image_url = bm["placeholder_image_url"] as? String,
+                    placeholder_text = bm["placeholder_text"] as? String,
                 )
             } else null
         }?.toImmutableList()
@@ -1023,6 +1180,17 @@ internal object OnboardingConfigParser {
                 type = bg["type"] as? String, color = bg["color"] as? String,
                 gradient = gradient, image_url = bg["image_url"] as? String,
                 image_fit = bg["image_fit"] as? String, overlay = bg["overlay"] as? String,
+                // SPEC-401-A R36 — R15 + R35 fixes shadowed because parser
+                // never read these. overlay_opacity drives the dim layer over
+                // image/lottie/rive backgrounds; lottie_url + animation_loop
+                // wire R15's full-screen Lottie branch; rive_url wires R35's
+                // full-screen Rive branch. Without these parsed, the
+                // canonical iOS-style background payload silently rendered as
+                // theme default.
+                overlay_opacity = (bg["overlay_opacity"] as? Number)?.toDouble(),
+                lottie_url = bg["lottie_url"] as? String,
+                animation_loop = bg["animation_loop"] as? Boolean,
+                rive_url = bg["rive_url"] as? String,
             )
         }
 

@@ -7,7 +7,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.animation.*
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -1049,6 +1052,15 @@ internal fun OnboardingFlowHost(
                 //   default / "continuous_bar" — LinearProgressIndicator (existing)
                 val totalSteps = flow.steps.size.coerceAtLeast(1)
                 val current = (currentIndex + 1).coerceIn(1, totalSteps)
+                // SPEC-401-A R36 (Lens C #3) — animate progress style transitions
+                // to mirror iOS .animation(.easeInOut(duration: 0.2-0.3)) on
+                // OnboardingRenderer.swift:199, 211, 235. Was snapping per
+                // step → visible flicker on each `next`.
+                val animatedProgress by animateFloatAsState(
+                    targetValue = progress,
+                    animationSpec = tween(durationMillis = 300),
+                    label = "progressAnim",
+                )
                 when (flow.settings.progress_style?.lowercase()) {
                     "none" -> { /* explicit suppress */ }
                     "dots" -> {
@@ -1058,11 +1070,21 @@ internal fun OnboardingFlowHost(
                         ) {
                             for (i in 1..totalSteps) {
                                 val filled = i <= current
+                                val animatedSize by animateDpAsState(
+                                    targetValue = if (filled) 10.dp else 8.dp,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "dotSize",
+                                )
+                                val animatedColor by animateColorAsState(
+                                    targetValue = if (filled) progressColor else progressTrackColor,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "dotColor",
+                                )
                                 Box(
                                     modifier = Modifier
-                                        .size(if (filled) 10.dp else 8.dp)
+                                        .size(animatedSize)
                                         .clip(androidx.compose.foundation.shape.CircleShape)
-                                        .background(if (filled) progressColor else progressTrackColor),
+                                        .background(animatedColor),
                                 )
                             }
                         }
@@ -1074,12 +1096,17 @@ internal fun OnboardingFlowHost(
                         ) {
                             for (i in 1..totalSteps) {
                                 val filled = i <= current
+                                val animatedColor by animateColorAsState(
+                                    targetValue = if (filled) progressColor else progressTrackColor,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "segColor",
+                                )
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(4.dp)
                                         .clip(RoundedCornerShape(2.dp))
-                                        .background(if (filled) progressColor else progressTrackColor),
+                                        .background(animatedColor),
                                 )
                             }
                         }
@@ -1107,7 +1134,7 @@ internal fun OnboardingFlowHost(
                         // form. Pre-emptive switch silences runtime warnings
                         // and unblocks the next BOM bump.
                         LinearProgressIndicator(
-                            progress = { progress },
+                            progress = { animatedProgress },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),
@@ -1477,7 +1504,22 @@ internal fun OnboardingFlowHost(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.5f)),
+                    .background(Color.Black.copy(alpha = 0.5f))
+                    // SPEC-401-A R36 (Lens C #2) — consume pointer events so
+                    // step CTAs underneath stop receiving taps during async
+                    // webhook waits. iOS uses `.ignoresSafeArea()` on a
+                    // hit-testable Color (OnboardingRenderer.swift:296-313).
+                    // Compose Box.background paints but doesn't consume hits;
+                    // users could double-fire `next`/`continue` during the
+                    // 300ms-3s loading spinner.
+                    .pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                event.changes.forEach { it.consume() }
+                            }
+                        }
+                    },
                 contentAlignment = Alignment.Center
             ) {
                 Card(
@@ -2060,7 +2102,21 @@ private fun ThreeZoneBlockLayout(
     val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
 
-    androidx.compose.foundation.layout.Box(modifier = modifier.fillMaxSize()) {
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier
+            .fillMaxSize()
+            // SPEC-401-A R36 (Lens C #1) — root-level keyboard dismiss to
+            // match iOS OnboardingRenderer.swift:123-129. Was scoped to the
+            // inner scroll Column only, so taps in the bottom-zone gutter,
+            // nav-bar gutter, or progress-bar gutter left the keyboard up
+            // and the user got stuck.
+            .pointerInput(Unit) {
+                detectTapGestures {
+                    keyboardController?.hide()
+                    focusManager.clearFocus()
+                }
+            },
+    ) {
         // ── TOP + CENTER (scrollable, keyboard-aware) ─────────────────────
         if (onlyCenterContent) {
             // Only center content (e.g. loading spinner) — vertically center it.
@@ -2094,13 +2150,7 @@ private fun ThreeZoneBlockLayout(
                     .fillMaxSize()
                     .padding(bottom = if (bottom.isNotEmpty()) 80.dp else 0.dp)
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = horizontalPadding)
-                    .pointerInput(Unit) {
-                        detectTapGestures {
-                            keyboardController?.hide()
-                            focusManager.clearFocus()
-                        }
-                    },
+                    .padding(horizontal = horizontalPadding),
             ) {
                 if (top.isNotEmpty()) {
                     Spacer(modifier = Modifier.height(16.dp))
