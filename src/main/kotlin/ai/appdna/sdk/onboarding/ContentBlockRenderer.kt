@@ -311,14 +311,24 @@ fun Modifier.applyBlockPosition(
 
     var mod = this
 
-    // Offset
-    if (verticalOffset != null || horizontalOffset != null) {
-        mod = mod.then(
-            Modifier.offset(
-                x = (horizontalOffset ?: 0.0).dp,
-                y = (verticalOffset ?: 0.0).dp,
-            )
-        )
+    // SPEC-401-A R65 (Lens A P1 #2) — positive vertical_offset participates
+    // in layout via top padding (siblings shift down + scrollable parents
+    // can scroll the full content). Negative offset stays as Modifier.offset
+    // (no negative padding). Mirrors iOS BlockPositionModifier at
+    // ContentBlockTypes.swift:469-498 — comment there: "Positive
+    // vertical_offset participates in layout (top padding) so scrollable
+    // zones can still scroll the full content. Negative offsets stay as
+    // `.offset` since there's no negative padding."
+    val yOffset = verticalOffset ?: 0.0
+    val xOffset = horizontalOffset ?: 0.0
+    val topPaddingDp = if (yOffset > 0.0) yOffset.dp else 0.dp
+    val residualYDp = if (yOffset < 0.0) yOffset.dp else 0.dp
+
+    if (topPaddingDp.value > 0f) {
+        mod = mod.then(Modifier.padding(top = topPaddingDp))
+    }
+    if (residualYDp.value != 0f || xOffset != 0.0) {
+        mod = mod.then(Modifier.offset(x = xOffset.dp, y = residualYDp))
     }
 
     return mod
@@ -1705,14 +1715,22 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
 
 @Composable
 private fun DividerBlock(block: ContentBlock) {
-    Spacer(modifier = Modifier.height((block.divider_margin_y ?: 8.0).dp))
+    // SPEC-401-A R65 (Lens A P1) — port iOS ContentBlockRendererView.swift
+    // :473-478 single `Rectangle().padding(.vertical, divider_margin_y)`.
+    // Was emitting 3 children (Spacer/Box/Spacer) into the parent
+    // `RenderBlock`'s `Box(modifier = contentModifier) { … }` — Compose
+    // Box stacks children at the same z-position (NOT a Column), so the
+    // two zero-width Spacers rendered no pixels and the line ended up
+    // pinned to the top of an 8dp-tall Box. `divider_margin_y` was
+    // functionally dead since written. Use single Box with vertical
+    // padding to mirror iOS exactly.
     Box(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(vertical = (block.divider_margin_y ?: 8.0).dp)
             .height((block.divider_thickness ?: 1.0).dp)
             .background(StyleEngine.parseColor(block.divider_color ?: "#E5E7EB")),
     )
-    Spacer(modifier = Modifier.height((block.divider_margin_y ?: 8.0).dp))
 }
 
 @Composable

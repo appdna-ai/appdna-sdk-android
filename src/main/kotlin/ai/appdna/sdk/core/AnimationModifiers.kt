@@ -13,6 +13,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -53,10 +54,17 @@ fun Modifier.entryAnimation(animation: String?, durationMs: Int? = null): Modifi
         label = "entry_offset",
     )
 
+    // SPEC-401-A R65 (Lens C P2) — `Modifier.offset { IntOffset(...) }` lambda
+    // form is pixel-space, NOT dp. iOS `.offset(y: 800)` is point-space (dp
+    // equivalent). Same payload renders 800dp displacement on mdpi (1x) but
+    // only 200dp on xhdpi (2x), 100dp on xxhdpi (3x). Convert dp→px via
+    // LocalDensity so all densities behave like iOS.
+    val density = LocalDensity.current
+    val offsetYPx = with(density) { offsetY.dp.toPx() }
     return this
         .alpha(alpha)
         .scale(scaleVal)
-        .offset { IntOffset(0, offsetY.toInt()) }
+        .offset { IntOffset(0, offsetYPx.toInt()) }
 }
 
 // MARK: - Section Stagger Animation
@@ -96,10 +104,17 @@ fun Modifier.sectionStagger(animation: String?, delayMs: Int? = null): Modifier 
         label = "stagger_scale",
     )
 
+    // SPEC-401-A R65 (Lens C P2) — sister of entryAnimation fix above:
+    // convert offsetX dp→px via LocalDensity so slide_in distance matches
+    // iOS `.offset(x: ±100)` point-space across all density buckets.
+    // Was raw 300f pixels: 300dp on mdpi (3x iOS), 150dp on xhdpi (1.5x),
+    // 100dp on xxhdpi (matched only by coincidence), 75dp on xxxhdpi.
+    val density = LocalDensity.current
+    val offsetXPx = with(density) { offsetX.dp.toPx() }
     return this
         .alpha(alpha)
         .scale(scaleVal)
-        .offset { IntOffset(offsetX.toInt(), 0) }
+        .offset { IntOffset(offsetXPx.toInt(), 0) }
 }
 
 // MARK: - CTA Animations
