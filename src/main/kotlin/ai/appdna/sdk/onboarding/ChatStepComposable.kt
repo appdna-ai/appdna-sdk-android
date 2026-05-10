@@ -832,15 +832,16 @@ private suspend fun fireWebhook(
         if (context.isNotEmpty()) {
             put("context", JSONObject(context as Map<*, *>))
         }
-        // `responses` mirrors iOS — top-level accumulated step responses.
-        // Read from SessionDataStore which the host onboarding accumulator
-        // writes into via `mergeData`.
-        ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
-            val accumulated = sds.getSessionData("onboarding.responses") as? Map<*, *>
-            if (accumulated != null && accumulated.isNotEmpty()) {
-                put("responses", JSONObject(accumulated))
-            }
-        }
+        // SPEC-401-A R29 — REMOVED top-level `responses` field. iOS
+        // ChatStepView.swift:467 sends `responses: nil` (Codable emits
+        // `"responses": null`); the prior comment claiming "mirrors iOS"
+        // was wrong. Android was injecting the entire onboarding-step
+        // response set (single/multi-select answers, form inputs incl.
+        // PII like name/email) into the chat-message payload — leaking
+        // those answers to the chat-AI vendor even when the chat webhook
+        // URL points to a separate vendor than the step-hook webhook.
+        // iOS only round-trips the AI server's own `data` field via the
+        // `context` key (already populated above).
     }
 
     val conn = (URL(url).openConnection() as HttpURLConnection).apply {
