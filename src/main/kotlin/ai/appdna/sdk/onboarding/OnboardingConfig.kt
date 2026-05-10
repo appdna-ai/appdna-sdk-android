@@ -1458,21 +1458,35 @@ internal object OnboardingConfigParser {
     @Suppress("UNCHECKED_CAST")
     internal fun parseBlockStyle(map: Map<String, Any>): BlockStyle {
         val shadowMap = map["shadow"] as? Map<String, Any>
+        // SPEC-401-A R38 — drop legacy parser defaults that walked back R26's
+        // iOS-parity correction. R26 set data-class defaults to color =
+        // "transparent" + y/blur/spread = 0 to match iOS's `.shadow(color:
+        // ?? "transparent", radius: blur ?? 0)/2` (ContentBlockTypes.swift:99-104).
+        // The parser still hardcoded `?: 2.0`, `?: 8.0`, `?: "#1A000000"`,
+        // so any authored partial-shadow JSON rendered as a 10%-black 8px
+        // y=2 shadow on Android while iOS rendered it transparent — same
+        // payload, two different shadows.
         val shadow = shadowMap?.let { s ->
             BlockShadowStyle(
                 x = (s["x"] as? Number)?.toDouble() ?: 0.0,
-                y = (s["y"] as? Number)?.toDouble() ?: 2.0,
-                blur = (s["blur"] as? Number)?.toDouble() ?: 8.0,
+                y = (s["y"] as? Number)?.toDouble() ?: 0.0,
+                blur = (s["blur"] as? Number)?.toDouble() ?: 0.0,
                 spread = (s["spread"] as? Number)?.toDouble() ?: 0.0,
-                color = s["color"] as? String ?: "#1A000000",
+                color = s["color"] as? String ?: "transparent",
             )
         }
         val gradientMap = map["background_gradient"] as? Map<String, Any>
+        // SPEC-401-A R38 — same R26 walk-back fix for BlockGradientStyle.
+        // R26 set defaults to angle=0/start=#000000/end=#FFFFFF to match iOS
+        // (ContentBlockTypes.swift:67-71,121). Parser was overriding with
+        // legacy AppDNA brand indigo→purple at 135° → identical JSON
+        // rendered black-to-white horizontal on iOS but indigo→purple
+        // diagonal on Android.
         val gradient = gradientMap?.let { g ->
             BlockGradientStyle(
-                angle = (g["angle"] as? Number)?.toDouble() ?: 135.0,
-                start = g["start"] as? String ?: "#6366f1",
-                end = g["end"] as? String ?: "#a855f7",
+                angle = (g["angle"] as? Number)?.toDouble() ?: 0.0,
+                start = g["start"] as? String ?: "#000000",
+                end = g["end"] as? String ?: "#FFFFFF",
             )
         }
         return BlockStyle(

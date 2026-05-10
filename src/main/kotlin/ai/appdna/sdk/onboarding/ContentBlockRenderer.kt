@@ -1737,11 +1737,15 @@ private fun VideoBlock(block: ContentBlock) {
         )
     } else {
         // Fallback: thumbnail with play icon overlay
+        // SPEC-401-A R38 (Lens C #1) — match iOS ContentBlockRendererView.swift:567
+        // `.accessibilityLabel(block.alt ?? "Video")` so screen-reader users
+        // know this is a video placeholder, not a decorative image.
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(effectiveHeight.dp)
-                .clip(RoundedCornerShape(effectiveCornerRadius.dp)),
+                .clip(RoundedCornerShape(effectiveCornerRadius.dp))
+                .semantics { contentDescription = block.alt ?: "Video" },
             contentAlignment = Alignment.Center,
         ) {
             ai.appdna.sdk.core.NetworkImage(
@@ -4872,9 +4876,15 @@ private fun FormInputStepperBlock(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // SPEC-401-A R38 (Lens C #3) — a11y labels on +/- buttons.
+            // Native iOS Stepper ships built-in "Decrement"/"Increment"
+            // labels via VoiceOver; Compose OutlinedButton wrapping a "-"/
+            // "+" Text glyph reads as just the punctuation character.
             OutlinedButton(
                 onClick = { if (value - stepVal >= minVal) { value -= stepVal; inputValues[fieldId] = value } },
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier
+                    .size(40.dp)
+                    .semantics { contentDescription = "Decrease" },
                 shape = CircleShape,
                 contentPadding = PaddingValues(0.dp),
             ) {
@@ -4889,7 +4899,9 @@ private fun FormInputStepperBlock(
             )
             OutlinedButton(
                 onClick = { if (value + stepVal <= maxVal) { value += stepVal; inputValues[fieldId] = value } },
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier
+                    .size(40.dp)
+                    .semantics { contentDescription = "Increase" },
                 shape = CircleShape,
                 contentPadding = PaddingValues(0.dp),
             ) {
@@ -4946,7 +4958,10 @@ private fun FormInputSegmentedBlock(
                 ) {
                     Text(
                         text = option.label,
-                        color = if (isSelected) Color.White else Color.DarkGray,
+                        // SPEC-401-A R38 (Lens C #5) — theme-aware unselected
+                        // text. Was Color.DarkGray which is invisible against
+                        // MaterialTheme.colorScheme.surface in dark mode.
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                         fontSize = 14.sp,
                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     )
@@ -5335,7 +5350,10 @@ private fun FormInputLocationPlaceholder(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                    .background(Color(0xFFF9FAFB))
+                    // SPEC-401-A R38 (Lens C #4) — theme-aware surface so the
+                    // suggestion list is readable in dark mode (was hardcoded
+                    // #F9FAFB white panel + Color.Black text).
+                    .background(MaterialTheme.colorScheme.surface)
                     .border(
                         1.dp,
                         StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
@@ -5357,7 +5375,7 @@ private fun FormInputLocationPlaceholder(
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
                     ) {
-                        Text(text = suggestion.address, fontSize = 14.sp, color = Color.Black)
+                        Text(text = suggestion.address, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                     }
                     if (index < suggestions.size - 1) {
                         // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
