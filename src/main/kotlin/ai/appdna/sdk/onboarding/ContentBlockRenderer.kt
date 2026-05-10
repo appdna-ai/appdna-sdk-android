@@ -57,6 +57,7 @@ import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.ui.semantics.contentDescription
@@ -4938,7 +4939,11 @@ private fun FormInputChipsBlock(
                             if (isSelected) fillCol else Color.Gray.copy(alpha = 0.3f),
                             RoundedCornerShape(999.dp),
                         )
-                        .background(if (isSelected) fillCol else Color.Gray.copy(alpha = 0.05f))
+                        // SPEC-401-A R21 — match iOS FormInputBlockViews.swift
+                        // :1220 idle background `Color.gray.opacity(0.1)`. Was
+                        // 0.05f (half opacity), making idle chips noticeably
+                        // fainter on Android for the same JSON.
+                        .background(if (isSelected) fillCol else Color.Gray.copy(alpha = 0.1f))
                         .clickable {
                             selectedValues = if (isSelected) {
                                 selectedValues - option.value
@@ -4956,7 +4961,14 @@ private fun FormInputChipsBlock(
                     Text(
                         text = option.label,
                         fontSize = 14.sp,
-                        color = if (isSelected) Color.White else Color.DarkGray,
+                        // SPEC-401-A R21 — match iOS FormInputBlockViews.swift
+                        // :1221 idle text uses `.primary` (theme-aware: black
+                        // in light mode, white in dark mode). Android was
+                        // hardcoding Color.DarkGray which renders dark-grey
+                        // on dark-grey backgrounds in dark mode (invisible).
+                        // MaterialTheme.colorScheme.onSurface gives the
+                        // equivalent theme-aware color on Android.
+                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -5259,8 +5271,12 @@ private fun FormInputImagePickerPlaceholder(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
+                    // SPEC-401-A R21 \u2014 match iOS FormInputBlockViews.swift
+                    // :1687,1704 which reads `field_style.border_width ?? 1`.
+                    // Android was hardcoding 1.dp, dropping any console-set
+                    // thickness on the populated thumbnail state.
                     .border(
-                        1.dp,
+                        ((block.field_style?.border_width ?: 1.0).toFloat()).dp,
                         StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
                         RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
                     )
@@ -5282,14 +5298,25 @@ private fun FormInputImagePickerPlaceholder(
                             .height(120.dp),
                     )
                 }
-                // Edit overlay icon
-                Text(
-                    text = "\u270F\uFE0F",
-                    fontSize = 20.sp,
+                // SPEC-401-A R21 \u2014 match iOS FormInputBlockViews.swift
+                // :1707-1712 edit overlay: filled white circle + pencil
+                // glyph + shadow. Android was rendering a small black emoji
+                // that disappeared against dark thumbnails.
+                Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(8.dp),
-                )
+                        .padding(8.dp)
+                        .shadow(2.dp, CircleShape)
+                        .background(Color.White.copy(alpha = 0.9f), CircleShape)
+                        .padding(4.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Edit,
+                        contentDescription = "Edit image",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
             }
         } else {
             // Empty state — dashed border tap target
@@ -5297,12 +5324,34 @@ private fun FormInputImagePickerPlaceholder(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                    .background(Color(0xFFF9FAFB))
-                    .border(
-                        1.dp,
-                        StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
-                        RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                    // SPEC-401-A R21 — same fixes R20 made for FormInputSignature
+                    // also apply here. iOS reads field_style.background_color
+                    // (transparent default) AND uses dashed `StrokeStyle
+                    // (lineWidth: 1, dash: [6, 3])`. Android was hardcoding
+                    // #F9FAFB + solid border.
+                    .background(
+                        block.field_style?.background_color
+                            ?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }
+                            ?.let { StyleEngine.parseColor(it) }
+                            ?: Color.Transparent
                     )
+                    .drawBehind {
+                        val cornerR = ((block.field_style?.corner_radius ?: 8.0).toFloat()) * density
+                        val borderColorParsed = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
+                        val strokeWidthPx = 1f * density
+                        drawRoundRect(
+                            color = borderColorParsed,
+                            size = size,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(cornerR, cornerR),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = strokeWidthPx,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(6f * density, 3f * density),
+                                    0f,
+                                ),
+                            ),
+                        )
+                    }
                     .clickable {
                         launcher.launch(
                             androidx.activity.result.PickVisualMediaRequest(
