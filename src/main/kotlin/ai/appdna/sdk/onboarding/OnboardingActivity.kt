@@ -522,6 +522,16 @@ internal fun OnboardingFlowHost(
 
     // Helper functions
 
+    // SPEC-401-A R56 (Lens B P1) — forward reference to `advanceOrComplete`
+    // so `presentPaywallTriggerNode.routeOutcome` can re-run next-step
+    // rules when a paywall outcome target is unknown / typo'd. Direct
+    // forward reference to a local function is illegal in Kotlin (advance
+    // is declared after presentPaywallTriggerNode); a lambda var bridges
+    // the gap. Assigned right after `advanceOrComplete` is defined below.
+    // Matches iOS `renderer.navigateToTarget(chosen)` →
+    // `advanceOrComplete()` fallthrough at OnboardingRenderer.swift:1236-1238.
+    var advanceOrCompleteRef: (() -> Unit)? = null
+
     // SPEC-070-A finalization OB-5 — present a paywall_trigger node by id.
     // Mirrors iOS OnboardingRenderer.swift:1186-1272 (`presentPaywallTrigger`)
     // + `routeOutcome`. Extracted as a local function so it can be invoked
@@ -616,26 +626,22 @@ internal fun OnboardingFlowHost(
                                 currentIndex = tIdx
                             }
                             else {
-                                // SPEC-401-A R6 — same fallback as the
-                                // sibling "chosen" branch: unknown
-                                // edgeTarget continues the flow rather
-                                // than terminating. iOS
-                                // navigateToTarget(edge) falls through
-                                // to advanceOrComplete()
-                                // (OnboardingRenderer.swift:1166-1184),
-                                // re-running step rules. Android cannot
-                                // call advanceOrComplete from this
-                                // lambda due to local-fun forward-ref
-                                // scoping; simplified single-step
-                                // continuation covers the most common
-                                // case so a stale/typo'd next_target
-                                // doesn't collapse the whole flow.
-                                if (currentIndex + 1 < flow.steps.size) {
-                                    currentIndex++
-                                } else {
-                                    @Suppress("UNCHECKED_CAST")
-                                    onFlowCompleted(responses.toMap() as Map<String, Any>)
-                                }
+                                // SPEC-401-A R56 (Lens B P1) — re-run
+                                // current step's next_step_rules via the
+                                // forward-ref lambda set up below
+                                // advanceOrComplete. Matches iOS
+                                // navigateToTarget(edge) → advanceOrComplete
+                                // fallthrough at OnboardingRenderer.swift
+                                // :1166-1184.
+                                advanceOrCompleteRef?.invoke()
+                                    ?: run {
+                                        if (currentIndex + 1 < flow.steps.size) {
+                                            currentIndex++
+                                        } else {
+                                            @Suppress("UNCHECKED_CAST")
+                                            onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                        }
+                                    }
                             }
                         }
                     } else {
@@ -671,25 +677,24 @@ internal fun OnboardingFlowHost(
                             // caused double-pop on back-nav.
                             currentIndex = tIdx
                         } else {
-                            // SPEC-401-A R4 — unknown target should
-                            // continue the flow rather than terminate.
-                            // iOS calls advanceOrComplete() here
-                            // (OnboardingRenderer.swift:1180-1184) so
-                            // typo'd targets follow the next step rules.
-                            // Local-function forward-ref restrictions
-                            // prevent calling advanceOrComplete directly
-                            // from this lambda; the simplified fallback
-                            // below covers the most common case
-                            // (single-step continuation) so the flow
-                            // doesn't dead-end on a config typo. Full
-                            // rule re-evaluation would require lifting
-                            // routeOutcome out of presentPaywallTriggerNode.
-                            if (currentIndex + 1 < flow.steps.size) {
-                                currentIndex++
-                            } else {
-                                @Suppress("UNCHECKED_CAST")
-                                onFlowCompleted(responses.toMap() as Map<String, Any>)
-                            }
+                            // SPEC-401-A R56 (Lens B P1) — re-run current
+                            // step's next_step_rules via the forward-ref
+                            // lambda set up below advanceOrComplete.
+                            // Matches iOS navigateToTarget(chosen) →
+                            // advanceOrComplete fallthrough at
+                            // OnboardingRenderer.swift:1180-1184. Was a
+                            // simplified linear `currentIndex++` that
+                            // skipped conditional logic on typo'd outcome
+                            // targets.
+                            advanceOrCompleteRef?.invoke()
+                                ?: run {
+                                    if (currentIndex + 1 < flow.steps.size) {
+                                        currentIndex++
+                                    } else {
+                                        @Suppress("UNCHECKED_CAST")
+                                        onFlowCompleted(responses.toMap() as Map<String, Any>)
+                                    }
+                                }
                         }
                     }
                 }
@@ -939,6 +944,11 @@ internal fun OnboardingFlowHost(
             currentIndex++
         }
     }
+
+    // SPEC-401-A R56 (Lens B P1) — bind the forward-ref now that
+    // `advanceOrComplete` exists. Read by `presentPaywallTriggerNode
+    // .routeOutcome` unknown-target fallback above.
+    advanceOrCompleteRef = { advanceOrComplete() }
 
     fun skipToStep(targetStepId: String) {
         val targetIndex = flow.steps.indexOfFirst { it.id == targetStepId }

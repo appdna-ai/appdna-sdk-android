@@ -1720,7 +1720,10 @@ private fun IconBlock(block: ContentBlock) {
 private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Boolean>, loc: ((String, String) -> String)? = null) {
     var checked by remember { mutableStateOf(toggleValues[block.id] ?: (block.toggle_default ?: false)) }
 
-    Column {
+    // SPEC-401-A R56 (Lens A R56 #4, P2) — 4dp inter-row spacing matches iOS
+    // VStack(alignment: .leading, spacing: 4) at ContentBlockRendererView.swift
+    // :523. Was bare Column → Row + description visually touching.
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
@@ -2088,7 +2091,10 @@ private fun SocialLoginBlock(
                         ),
                     ) {
                         Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
-                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
+                        // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
+                        // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
+                        // Material Button content defaults to labelLarge=14sp.
+                        Text(displayLabel, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
                 "minimal" -> {
@@ -2099,7 +2105,10 @@ private fun SocialLoginBlock(
                         colors = ButtonDefaults.textButtonColors(contentColor = textColor),
                     ) {
                         Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
-                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
+                        // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
+                        // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
+                        // Material Button content defaults to labelLarge=14sp.
+                        Text(displayLabel, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
                 else -> { // filled
@@ -2119,7 +2128,10 @@ private fun SocialLoginBlock(
                         ),
                     ) {
                         Text(providerIcon, fontSize = 18.sp, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
-                        Text(displayLabel, fontWeight = FontWeight.SemiBold, color = textColor)
+                        // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
+                        // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
+                        // Material Button content defaults to labelLarge=14sp.
+                        Text(displayLabel, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = textColor)
                     }
                 }
             }
@@ -2485,7 +2497,10 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     } else {
-        TextStyle(fontSize = 16.sp, color = Color.Unspecified)
+        // SPEC-401-A R56 (Lens A R56 #5, P2) — non-legal default 17sp matches
+        // iOS .body (ContentBlockRendererView.swift:965). Was 16sp — 1pt narrower
+        // on every rich_text block authored without explicit base_style.font_size.
+        TextStyle(fontSize = 17.sp, color = Color.Unspecified)
     }
 
     // Apply base_style if present
@@ -4405,12 +4420,15 @@ private fun FormFieldLabel(block: ContentBlock) {
         Row {
             Text(
                 text = label,
-                fontSize = (block.field_style?.label_font_size ?: 14.0).sp,
+                // SPEC-401-A R56 (Lens A R56 #3, P2) — default 15sp matches iOS
+                // .subheadline (FormInputBlockViews.swift:15). Was 14sp on every
+                // FormFieldLabel without explicit label_font_size.
+                fontSize = (block.field_style?.label_font_size ?: 15.0).sp,
                 fontWeight = FontWeight.Medium,
                 color = StyleEngine.parseColor(block.field_style?.label_color ?: "#374151"),
             )
             if (required) {
-                Text(text = "*", color = Color.Red, fontSize = 14.sp)
+                Text(text = "*", color = Color.Red, fontSize = 15.sp)
             }
         }
     }
@@ -5385,8 +5403,13 @@ private fun FormInputRatingBlock(
     // reversed (field_style.fill_color first). Console can author either
     // — sample author writes `filled_color` so iOS picked it up but
     // Android ignored it whenever both were set.
-    val filledCol = StyleEngine.parseColor(block.active_rating_color ?: block.field_style?.fill_color ?: "#FBBF24")
-    val emptyCol = StyleEngine.parseColor(block.inactive_rating_color ?: "#D1D5DB")
+    // SPEC-401-A R56 (Lens A R56 #1, P1) — restore iOS canonical priority
+    // chain `filled_color ?? field_style.fill_color`, `empty_color ?? "#D1D5DB"`
+    // (FormInputBlockViews.swift:1095-1096). Sibling content-block RatingBlock
+    // already uses this; only the form-input variant was broken — author-set
+    // `filled_color` / `empty_color` were silently ignored.
+    val filledCol = StyleEngine.parseColor(block.filled_color ?: block.active_rating_color ?: block.field_style?.fill_color ?: "#FBBF24")
+    val emptyCol = StyleEngine.parseColor(block.empty_color ?: block.inactive_rating_color ?: "#D1D5DB")
     val allowHalf = block.allow_half == true
     // SPEC-401-A — promote selectedRating to Double for half-star round-trip.
     // Mirrors iOS FormInputBlockViews.swift:1106 which already supports

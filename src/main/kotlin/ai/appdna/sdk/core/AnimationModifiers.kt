@@ -5,6 +5,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -76,18 +77,22 @@ fun Modifier.sectionStagger(animation: String?, delayMs: Int? = null): Modifier 
         animationSpec = tween(400),
         label = "stagger_alpha",
     )
+    // SPEC-401-A R56 (Lens C R56 #4, P2) — Spring.StiffnessLow (~200) matches
+    // iOS `.spring(response: 0.5, dampingFraction: 0.6)` ≈ stiffness 158. Was
+    // defaulting to Spring.StiffnessMedium (1500) — ~10× stiffer — so
+    // bounce-in stagger snapped instantly on Android vs slow-bounce on iOS.
     val offsetX by animateFloatAsState(
         targetValue = if (appeared) 0f else when (anim) {
             "slide_in_left" -> -300f
             "slide_in_right" -> 300f
             else -> 0f
         },
-        animationSpec = if (anim == "bounce") spring(dampingRatio = 0.6f) else tween(400),
+        animationSpec = if (anim == "bounce") spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow) else tween(400),
         label = "stagger_offset",
     )
     val scaleVal by animateFloatAsState(
         targetValue = if (appeared || anim != "bounce") 1f else 0.5f,
-        animationSpec = spring(dampingRatio = 0.6f),
+        animationSpec = spring(dampingRatio = 0.6f, stiffness = Spring.StiffnessLow),
         label = "stagger_scale",
     )
 
@@ -130,11 +135,12 @@ private fun Modifier.glowEffect(): Modifier {
         animationSpec = infiniteRepeatable(tween(1500), RepeatMode.Reverse),
         label = "glow_alpha",
     )
-    // SPEC-401-A R52 (Lens C R52 #4, P2) — accent-tinted halo matching iOS
-    // AnimationModifiers.swift:73 `.shadow(color: .accentColor.opacity(...))`.
-    // Was Compose's default neutral elevation shadow which read as gray.
-    // Compose 1.4+ supports tinted ambientColor + spotColor on shadow.
-    val accentColor = Color(0xFF6366F1)
+    // SPEC-401-A R56 (Lens C R56 #1, P1) — accent from MaterialTheme.primary
+    // matching iOS `.accentColor` resolution from host app's tint / asset
+    // catalog (AnimationModifiers.swift:73). Hardcoded #6366F1 forced indigo
+    // regardless of host theme — glow halos always rendered indigo even
+    // when the app's brand color was set to a different hue.
+    val accentColor = MaterialTheme.colorScheme.primary
     return this.shadow(
         elevation = 15.dp,
         ambientColor = accentColor.copy(alpha = alpha),
@@ -174,11 +180,14 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
         animationSpec = tween(300),
         label = "plan_glow",
     )
-    // SPEC-401-A R52 (Lens C R52 #4, P2) — accent-tinted glow matching iOS
-    // AnimationModifiers.swift:117 `color: .accentColor.opacity(0.5)`.
-    val planGlowColor = Color(0xFF6366F1).copy(alpha = if (anim == "glow" && isSelected) 0.5f else 0f)
+    // SPEC-401-A R56 (Lens C R56 #1, P1) — accent from MaterialTheme.primary
+    // matching iOS `.accentColor` (AnimationModifiers.swift:117 + 122). Was
+    // hardcoded #6366F1 — `border_highlight` always rendered indigo on
+    // Android regardless of host theme.
+    val accent = MaterialTheme.colorScheme.primary
+    val planGlowColor = accent.copy(alpha = if (anim == "glow" && isSelected) 0.5f else 0f)
     val borderMod = if (anim == "border_highlight" && isSelected) {
-        Modifier.border(2.5.dp, Color(0xFF6366F1), RoundedCornerShape(12.dp))
+        Modifier.border(2.5.dp, accent, RoundedCornerShape(12.dp))
     } else Modifier
 
     return this
@@ -194,19 +203,28 @@ fun Modifier.dismissAnimation(animation: String?, dismiss: Boolean): Modifier {
     val anim = animation ?: "none"
     if (anim == "none") return this
 
+    // SPEC-401-A R56 (Lens C R56 #2, P1) — only fade for fade_out anim;
+    // matches iOS AnimationModifiers.swift:138
+    // `.opacity(animation == "fade_out" && isDismissing ? 0 : 1)`. Was
+    // cross-fading on every dismiss including slide_down — combined fade+
+    // slide motion blur on Android vs solid slide on iOS.
     val alpha by animateFloatAsState(
-        targetValue = if (dismiss) 0f else 1f,
-        animationSpec = tween(300),
+        targetValue = if (dismiss && anim == "fade_out") 0f else 1f,
+        animationSpec = tween(300, easing = FastOutLinearInEasing),
         label = "dismiss_alpha",
     )
+    // SPEC-401-A R56 (Lens C R56 #3, P2) — FastOutLinearInEasing matches
+    // iOS `.easeIn(duration: 0.3)` (AnimationModifiers.swift:139). Was
+    // FastOutSlowInEasing (ease-in-out) so slide-down "hung" at start
+    // before accelerating; iOS drops immediately.
     val offsetY by animateFloatAsState(
         targetValue = if (dismiss && anim == "slide_down") 800f else 0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        animationSpec = tween(300, easing = FastOutLinearInEasing),
         label = "dismiss_offset",
     )
     val scale by animateFloatAsState(
         targetValue = if (dismiss && anim == "scale_out") 0.8f else 1f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
+        animationSpec = tween(300, easing = FastOutLinearInEasing),
         label = "dismiss_scale",
     )
 

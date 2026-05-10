@@ -807,7 +807,11 @@ fun ChatStepComposable(
                     enabled = canSendMessage,
                     modifier = Modifier.semantics { contentDescription = "Send message" },
                 ) {
-                    Text("↑", fontSize = 24.sp, color = if (canSendMessage) sendBtnColor else Color.Gray.copy(alpha = 0.3f))
+                    // SPEC-401-A R55 (Lens A R55 #13, P2) — bump glyph 24→32sp to
+                    // match SwiftUI Image(systemName: "arrow.up.circle.fill") visual
+                    // weight at iOS ChatStepView.swift send-button. Was reading as
+                    // a small text caret next to a normal-sized text field.
+                    Text("↑", fontSize = 32.sp, color = if (canSendMessage) sendBtnColor else Color.Gray.copy(alpha = 0.3f))
                 }
             }
         }
