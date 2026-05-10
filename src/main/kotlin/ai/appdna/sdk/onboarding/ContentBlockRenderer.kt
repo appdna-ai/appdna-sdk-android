@@ -5257,25 +5257,31 @@ private data class LocationSuggestion(
  */
 private suspend fun fetchLocationSuggestions(query: String): List<LocationSuggestion> {
     return try {
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         val baseUrl = ai.appdna.sdk.AppDNA.getApiBaseUrl()
         val apiKey = ai.appdna.sdk.AppDNA.getApiKey()
-        val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete?q=$encodedQuery")
-        // SPEC-070-A audit Round 2 finding 3: HttpURLConnection.responseCode
-        // triggers the actual `connect()` + network round-trip, so it MUST run
-        // on Dispatchers.IO. Previously only `openConnection()` and
-        // `inputStream.bufferedReader()` were wrapped — `responseCode` ran on
-        // whatever dispatcher the suspend caller was on (Compose `launch{}`
-        // defaults to Main → NetworkOnMainThreadException under StrictMode).
-        // Single IO block now covers the whole HTTP read.
+        val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete")
+        // SPEC-401-A R28 P0 — backend at `src/app/api/v1/sdk/geocode/
+        // autocomplete/route.ts:27` exports ONLY POST. GET returned 405 →
+        // silent emptyList → suggestions never appeared. iOS POSTs JSON
+        // body via Endpoint.geocodeAutocomplete (LocationFieldView.swift
+        // :197-234). Both sites in this file (this `LocationFieldComposable`
+        // helper inline path + the canonical helper in
+        // LocationFieldComposable.kt) need the POST body shape.
+        val requestBody = org.json.JSONObject().apply {
+            put("query", query)
+            put("limit", 5)
+        }.toString()
         val body: String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val connection = (url.openConnection() as? java.net.HttpURLConnection)?.apply {
-                requestMethod = "GET"
+                requestMethod = "POST"
                 connectTimeout = 10000
                 readTimeout = 10000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
                 if (apiKey != null) setRequestProperty("x-api-key", apiKey)
             } ?: return@withContext null
             try {
+                connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
                 if (connection.responseCode != 200) return@withContext null
                 connection.inputStream.bufferedReader().readText()
             } finally {
@@ -5283,8 +5289,11 @@ private suspend fun fetchLocationSuggestions(query: String): List<LocationSugges
             }
         }
         if (body == null) return emptyList()
+        // Backend wraps in `{data: {suggestions: [...]}}`; iOS reads
+        // `json.data.suggestions`. Was reading `json.data` directly →
+        // null because data is an object.
         val json = org.json.JSONObject(body)
-        val results = json.optJSONArray("data") ?: return emptyList()
+        val results = json.optJSONObject("data")?.optJSONArray("suggestions") ?: return emptyList()
 
         (0 until minOf(results.length(), 5)).mapNotNull { i ->
             val item = results.optJSONObject(i) ?: return@mapNotNull null

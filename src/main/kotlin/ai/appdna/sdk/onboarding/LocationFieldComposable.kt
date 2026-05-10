@@ -256,28 +256,35 @@ private suspend fun fetchLocationSuggestions(
     language: String?,
 ): List<LocationSuggestionData> {
     return try {
-        val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
         val baseUrl = ai.appdna.sdk.AppDNA.getApiBaseUrl()
         val apiKey = ai.appdna.sdk.AppDNA.getApiKey()
-        val params = StringBuilder("q=$encodedQuery&type=$locationType")
-        if (!biasCountry.isNullOrBlank()) {
-            params.append("&country=").append(java.net.URLEncoder.encode(biasCountry, "UTF-8"))
-        }
-        if (!language.isNullOrBlank()) {
-            params.append("&language=").append(java.net.URLEncoder.encode(language, "UTF-8"))
-        }
-        val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete?$params")
-        // SPEC-070-A audit Round 2 finding 3: single IO block so
-        // `responseCode` (which triggers connect()) doesn't run on the caller's
-        // dispatcher (Compose launch{} defaults to Main → StrictMode crash).
+        val url = java.net.URL("$baseUrl/api/v1/sdk/geocode/autocomplete")
+        // SPEC-401-A R28 P0 — backend route at
+        // `src/app/api/v1/sdk/geocode/autocomplete/route.ts:27` exports
+        // ONLY POST (Zod-validated body with `query`/`bias_country`).
+        // Android was sending GET with `?q=…` query params → 405 Method
+        // Not Allowed → silent emptyList → suggestions never appeared on
+        // Android while iOS rendered them correctly. Now matches iOS
+        // `LocationFieldView.swift:197-234` which POSTs the JSON body
+        // `{query, limit, type, bias_country, language}`.
+        val requestBody = org.json.JSONObject().apply {
+            put("query", query)
+            put("limit", 5)
+            if (locationType.isNotBlank()) put("type", locationType)
+            if (!biasCountry.isNullOrBlank()) put("bias_country", biasCountry)
+            if (!language.isNullOrBlank()) put("language", language)
+        }.toString()
         val body: String? = withContext(Dispatchers.IO) {
             val connection = (url.openConnection() as? java.net.HttpURLConnection)?.apply {
-                requestMethod = "GET"
+                requestMethod = "POST"
                 connectTimeout = 10000
                 readTimeout = 10000
+                doOutput = true
+                setRequestProperty("Content-Type", "application/json")
                 if (apiKey != null) setRequestProperty("x-api-key", apiKey)
             } ?: return@withContext null
             try {
+                connection.outputStream.use { it.write(requestBody.toByteArray(Charsets.UTF_8)) }
                 if (connection.responseCode != 200) return@withContext null
                 connection.inputStream.bufferedReader().readText()
             } finally {
@@ -285,8 +292,13 @@ private suspend fun fetchLocationSuggestions(
             }
         }
         if (body == null) return emptyList()
+        // SPEC-401-A R28 — backend wraps suggestions in
+        // `{data: {suggestions: [...]}}` (route.ts:65); iOS reads
+        // `json.data.suggestions` (LocationFieldView.swift:220-221).
+        // Android was reading `json.data` as JSONArray which yields null
+        // because `data` is an object. Now matches iOS shape.
         val json = JSONObject(body)
-        val results = json.optJSONArray("data") ?: return emptyList()
+        val results = json.optJSONObject("data")?.optJSONArray("suggestions") ?: return emptyList()
         (0 until minOf(results.length(), 5)).mapNotNull { i ->
             val item = results.optJSONObject(i) ?: return@mapNotNull null
             LocationSuggestionData(
