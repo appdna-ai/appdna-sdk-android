@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
@@ -1415,11 +1416,16 @@ private fun ImageBlock(block: ContentBlock) {
     // "contain"/"fit"; default is `.fill` (Crop). Match the toggle so
     // authored portrait photos are no longer distorted by the fixed
     // height + Crop combo.
+    // SPEC-401-A R64 (Lens A P2 #1) — collapse to iOS's two-arm semantics
+    // at ContentBlockRendererView.swift:327: `(image_fit == "contain" ||
+    // image_fit == "fit") ? .fit : .fill`. Console schema's `"none"`
+    // and `"cover"` both fall through to .fill on iOS; Android was
+    // mapping them to `ContentScale.None` (intrinsic-pixel) and
+    // `ContentScale.Inside`, producing visibly different layouts for
+    // the same payload.
     val fit = block.image_fit ?: ""
     val contentScale = when (fit) {
         "contain", "fit" -> androidx.compose.ui.layout.ContentScale.Fit
-        "inside" -> androidx.compose.ui.layout.ContentScale.Inside
-        "none" -> androidx.compose.ui.layout.ContentScale.None
         else -> androidx.compose.ui.layout.ContentScale.Crop
     }
 
@@ -5227,10 +5233,31 @@ private fun FormInputSelectBlock(
                     options.forEach { option ->
                         // SPEC-401-A R49 (Lens A #1) — multi-aware selection.
                         val isSelected = isOptionSelected(option.value)
+                        // SPEC-401-A R64 (Lens C P1) — single click target so
+                        // TalkBack treats Card+Checkbox/RadioButton as ONE
+                        // element matching iOS FormInputBlockViews.swift
+                        // :559-620 single-Button wrap. Was Card.clickable +
+                        // inner Checkbox.onCheckedChange / RadioButton.onClick
+                        // → 2 click targets per row, double announcement,
+                        // 2× swipes per option to traverse.
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { pickOption(option.value) },
+                                .then(
+                                    if (isMulti) {
+                                        Modifier.toggleable(
+                                            value = isSelected,
+                                            role = androidx.compose.ui.semantics.Role.Checkbox,
+                                            onValueChange = { pickOption(option.value) },
+                                        )
+                                    } else {
+                                        Modifier.selectable(
+                                            selected = isSelected,
+                                            role = androidx.compose.ui.semantics.Role.RadioButton,
+                                            onClick = { pickOption(option.value) },
+                                        )
+                                    }
+                                ),
                             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
@@ -5248,7 +5275,10 @@ private fun FormInputSelectBlock(
                                 if (isMulti) {
                                     Checkbox(
                                         checked = isSelected,
-                                        onCheckedChange = { pickOption(option.value) },
+                                        // SPEC-401-A R64 (Lens C P1) — null
+                                        // handler so Card.toggleable owns
+                                        // the click + a11y semantics.
+                                        onCheckedChange = null,
                                         colors = CheckboxDefaults.colors(
                                             checkedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
                                         ),
@@ -5256,7 +5286,10 @@ private fun FormInputSelectBlock(
                                 } else {
                                     RadioButton(
                                         selected = isSelected,
-                                        onClick = { pickOption(option.value) },
+                                        // SPEC-401-A R64 (Lens C P1) — null
+                                        // handler so Card.selectable owns
+                                        // the click + a11y semantics.
+                                        onClick = null,
                                         colors = RadioButtonDefaults.colors(
                                             selectedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
                                         ),

@@ -170,14 +170,23 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
     val anim = animation ?: "none"
     if (anim == "none") return this
 
+    // SPEC-401-A R64 (Lens C P2) — match iOS `spring(response: 0.3,
+    // dampingFraction: 0.7)` at AnimationModifiers.swift:125. Compose
+    // default Spring.StiffnessMedium=1500 was ~3.4x stiffer than iOS
+    // (response→stiffness: (2π/0.3)² ≈ 438), so the scale animation
+    // snapped almost instantly on Android while iOS showed a visible
+    // spring on plan-card tap. Apply same spring to elevation so glow
+    // animation matches scale timing — was tween(300) which animated
+    // a different curve than iOS's bundled .spring.
+    val planSpring = spring<Float>(dampingRatio = 0.7f, stiffness = 438f)
     val scale by animateFloatAsState(
         targetValue = if (anim == "scale" && isSelected) 1.03f else 1f,
-        animationSpec = spring(dampingRatio = 0.7f),
+        animationSpec = planSpring,
         label = "plan_scale",
     )
     val elevation by animateFloatAsState(
         targetValue = if (anim == "glow" && isSelected) 12f else 0f,
-        animationSpec = tween(300),
+        animationSpec = planSpring,
         label = "plan_glow",
     )
     // SPEC-401-A R56 (Lens C R56 #1, P1) — accent from MaterialTheme.primary

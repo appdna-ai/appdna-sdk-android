@@ -3252,13 +3252,15 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             // Was hardcoded #6366F1 — brand-themed flows lost their CTA color.
             colors = ButtonDefaults.buttonColors(
                 containerColor = accentColor,
-                // SPEC-401-A R59 (Lens C P3 #4) — accent-derived disabled
-                // matching iOS FormStepView.swift:92 pattern
-                // `Color(hex: ctaBg).opacity(0.4)` (sister of QuestionStep
-                // which uses iOS `Color.gray` adaptive). Was static
-                // Color.Gray which kept the same mid-tone in light + dark
-                // and dropped brand identity in the disabled state.
-                disabledContainerColor = accentColor.copy(alpha = 0.4f),
+                // SPEC-401-A R64 (Lens A P3 #4) — match iOS QuestionStepView
+                // .swift:97 `selectedIds.isEmpty ? Color.gray : accentColor`.
+                // R59 wrongly applied FormStepView's accent×0.4 pattern here;
+                // QuestionStep uses iOS Color.gray (system grey adaptive),
+                // not accent-derived alpha. Brand-themed flows now show a
+                // neutral grey CTA when disabled (matches iOS), reserving
+                // the brand color for the enabled state.
+                disabledContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
+                disabledContentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
             ),
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
@@ -3413,7 +3415,12 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         // matches iOS .frame(maxWidth: 280, maxHeight: 280) so non-square
         // assets aren't square-cropped.
         config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
-            Spacer(Modifier.height(24.dp))
+            // SPEC-401-A R64 (Lens A P2 #2) — drop redundant Spacer(24).
+            // Outer Column already has Arrangement.spacedBy(24.dp); the
+            // extra Spacer stacks 3×24=72dp gap between subtitle and
+            // image vs iOS 24pt (CustomStepView.swift:9-41 outer
+            // VStack(spacing:24)). R55 cleanup comment says "drops
+            // explicit Spacer(24)s" — this one was missed.
             ai.appdna.sdk.core.NetworkImage(
                 url = url,
                 contentDescription = null,

@@ -387,10 +387,14 @@ object StyleEngine {
             val lowered = hex.lowercase().trim()
             if (lowered == "transparent" || lowered == "clear") return Color.Transparent
 
+            // SPEC-401-A R64 (Lens A P3 #3) — match iOS PaywallHelperViews.swift
+            // :81-87 which only handles `count == 6 || count == 8`. Anything
+            // else returns transparent. Android previously expanded 3-char
+            // (`#ABC` → `#AABBCC`) and 4-char (`#ABCD` → `#AABBCCDD`) shorthand,
+            // so a hand-edited config or future shortcut emitted visible color
+            // on Android but transparent on iOS for the same payload.
             val cleaned = lowered.removePrefix("#")
             val expanded = when (cleaned.length) {
-                3 -> cleaned.map { "$it$it" }.joinToString("")
-                4 -> cleaned.map { "$it$it" }.joinToString("")
                 6, 8 -> cleaned
                 else -> return Color.Transparent
             }
