@@ -339,6 +339,16 @@ data class FormFieldConfig(
     val location_language: String? = null,
     val location_placeholder: String? = null,
     val location_min_chars: Int? = null,
+    // SPEC-401-A R68 (Lens A P2) — opt-out for the prefix location pin.
+    // iOS LocationFieldView reads `field_config["show_prefix_icon"]`
+    // (default true). Some flows want to hide the pin in dark/minimalist
+    // designs.
+    val show_prefix_icon: Boolean? = null,
+    // SPEC-401-A R68 (Lens A P2) — caption + icon shown below the field
+    // (e.g. select_grid hint "tap multiple to choose"). iOS
+    // FormInputBlockViews.swift:769-770 reads from `field_config`.
+    val tooltip_text: String? = null,
+    val tooltip_icon: String? = null,
     // SPEC-401-A: rating
     val max_stars: Int? = null,
     val allow_half: Boolean? = null,
@@ -698,6 +708,11 @@ internal object OnboardingConfigParser {
                         location_language = fc["location_language"] as? String,
                         location_placeholder = fc["location_placeholder"] as? String,
                         location_min_chars = (fc["location_min_chars"] as? Number)?.toInt(),
+                        // SPEC-401-A R68 (Lens A P2) — show_prefix_icon +
+                        // tooltip_text/tooltip_icon parsed from field_config.
+                        show_prefix_icon = fc["show_prefix_icon"] as? Boolean,
+                        tooltip_text = fc["tooltip_text"] as? String,
+                        tooltip_icon = fc["tooltip_icon"] as? String,
                         // SPEC-401-A R41 — rating
                         max_stars = (fc["max_stars"] as? Number)?.toInt(),
                         allow_half = fc["allow_half"] as? Boolean,

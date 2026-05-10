@@ -5441,6 +5441,33 @@ private fun FormInputSelectBlock(
                 }
             }
         }
+
+        // SPEC-401-A R68 (Lens A P2) — tooltip caption below select grid /
+        // stacked / dropdown matching iOS FormInputBlockViews.swift:769-770
+        // + 926-937. Reads field_config.tooltip_text + tooltip_icon.
+        // Renders 12sp caption with optional 12dp leading icon at 50% alpha.
+        val tooltipText = block.field_config?.get("tooltip_text") as? String
+        val tooltipIconRef = block.field_config?.get("tooltip_icon") as? String
+        if (!tooltipText.isNullOrBlank()) {
+            val captionColor = StyleEngine.parseColor(block.field_style?.text_color ?: "#1A1A1A").copy(alpha = 0.5f)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                modifier = Modifier.padding(top = 4.dp),
+            ) {
+                if (!tooltipIconRef.isNullOrBlank()) {
+                    val iconRef = ai.appdna.sdk.core.resolveIcon(tooltipIconRef)
+                    if (iconRef != null) {
+                        ai.appdna.sdk.core.IconView(ref = iconRef, defaultSize = 12f)
+                    }
+                }
+                Text(
+                    text = tooltipText,
+                    fontSize = 12.sp,
+                    color = captionColor,
+                )
+            }
+        }
     }
 }
 

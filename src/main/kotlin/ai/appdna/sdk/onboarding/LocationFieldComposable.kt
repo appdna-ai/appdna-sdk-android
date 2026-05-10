@@ -107,13 +107,19 @@ fun LocationFieldComposable(
             },
             label = { Text(field.label) },
             placeholder = { Text(placeholder) },
-            leadingIcon = {
-                Icon(
-                    imageVector = Icons.Filled.LocationOn,
-                    contentDescription = null,
-                    modifier = Modifier.size(20.dp),
-                )
-            },
+            // SPEC-401-A R68 (Lens A P2) — opt-out for the prefix location
+            // pin matches iOS LocationFieldView.swift:1384 reading
+            // `field_config["show_prefix_icon"]` (default true). Some flows
+            // hide the pin in dark/minimalist designs.
+            leadingIcon = if (config?.show_prefix_icon != false) {
+                {
+                    Icon(
+                        imageVector = Icons.Filled.LocationOn,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            } else null,
             trailingIcon = {
                 // SPEC-401-A R63 (Lens C P1) — clear-X button when a
                 // location is selected (`values[field.id]` is a Map).
