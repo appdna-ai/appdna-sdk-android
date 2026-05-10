@@ -98,6 +98,12 @@ data class PaywallSectionData(
     val title: String? = null,
     val subtitle: String? = null,
     val image_url: String? = null,
+    // SPEC-401-A R77 (Lens A P1) — data-level text style overrides for
+    // header title + subtitle matching iOS PaywallSectionData.title_style /
+    // subtitle_style at PaywallConfig.swift:88-89. Renderer prefers data-
+    // level over section-level `style.elements["title"].text_style`.
+    val title_style: ai.appdna.sdk.core.TextStyleConfig? = null,
+    val subtitle_style: ai.appdna.sdk.core.TextStyleConfig? = null,
 
     // Features
     // SPEC-070-A J.22 — features list iterated by PaywallActivity FeaturesSection.
@@ -857,6 +863,10 @@ internal object PaywallConfigParser {
                 title = d["title"] as? String,
                 subtitle = d["subtitle"] as? String,
                 image_url = d["image_url"] as? String,
+                // SPEC-401-A R77 (Lens A P1) — data-level title_style /
+                // subtitle_style decoded from text-style maps.
+                title_style = parseDataTextStyle(d["title_style"]),
+                subtitle_style = parseDataTextStyle(d["subtitle_style"]),
                 // SPEC-070-A J.22 — wrap features/plans as ImmutableList.
                 features = (d["features"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
                 plans = (d["plans"] as? List<*>)?.mapNotNull { planData ->
@@ -1190,23 +1200,31 @@ internal object PaywallConfigParser {
             )
         }
         val tsMap = map["text_style"] as? Map<String, Any>
-        val textStyle = tsMap?.let {
-            ai.appdna.sdk.core.TextStyleConfig(
-                font_family = it["font_family"] as? String,
-                font_size = (it["font_size"] as? Number)?.toDouble(),
-                font_weight = (it["font_weight"] as? Number)?.toInt(),
-                color = it["color"] as? String,
-                alignment = it["alignment"] as? String,
-                line_height = (it["line_height"] as? Number)?.toDouble(),
-                letter_spacing = (it["letter_spacing"] as? Number)?.toDouble(),
-                opacity = (it["opacity"] as? Number)?.toDouble(),
-            )
-        }
+        val textStyle = parseDataTextStyle(tsMap)
         return ai.appdna.sdk.core.ElementStyleConfig(
             background = bg, border = border, shadow = shadow, padding = padding,
             corner_radius = (map["corner_radius"] as? Number)?.toDouble(),
             opacity = (map["opacity"] as? Number)?.toDouble(),
             text_style = textStyle,
+        )
+    }
+
+    // SPEC-401-A R77 (Lens A P1) — shared text-style decoder used by both
+    // ElementStyleConfig.text_style and PaywallSectionData.title_style /
+    // subtitle_style. Mirrors iOS TextStyleConfig.init(from:) at
+    // PaywallConfig.swift:170-179.
+    @Suppress("UNCHECKED_CAST")
+    private fun parseDataTextStyle(raw: Any?): ai.appdna.sdk.core.TextStyleConfig? {
+        val it = raw as? Map<String, Any> ?: return null
+        return ai.appdna.sdk.core.TextStyleConfig(
+            font_family = it["font_family"] as? String,
+            font_size = (it["font_size"] as? Number)?.toDouble(),
+            font_weight = (it["font_weight"] as? Number)?.toInt(),
+            color = it["color"] as? String,
+            alignment = it["alignment"] as? String,
+            line_height = (it["line_height"] as? Number)?.toDouble(),
+            letter_spacing = (it["letter_spacing"] as? Number)?.toDouble(),
+            opacity = (it["opacity"] as? Number)?.toDouble(),
         )
     }
 

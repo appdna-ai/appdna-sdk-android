@@ -170,9 +170,14 @@ class PaywallActivity : ComponentActivity() {
                     // `paywall_close` event (matches iOS PaywallManager.swift:104
                     // + Android PaywallManager.kt:136) instead of the
                     // dashboard-divergent `paywall_dismissed` name.
+                    // SPEC-401-A R77 (Lens B P2) — use `dismiss_reason` key
+                    // matching iOS PaywallManager.swift:120-124 + happy-path
+                    // PaywallManager.kt:139. Was `reason` — divergent from
+                    // every other paywall_close row, BigQuery `dismiss_reason`
+                    // column would be NULL for process-death rows.
                     AppDNA.track("paywall_close", mapOf(
                         "paywall_id" to paywallId,
-                        "reason" to "process_death",
+                        "dismiss_reason" to "process_death",
                     ))
                     AppDNA.paywall.listener?.onPaywallDismissed(paywallId)
                 } catch (e: Throwable) {
@@ -1189,10 +1194,29 @@ private fun PaywallSectionView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
             ) {
+                // SPEC-401-A R77 (Lens A P1) — render header section image
+                // matching iOS HeaderSection.swift:19-28
+                // `BundledAsyncImage(url: data.imageUrl, ...).scaledToFit()
+                // .frame(maxHeight: 200)`. Was missing — paywall headers
+                // authored with `image_url` showed nothing on Android.
+                section.data?.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+                    ai.appdna.sdk.core.NetworkImage(
+                        url = url,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                }
                 section.data?.title?.let {
+                    // SPEC-401-A R77 (Lens A P1) — prefer data-level
+                    // `title_style` over section-level
+                    // `style.elements["title"].text_style` matching iOS
+                    // HeaderSection.swift:10-15 precedence.
                     val titleStyle = StyleEngine.applyTextStyle(
                         TextStyle(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 28.sp, textAlign = TextAlign.Center),
-                        section.style?.elements?.get("title")?.text_style
+                        section.data.title_style ?: section.style?.elements?.get("title")?.text_style
                     )
                     Text(
                         text = loc("section-header.title", it),
@@ -1207,7 +1231,7 @@ private fun PaywallSectionView(
                     Spacer(Modifier.height(8.dp))
                     val subtitleStyle = StyleEngine.applyTextStyle(
                         TextStyle(color = Color.White.copy(alpha = 0.8f), fontSize = 16.sp, textAlign = TextAlign.Center),
-                        section.style?.elements?.get("subtitle")?.text_style
+                        section.data.subtitle_style ?: section.style?.elements?.get("subtitle")?.text_style
                     )
                     Text(
                         text = loc("section-header.subtitle", it),
