@@ -1090,8 +1090,12 @@ internal fun OnboardingFlowHost(
                         )
                     }
                     else -> {
+                        // SPEC-401-A R22 — Material3 1.2 deprecated the
+                        // `progress: Float` overload in favor of the lambda
+                        // form. Pre-emptive switch silences runtime warnings
+                        // and unblocks the next BOM bump.
                         LinearProgressIndicator(
-                            progress = progress,
+                            progress = { progress },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(4.dp),

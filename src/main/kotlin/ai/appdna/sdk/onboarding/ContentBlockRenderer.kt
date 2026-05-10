@@ -2803,8 +2803,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                 }
             }
             "linear" -> {
+                // SPEC-401-A R22 — Material3 1.2 lambda form (see
+                // OnboardingActivity.kt:1093 for the same pre-emptive switch).
                 LinearProgressIndicator(
-                    progress = overallProgress,
+                    progress = { overallProgress },
                     modifier = Modifier
                         .fillMaxWidth()
                         // SPEC-401-A R19 — match iOS lines 259+262:

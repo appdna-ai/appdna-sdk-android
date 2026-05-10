@@ -139,44 +139,41 @@ fun ChatStepComposable(
     LaunchedEffect(Unit) {
         if (didRestore) return@LaunchedEffect
         val autoMsgs = chatConfig.auto_messages?.filter { it.turn == 0 } ?: emptyList()
-        // SPEC-401-A R11 — match iOS ABSOLUTE scheduling at
-        // ChatStepView.swift:614-633. iOS calls
-        // `DispatchQueue.main.asyncAfter(deadline: .now() + delay)` for
-        // each message, where `delay = delay_ms ?? (500 + i * 1200)` is
-        // measured from the moment playAutoMessages was invoked — so
-        // default 500/1700/2900ms places msg 0/1/2 at ~0.5/1.7/2.9s
-        // (typing finishes 0.8s after each).
-        // Android previously did `delay(delayMs) + delay(800)`
-        // sequentially, which RE-INTERPRETED `delay_ms` as a between-
-        // message gap. Same default config showed msg 2 at ~7.5s on
-        // Android while iOS rendered it at ~3.7s — chat header sequence
-        // visibly dragged. Fix: launch each message in its own coroutine
-        // with its own absolute `delay(delay_ms)` from the same start.
-        // The shared `isTyping` toggle is reference-counted via an
-        // AtomicInteger so overlapping typing dots don't flicker off
-        // when one message ends but another is still typing.
+        // SPEC-401-A R22 — refactor to a SINGLE sequential coroutine
+        // (replacing the parallel-coroutines + AtomicInteger pattern).
+        // iOS playAutoMessages at ChatStepView.swift:614-633 schedules
+        // independent `DispatchQueue.main.asyncAfter` timers, but each
+        // timer's deadline is fired in absolute order by the OS — so iOS
+        // gets serial-deadline ordering for free. Android's parallel
+        // coroutines all share `messages = messages + msg` which is a
+        // read-snapshot/compute/write pattern that is NOT atomic across
+        // suspend points; even on Dispatchers.Main, two coroutines can
+        // resume at the same dispatch tick and race each other's writes,
+        // potentially losing a message OR firing the quick_reply load
+        // before the last message visually commits. Sorting by deadline
+        // and awaiting each in a single coroutine preserves the absolute
+        // schedule iOS provides AND eliminates the race entirely.
         val playStart = System.currentTimeMillis()
-        val typingDepth = java.util.concurrent.atomic.AtomicInteger(0)
-        val msgsCompleted = java.util.concurrent.atomic.AtomicInteger(0)
-        for ((i, autoMsg) in autoMsgs.withIndex()) {
-            val delayMs = autoMsg.delay_ms ?: (500 + i * 1200)
-            launch {
-                delay(delayMs.toLong())
-                if (typingDepth.incrementAndGet() == 1) isTyping = true
-                delay(800)
-                if (typingDepth.decrementAndGet() == 0) isTyping = false
-                messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
-                if (msgsCompleted.incrementAndGet() == autoMsgs.size) {
-                    // SPEC-401-A R5 — load turn-0 quick replies AFTER
-                    // ALL auto-messages have finished. Mirrors iOS
-                    // playAutoMessages tail callback.
-                    dynamicQuickReplies = chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
-                }
-            }
+        // Sort by absolute deadline (smaller delay → fires first), then
+        // walk in order awaiting each.
+        val sorted = autoMsgs.withIndex()
+            .map { (i, m) -> i to (m.delay_ms ?: (500 + i * 1200)) }
+            .sortedBy { it.second }
+        var elapsedAtLastFire = 0
+        for ((origIndex, deadlineMs) in sorted) {
+            val autoMsg = autoMsgs[origIndex]
+            val sleepFromHere = deadlineMs - elapsedAtLastFire
+            if (sleepFromHere > 0) delay(sleepFromHere.toLong())
+            isTyping = true
+            delay(800)
+            isTyping = false
+            messages = messages + ChatMessage(id = autoMsg.id, role = ChatRole.AI, content = autoMsg.content, media = autoMsg.media)
+            elapsedAtLastFire = deadlineMs + 800
         }
-        // Keep playStart referenced so a future tracker can compute
-        // total auto-sequence duration if needed (see iOS: stored as
-        // `playAutoMessages` start in ChatStepView@614).
+        // SPEC-401-A R5 — load turn-0 quick replies AFTER all auto-messages
+        // have rendered. Now naturally tails the loop body since the for
+        // loop runs sequentially.
+        dynamicQuickReplies = chatConfig.quick_replies?.filter { (it.show_at_turn ?: 0) == 0 } ?: emptyList()
         @Suppress("UNUSED_VARIABLE") val _start = playStart
     }
 
