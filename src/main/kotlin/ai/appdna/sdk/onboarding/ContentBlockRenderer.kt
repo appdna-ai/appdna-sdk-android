@@ -2299,7 +2299,9 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
                         )
                         Text(
                             text = unitLabel,
-                            fontSize = 10.sp,
+                            // SPEC-401-A R48 (Lens C #6) — countdown unit-label
+                            // 10→11sp matching iOS .footnote (~11pt).
+                            fontSize = 11.sp,
                             // SPEC-401-A R3 — accent_color when authored,
                             // mirrors iOS unit-label colour (was hardcoded
                             // textColor.alpha 0.6 — accent ignored).
@@ -3794,10 +3796,15 @@ private fun StarBackgroundBlock(block: ContentBlock) {
     ) {
         val scaleX = size.width / 1000f
         val scaleY = size.height / 1000f
+        // SPEC-401-A R48 (Lens A #5) — particle radius is RAW pixels; do NOT
+        // multiply by scaleX. iOS uses size_range as raw point values
+        // (StarBackgroundView.swift:88 `circle.size = p.size`). Multiplying
+        // by scaleX shrank particles to invisibility on narrow widths and
+        // ballooned them into giant blobs in fullscreen mode.
         particles.value.forEach { p ->
             drawCircle(
                 color = particleColor.copy(alpha = p.opacity * baseOpacity),
-                radius = p.size * scaleX,
+                radius = p.size,
                 center = Offset(p.x * scaleX, p.y * scaleY),
             )
         }
@@ -3897,7 +3904,11 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             text = display,
                             fontSize = if (isCenter) 28.sp else 18.sp,
                             fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCenter) highlightColor else Color.Gray,
+                            // SPEC-401-A R48 (Lens A #4) — non-center text uses
+                            // theme-adaptive onSurface.alpha(0.7) instead of
+                            // hardcoded Color.Gray. Matches iOS .secondary
+                            // and renders correctly in dark mode.
+                            color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                             modifier = Modifier.width(80.dp).padding(horizontal = 8.dp),
                             textAlign = TextAlign.Center,
                         )
@@ -3933,7 +3944,10 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             text = display,
                             fontSize = if (isCenter) 22.sp else 16.sp,
                             fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isCenter) highlightColor else Color.Gray,
+                            // SPEC-401-A R48 (Lens A #4) — non-center text uses
+                            // theme-adaptive onSurface.alpha(0.7) instead of
+                            // hardcoded Color.Gray (vertical wheel mode).
+                            color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             textAlign = TextAlign.Center,
                         )
@@ -3960,11 +3974,20 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
 
+    // SPEC-401-A R48 (Lens A #3) — reserve a fixed-size frame so the largest
+    // pulse ring at peak scale (×1.5) doesn't overlap adjacent content.
+    // iOS uses .frame(width: avatarSize + CGFloat(ringCount + 1) * 20 * 1.3,
+    // height: same). We mirror the same reservation on Android so layout
+    // doesn't collapse adjacent rows on top of the rings during animation.
+    val frameSize = (avatarSize.value + (ringCount + 1) * 20f * 1.3f).dp
     Box(
         modifier = Modifier.fillMaxWidth(),
         contentAlignment = hAlign,
     ) {
-        Box(contentAlignment = Alignment.Center) {
+        Box(
+            modifier = Modifier.size(frameSize),
+            contentAlignment = Alignment.Center,
+        ) {
             // Pulse rings
             for (i in 0 until ringCount) {
                 val ringSize = avatarSize + (i + 1).dp * 20
@@ -4155,12 +4178,16 @@ private fun PricingCardBlock(
                     .fillMaxWidth()
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
+                // SPEC-401-A R48 (Lens C #8) — plan card row spacing 4→6dp
+                // matches iOS PricingTableBlockView VStack(spacing: 6).
+                verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (!plan.badge.isNullOrEmpty()) {
                     Text(
                         text = plan.badge,
-                        fontSize = 10.sp,
+                        // SPEC-401-A R48 (Lens C #7) — badge font 10→11sp
+                        // mirrors iOS .footnote.
+                        fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         modifier = Modifier
@@ -4168,8 +4195,21 @@ private fun PricingCardBlock(
                             .padding(horizontal = 8.dp, vertical = 2.dp),
                     )
                 }
-                Text(text = plan.label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-                Text(text = plan.price, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                // SPEC-401-A R48 (Lens C #9) — plan label/price use theme
+                // onSurface so dark mode reads as a true on-surface tint, not
+                // the default Color.Black inherited from CardDefaults.
+                Text(
+                    text = plan.label,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = plan.price,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
                 // SPEC-401-A R44 — theme-adaptive period (was Color.Gray).
                 Text(text = plan.period, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }

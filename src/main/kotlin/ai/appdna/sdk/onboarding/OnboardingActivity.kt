@@ -2789,29 +2789,44 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         // .swift:13-21 — 280×280dp ContentScale.Fit (matches scaledToFit)
         // with rounded 16dp corners.
         config.image_url?.takeIf { it.isNotBlank() }?.let { url ->
+            // SPEC-401-A R48 (Lens A #3) — match iOS WelcomeStepView.swift:20
+            // `.frame(maxWidth: 280, maxHeight: 280)`. Was fixed 280dp square
+            // → non-square images letterboxed.
             ai.appdna.sdk.core.NetworkImage(
                 url = url,
                 contentDescription = null,
                 modifier = androidx.compose.ui.Modifier
-                    .size(280.dp)
+                    .sizeIn(maxWidth = 280.dp, maxHeight = 280.dp)
                     .clip(RoundedCornerShape(16.dp)),
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
             Spacer(Modifier.height(24.dp))
         }
         config.title?.let {
-            // SPEC-070-A J.11 — step title is the screen heading for a11y.
+            // SPEC-401-A R48 (Lens A #2) — iOS .largeTitle ≈ 34pt
+            // (was 28sp). SPEC-070-A J.11 — step title is the screen heading
+            // for a11y. Lens A #4 — horizontal padding 32dp matching iOS
+            // .padding(.horizontal, 32) (WelcomeStepView.swift:45).
             Text(
                 text = it.interpolated(),
-                fontSize = 28.sp,
+                fontSize = 34.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.semantics { heading() },
+                modifier = Modifier
+                    .padding(horizontal = 32.dp)
+                    .semantics { heading() },
             )
         }
         config.subtitle?.let {
             Spacer(Modifier.height(12.dp))
-            Text(text = it.interpolated(), fontSize = 16.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+            // SPEC-401-A R48 (Lens A #4) — horizontal padding 32dp.
+            Text(
+                text = it.interpolated(),
+                fontSize = 16.sp,
+                textAlign = TextAlign.Center,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+                modifier = Modifier.padding(horizontal = 32.dp),
+            )
         }
         // SPEC-401-A R9 — match iOS WelcomeStepView.swift:10,47 vertical
         // distribution: `Spacer()` top + `Spacer()` bottom so content
@@ -2819,9 +2834,16 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
         // used a single top weight + fixed gaps; on tablets the title
         // group sat top-heavy with a wide gap between CTA and bottom edge.
         Spacer(Modifier.weight(1f))
+        // SPEC-401-A R48 (Lens A #1+#5) — CTA height 54dp matching iOS
+        // .frame(height: 54); horizontal/bottom padding matching iOS
+        // .padding(.horizontal, 24).padding(.bottom, 32).
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .padding(bottom = 32.dp)
+                .height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R10 — match iOS WelcomeStepView.swift:55 fixed
             // indigo `#6366F1` so the same flow renders the same CTA
@@ -2911,8 +2933,17 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
                 )
             },
             enabled = selectedOptions.isNotEmpty(),
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-            shape = RoundedCornerShape(14.dp)
+            // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
+            modifier = Modifier.fillMaxWidth().height(54.dp),
+            shape = RoundedCornerShape(14.dp),
+            // SPEC-401-A R48 (Lens C #3) — lock CTA color to iOS-canonical
+            // #6366F1 (was MaterialTheme primary — bled through host theme
+            // overrides). iOS QuestionStepView.swift:97 uses fixed accentColor
+            // chain falling back to #6366F1; disabled state uses Color.gray.
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF6366F1),
+                disabledContainerColor = Color.Gray,
+            ),
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
@@ -2921,32 +2952,61 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
 
 @Composable
 private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxSize()) {
         config.title?.let {
-            // SPEC-070-A J.11 — value-prop step title is the screen heading.
+            // SPEC-401-A R48 (Lens A #2 polish) — iOS .title2.bold() ≈ 22pt
+            // (was 24sp). SPEC-070-A J.11 — heading semantics.
             Text(
                 text = it.interpolated(),
-                fontSize = 24.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { heading() },
             )
         }
         Spacer(Modifier.height(24.dp))
-        config.items?.forEach { item ->
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.Top) {
-                Text(text = item.icon, fontSize = 28.sp)
-                Spacer(Modifier.width(16.dp))
-                Column {
-                    Text(text = item.title.interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                    Text(text = item.subtitle.interpolated(), fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+        // SPEC-401-A R48 (Lens A #6) — wrap items in scrollable Column so
+        // long bullet lists don't clip on small screens. iOS uses ScrollView
+        // (ValuePropStepView.swift:19-41).
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            config.items?.forEach { item ->
+                // SPEC-401-A R48 (Lens A #9) — horizontal padding 24dp matching
+                // iOS .padding(.horizontal, 24). Lens A #7 — icon 36sp inside
+                // 48dp Box for stable column alignment regardless of emoji
+                // intrinsic width.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp),
+                    verticalAlignment = Alignment.Top,
+                ) {
+                    Box(
+                        modifier = Modifier.size(48.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(text = item.icon, fontSize = 36.sp)
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    // SPEC-401-A R48 (Lens A #8) — title↔subtitle 4dp gap
+                    // matching iOS VStack(spacing: 4).
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(text = item.title.interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                        Text(text = item.subtitle.interpolated(), fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                    }
                 }
             }
         }
         Spacer(Modifier.height(32.dp))
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
+            modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R12 — match iOS ValuePropStepView.swift:51 fixed
             // indigo `#6366F1` so flows render the same CTA color on both
@@ -2993,7 +3053,8 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
         Spacer(Modifier.height(32.dp))
         Button(
             onClick = { onNext(null) },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
+            // SPEC-401-A R48 (Lens C #1) — CTA height 52→54dp matching iOS.
+            modifier = Modifier.fillMaxWidth().height(54.dp),
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R12 — match iOS CustomStepView.swift:51 fixed
             // indigo `#6366F1`. Affects custom/info/permission steps.
