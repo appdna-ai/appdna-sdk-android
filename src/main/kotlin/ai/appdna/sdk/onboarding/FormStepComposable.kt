@@ -116,7 +116,9 @@ fun FormStep(
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     contentDescription = null,
                 )
-                Spacer(Modifier.height(12.dp))
+                // SPEC-401-A R53 (Lens A R53 #2, P2) — image→title 12→20dp
+                // matching iOS FormStepView.swift:18-43 VStack(spacing: 20).
+                Spacer(Modifier.height(20.dp))
             }
 
             // Header

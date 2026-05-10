@@ -1832,25 +1832,38 @@ fun OnboardingStepView(
         // LazyColumn measures correctly. Other step types keep the
         // verticalScroll fallback for long-content overflow.
         if (step.type == OnboardingStep.StepType.INTERACTIVE_CHAT) {
+            // SPEC-401-A R53 (Lens A R53 #1, P0) — wrap ChatStepComposable
+            // in Box(weight=1f) so it gets bounded constraints. Was using
+            // bare fillMaxSize() inside an unbounded Column which made the
+            // chat composable swallow all available vertical space, leaving
+            // the Skip TextButton with 0dp height (invisible/clipped).
+            // Match the bare-wrapper pattern at line 1875 used by every
+            // other step type.
             Column(
                 modifier = modifier
                     .entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)
                     .fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                ChatStepComposable(
-                    step = step,
-                    flowId = flowId,
-                    onNext = { data -> onNext(data) },
-                    onSkip = { onSkip() },
-                    // SPEC-401-A — pass prior step transcript so back-nav
-                    // restores chat bubbles + completion state. iOS does
-                    // the same via `savedTranscript: savedResponses` at
-                    // OnboardingRenderer.swift:1480.
-                    savedTranscript = savedResponses,
-                )
+                androidx.compose.foundation.layout.Box(modifier = Modifier.weight(1f)) {
+                    ChatStepComposable(
+                        step = step,
+                        flowId = flowId,
+                        onNext = { data -> onNext(data) },
+                        onSkip = { onSkip() },
+                        // SPEC-401-A — pass prior step transcript so back-nav
+                        // restores chat bubbles + completion state. iOS does
+                        // the same via `savedTranscript: savedResponses` at
+                        // OnboardingRenderer.swift:1480.
+                        savedTranscript = savedResponses,
+                    )
+                }
                 // Skip button
                 if (step.config.skip_enabled == true) {
-                    TextButton(onClick = onSkip, modifier = Modifier.align(Alignment.CenterHorizontally)) {
+                    TextButton(
+                        onClick = onSkip,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 16.dp),
+                    ) {
                         // SPEC-401-A R52 (Lens A R51 #20, P3) — Skip 15sp matching iOS .subheadline.
                         Text("Skip", fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
                     }
