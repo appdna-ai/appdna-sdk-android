@@ -761,7 +761,11 @@ internal object OnboardingConfigParser {
                     )
                 }
                 FormField(
-                    id = fm["id"] as? String ?: "",
+                    // SPEC-401-A R43 — match iOS OnboardingConfig.swift:508
+                    // `self.id = decodeIfPresent(.id) ?? UUID().uuidString`.
+                    // Was empty-string fallback → id-less fields shared
+                    // `inputValues[fieldId]` collisions in responses payload.
+                    id = fm["id"] as? String ?: java.util.UUID.randomUUID().toString(),
                     type = FormFieldType.fromString(fm["type"] as? String ?: "text"),
                     label = fm["label"] as? String ?: "",
                     placeholder = fm["placeholder"] as? String,
@@ -1115,7 +1119,14 @@ internal object OnboardingConfigParser {
     @Suppress("UNCHECKED_CAST")
     private fun decodeContentBlock(bm: Map<String, Any>): ContentBlock {
         return ContentBlock(
-            id = bm["id"] as? String ?: "",
+            // SPEC-401-A R43 — match iOS ContentBlockTypes.swift:1208
+            // `self.id = decodeIfPresent(.id) ?? UUID().uuidString`. Was
+            // empty-string fallback so two id-less toggle blocks shared the
+            // same `toggleValues[block.id]` map key (last write wins) and
+            // `loc?.invoke("block.${block.id}.text", …)` resolved identical
+            // localization keys across every id-less block. Affects nested
+            // row/stack children too via R40 shared decodeContentBlock path.
+            id = bm["id"] as? String ?: java.util.UUID.randomUUID().toString(),
             type = bm["type"] as? String ?: "text",
             text = bm["text"] as? String,
             level = (bm["level"] as? Number)?.toInt(),
@@ -1330,7 +1341,12 @@ internal object OnboardingConfigParser {
                         value = fm["value"] as? String ?: fm["id"] as? String ?: "",
                         label = fm["label"] as? String ?: "",
                         image_url = fm["image_url"] as? String,
-                        id = fm["id"] as? String,
+                        // SPEC-401-A R43 — match iOS rawValue fallback at
+                        // ContentBlockTypes.swift:357-360. Was id-only; when
+                        // console author writes only `value`, iOS resolves
+                        // `id=value`, Android got `id=null` → renderer code
+                        // keying selection state by option.id silently broke.
+                        id = fm["id"] as? String ?: fm["value"] as? String,
                         icon = fm["icon"] as? String,
                         selected_image_url = fm["selected_image_url"] as? String,
                         unselected_image_url = fm["unselected_image_url"] as? String,
