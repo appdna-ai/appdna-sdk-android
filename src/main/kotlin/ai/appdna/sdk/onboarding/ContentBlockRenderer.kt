@@ -1587,7 +1587,10 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
         block.items?.forEachIndexed { index, item ->
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 when (block.list_style) {
-                    "numbered" -> Text("${index + 1}.", fontWeight = FontWeight.SemiBold, color = Color.Gray)
+                    // SPEC-401-A R44 — theme-adaptive secondary color
+                    // (was hardcoded Color.Gray). iOS uses .secondary
+                    // (ContentBlockRendererView.swift:459).
+                    "numbered" -> Text("${index + 1}.", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     // SPEC-401-A \u2014 render `check` marker as Material
                     // CheckCircle icon (mirrors iOS `checkmark.circle.fill`).
                     // Was a plain Unicode glyph at 16sp which looked like
@@ -1605,11 +1608,14 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                         tint = StyleEngine.parseColor("#6366F1"),
                         modifier = Modifier.size(16.dp),
                     )
+                    // SPEC-401-A R44 — theme-adaptive bullet (was Color.Gray).
+                    // iOS uses Color.primary.opacity(0.5)
+                    // (ContentBlockRendererView.swift:466).
                     else -> Box(
                         modifier = Modifier
                             .size(6.dp)
                             .clip(CircleShape)
-                            .background(Color.Gray),
+                            .background(MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)),
                     )
                 }
                 Text(
@@ -1713,7 +1719,9 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
             )
         }
         block.toggle_description?.let {
-            Text(text = loc?.invoke("block.${block.id}.description", it) ?: it, fontSize = 12.sp, color = Color.Gray)
+            // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
+            // iOS uses .secondary (ContentBlockRendererView.swift:529).
+            Text(text = loc?.invoke("block.${block.id}.description", it) ?: it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
         }
     }
 }
@@ -2112,7 +2120,9 @@ private fun SocialLoginBlock(
                 Text(
                     text = loc?.invoke("block.${block.id}.divider", dividerText) ?: dividerText,
                     fontSize = 14.sp,
-                    color = Color.Gray,
+                    // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
+                    // iOS .secondary (ContentBlockRendererView.swift:714).
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(horizontal = 12.dp),
                 )
                 Box(
@@ -2594,9 +2604,11 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
         if (showLabel && segmentCount > 0) {
             val labelText = "Step $activeSegments of $segmentCount"
             val labelStyle = if (block.label_style != null) {
-                StyleEngine.applyTextStyle(TextStyle(fontSize = 12.sp, color = Color.Gray), block.label_style)
+                // SPEC-401-A R44 — theme-adaptive secondary base (was Color.Gray).
+                StyleEngine.applyTextStyle(TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)), block.label_style)
             } else {
-                TextStyle(fontSize = 12.sp, color = Color.Gray)
+                // SPEC-401-A R44 — theme-adaptive secondary fallback (was Color.Gray).
+                TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
             Text(
                 text = loc?.invoke("block.${block.id}.label", labelText) ?: labelText,
@@ -2748,7 +2760,9 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                         // 16.sp which diverged from system font scaling.
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = if (item.status == "upcoming") Color.Gray else Color.Unspecified,
+                        // SPEC-401-A R44 — theme-adaptive upcoming color
+                        // (was Color.Gray). iOS uses .secondary on upcoming.
+                        color = if (item.status == "upcoming") MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) else Color.Unspecified,
                     )
                     val titleStyle = if (block.title_style != null) {
                         StyleEngine.applyTextStyle(titleBaseStyle, block.title_style)
@@ -2766,7 +2780,8 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                     item.subtitle?.let { subtitle ->
                         val subtitleText = loc?.invoke("block.${block.id}.item.$index.subtitle", subtitle) ?: subtitle
                         // SPEC-401-A R18 — match iOS `.caption` = 12pt default.
-                        val subtitleBaseStyle = TextStyle(fontSize = 12.sp, color = Color.Gray)
+                        // SPEC-401-A R44 — theme-adaptive subtitle (was Color.Gray).
+                        val subtitleBaseStyle = TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                         val subtitleEffective = if (block.subtitle_style != null) {
                             StyleEngine.applyTextStyle(subtitleBaseStyle, block.subtitle_style)
                         } else subtitleBaseStyle
@@ -4102,7 +4117,8 @@ private fun PricingCardBlock(
                 }
                 Text(text = plan.label, fontSize = 14.sp, fontWeight = FontWeight.Medium)
                 Text(text = plan.price, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text(text = plan.period, fontSize = 12.sp, color = Color.Gray)
+                // SPEC-401-A R44 — theme-adaptive period (was Color.Gray).
+                Text(text = plan.period, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
             }
         }
     }
@@ -4504,7 +4520,9 @@ private fun FormInputDateBlock(
                     1.dp,
                     StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
                 ),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
+                // SPEC-401-A R44 — theme-adaptive content color (was Color.DarkGray
+                // — invisible on dark surface in dark mode).
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
@@ -4760,7 +4778,9 @@ private fun FormInputSelectBlock(
                             1.dp,
                             StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
                         ),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
+                        // SPEC-401-A R44 — theme-adaptive content color (was Color.DarkGray
+                // — invisible on dark surface in dark mode).
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -5132,7 +5152,8 @@ private fun FormInputRangeSliderBlock(
 
         // Min slider
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Min", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(30.dp))
+            // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
+            Text("Min", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = lowValue,
                 onValueChange = {
@@ -5147,7 +5168,8 @@ private fun FormInputRangeSliderBlock(
         }
         // Max slider
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Max", fontSize = 10.sp, color = Color.Gray, modifier = Modifier.width(30.dp))
+            // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
+            Text("Max", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = highValue,
                 onValueChange = {
@@ -5280,7 +5302,10 @@ private fun FormInputColorBlock(
                         .background(StyleEngine.parseColor(color))
                         .border(
                             width = if (isSelected) 3.dp else 0.dp,
-                            color = if (isSelected) Color.DarkGray else Color.Transparent,
+                            // SPEC-401-A R44 — theme-adaptive selection ring
+                            // (was Color.DarkGray — invisible on dark surface).
+                            // iOS uses Color.primary at FormInputBlockViews.swift:1264.
+                            color = if (isSelected) MaterialTheme.colorScheme.onSurface else Color.Transparent,
                             shape = CircleShape,
                         )
                         .clickable {
@@ -5373,7 +5398,10 @@ private fun FormInputLocationPlaceholder(
                     showSuggestions = false
                 }
             },
-            placeholder = { Text(block.field_placeholder ?: "Search location...", color = Color.Gray) },
+            // SPEC-401-A R44 — drop hardcoded Color.Gray placeholder color so
+            // Material3 OutlinedTextFieldDefaults adaptive placeholder color
+            // applies (theme-aware in dark mode).
+            placeholder = { Text(block.field_placeholder ?: "Search location...") },
             leadingIcon = { Text("\uD83D\uDCCD", fontSize = 16.sp) },
             trailingIcon = {
                 if (isSearching) {
