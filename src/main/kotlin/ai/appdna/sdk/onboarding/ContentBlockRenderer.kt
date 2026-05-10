@@ -2438,7 +2438,16 @@ private fun RatingBlock(
             // reads "Star 1, Star 2, ... Star 5" but never the chosen value.
             modifier = Modifier.semantics(mergeDescendants = true) {
                 contentDescription = "Rating"
-                stateDescription = "${selectedRating} of $maxStars stars"
+                // SPEC-401-A R58 (Lens A R58 P3 #4) — match iOS
+                // ContentBlockStandaloneViews.swift:55 `Int(selectedRating)`
+                // when not allow_half ("3 of 5"), `String(format: "%.1f", …)`
+                // when allow_half ("2.5 of 5"). Was `Double.toString` which
+                // produced "3.0 of 5 stars" for every full-star rating.
+                stateDescription = if (allowHalf) {
+                    "${"%.1f".format(selectedRating)} of $maxStars stars"
+                } else {
+                    "${selectedRating.toInt()} of $maxStars stars"
+                }
             },
         ) {
             for (i in 1..maxStars) {
