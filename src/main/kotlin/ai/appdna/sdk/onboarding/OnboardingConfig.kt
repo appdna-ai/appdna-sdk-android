@@ -885,7 +885,14 @@ internal object OnboardingConfigParser {
                                 title = title,
                                 subtitle = tm["subtitle"] as? String,
                                 icon = tm["icon"] as? String,
-                                status = tm["status"] as? String ?: "upcoming",
+                                // SPEC-401-A R39 — drop `?: "upcoming"` parser
+                                // walk-back of R18. R18 made `status` nullable
+                                // on the data class so missing-status timeline
+                                // items render in solid title color (not greyed).
+                                // Parser hardcoded `?: "upcoming"`, so the
+                                // renderer's `if (item.status == "upcoming")`
+                                // greyed every missing-status title regardless.
+                                status = tm["status"] as? String,
                             )
                         } else null
                     }?.toImmutableList(),

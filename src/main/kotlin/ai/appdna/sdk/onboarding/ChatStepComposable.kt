@@ -20,6 +20,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 // ContentScale removed — no image loading dependency
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -522,28 +524,45 @@ fun ChatStepComposable(
             // SPEC-401-A — honour style.rating_star_color (was hardcoded
             // amber #FBBF24). Mirrors iOS ChatStepView.swift:315.
             val starColor = hex(style?.rating_star_color, "#FBBF24")
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.Center
+            // SPEC-401-A R39 (Lens C #1) — wrap rating widget in
+            // aiBubbleBg-filled rounded card with header label, mirroring
+            // iOS ChatStepView.swift:301-323. Was bare unicode stars on
+            // page background → no visual affordance distinguishing the
+            // widget from chat content.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .background(aiBubbleBg, RoundedCornerShape(12.dp))
+                    .padding(12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                for (star in 1..5) {
-                    val filled = ratingState >= star
-                    Text(
-                        text = if (filled) "★" else "☆", // ★ vs ☆
-                        color = if (filled) starColor else Color(0xFF94A3B8),
-                        fontSize = 24.sp,
-                        modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clickable {
-                                currentRating = star
-                                ai.appdna.sdk.AppDNA.track("chat_rating_submitted", mapOf(
-                                    "flow_id" to flowId,
-                                    "step_id" to step.id,
-                                    "rating" to star,
-                                    "turn" to userTurnCount,
-                                ))
-                            }
-                    )
+                Text(
+                    text = "How helpful is this conversation?",
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(bottom = 8.dp),
+                )
+                Row(horizontalArrangement = Arrangement.Center) {
+                    for (star in 1..5) {
+                        val filled = ratingState >= star
+                        Text(
+                            text = if (filled) "★" else "☆",
+                            color = if (filled) starColor else Color(0xFF94A3B8),
+                            fontSize = 24.sp,
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .clickable {
+                                    currentRating = star
+                                    ai.appdna.sdk.AppDNA.track("chat_rating_submitted", mapOf(
+                                        "flow_id" to flowId,
+                                        "step_id" to step.id,
+                                        "rating" to star,
+                                        "turn" to userTurnCount,
+                                    ))
+                                }
+                        )
+                    }
                 }
             }
         }
@@ -732,7 +751,15 @@ fun ChatStepComposable(
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { if (canSendMessage) sendMessage(inputText) })
                 )
-                IconButton(onClick = { sendMessage(inputText) }, enabled = canSendMessage) {
+                // SPEC-401-A R39 (Lens C #3) — TalkBack label so the
+                // glyph-only IconButton reads as "Send message" instead of
+                // the literal arrow character. iOS uses Image(systemName:
+                // "arrow.up.circle.fill") which SwiftUI auto-labels.
+                IconButton(
+                    onClick = { sendMessage(inputText) },
+                    enabled = canSendMessage,
+                    modifier = Modifier.semantics { contentDescription = "Send message" },
+                ) {
                     Text("↑", fontSize = 24.sp, color = if (canSendMessage) sendBtnColor else Color.Gray.copy(alpha = 0.3f))
                 }
             }

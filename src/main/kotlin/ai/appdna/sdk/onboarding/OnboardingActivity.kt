@@ -1074,11 +1074,11 @@ internal fun OnboardingFlowHost(
                         ) {
                             for (i in 1..totalSteps) {
                                 val filled = i <= current
-                                val animatedSize by animateDpAsState(
-                                    targetValue = if (filled) 10.dp else 8.dp,
-                                    animationSpec = tween(durationMillis = 200),
-                                    label = "dotSize",
-                                )
+                                // SPEC-401-A R39 — drop dot-size animation added in
+                                // R36. iOS OnboardingRenderer.swift:198 uses fixed
+                                // .frame(width: 8, height: 8) for every dot — only
+                                // fill color animates. Was causing visible "pop"
+                                // larger drift from iOS.
                                 val animatedColor by animateColorAsState(
                                     targetValue = if (filled) progressColor else progressTrackColor,
                                     animationSpec = tween(durationMillis = 200),
@@ -1086,7 +1086,7 @@ internal fun OnboardingFlowHost(
                                 )
                                 Box(
                                     modifier = Modifier
-                                        .size(animatedSize)
+                                        .size(8.dp)
                                         .clip(androidx.compose.foundation.shape.CircleShape)
                                         .background(animatedColor),
                                 )
