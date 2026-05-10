@@ -2864,9 +2864,11 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
         config.title?.let {
             // SPEC-070-A J.11 — question step title is the screen heading.
+            // SPEC-401-A R49 (Lens A #7) — title 24→22sp matching iOS
+            // QuestionStepView.swift:57 `.font(.title2.bold())` (~22pt).
             Text(
                 text = it.interpolated(),
-                fontSize = 24.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.semantics { heading() },
@@ -2878,42 +2880,56 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         }
         Spacer(Modifier.height(24.dp))
 
-        config.options?.forEach { option ->
-            val isSelected = selectedOptions.contains(option.id)
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
-                    .then(
-                        if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
-                        else Modifier
-                    )
-                    .clickable {
-                        if (isMulti) {
-                            if (isSelected) selectedOptions.remove(option.id) else selectedOptions.add(option.id)
-                        } else {
-                            selectedOptions.clear(); selectedOptions.add(option.id)
-                        }
-                    },
-                shape = RoundedCornerShape(12.dp)
+        // SPEC-401-A R49 (Lens A #6) — 2-column grid mirrors iOS
+        // QuestionStepView.swift:63-78 manual grid (`rowCount =
+        // (count + 1) / 2`, 12pt spacing). Was a single-column vertical
+        // list — same JSON rendered visually different layouts on
+        // each platform. When a row has a lone option, the second slot
+        // is filled with a transparent weight Spacer so the populated
+        // card keeps half-width.
+        config.options?.chunked(2)?.forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
-                    // SPEC-070-A finalization parity audit R2 — render
-                    // option.subtitle below the label when non-empty.
-                    // Mirrors iOS QuestionStepView.swift:136-142 caption
-                    // text style (smaller font, muted color).
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(text = option.label.interpolated(), fontSize = 16.sp)
-                        option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
-                            Text(
-                                text = sub.interpolated(),
-                                fontSize = 13.sp,
-                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                row.forEach { option ->
+                    val isSelected = selectedOptions.contains(option.id)
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(
+                                if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(12.dp))
+                                else Modifier
                             )
+                            .clickable {
+                                if (isMulti) {
+                                    if (isSelected) selectedOptions.remove(option.id) else selectedOptions.add(option.id)
+                                } else {
+                                    selectedOptions.clear(); selectedOptions.add(option.id)
+                                }
+                            },
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            option.icon?.let { Text(text = it, fontSize = 20.sp); Spacer(Modifier.width(12.dp)) }
+                            // SPEC-070-A finalization parity audit R2 — render
+                            // option.subtitle below the label when non-empty.
+                            // Mirrors iOS QuestionStepView.swift:136-142 caption
+                            // text style (smaller font, muted color).
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = option.label.interpolated(), fontSize = 16.sp)
+                                option.subtitle?.takeIf { it.isNotEmpty() }?.let { sub ->
+                                    Text(
+                                        text = sub.interpolated(),
+                                        fontSize = 13.sp,
+                                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.65f),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
 
@@ -2947,6 +2963,9 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
+        // SPEC-401-A R49 (Lens A #8) — bottom padding 32dp matching iOS
+        // QuestionStepView.swift:101-102 `.padding(.bottom, 32)`.
+        Spacer(Modifier.height(32.dp))
     }
 }
 

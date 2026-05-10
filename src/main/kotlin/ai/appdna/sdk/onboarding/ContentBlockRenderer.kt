@@ -673,6 +673,28 @@ data class ContentBlock(
     val field_label: String? = null,
     val field_placeholder: String? = null,
     val field_required: Boolean? = null,
+    // SPEC-401-A R49 (Lens A #1) — multi_select on input_select content block
+    // (iOS ContentBlockTypes.swift:1120 + FormInputBlockViews.swift:403-406).
+    // Without this Android always renders single-select even when authored
+    // multi_select=true.
+    val multi_select: Boolean? = null,
+    // SPEC-401-A R49 (Lens A #3-#5) — date picker constraints + chrome.
+    // iOS ContentBlockStandaloneViews.swift:966,970,980,984,1009,1012,
+    // 1160,1174-1175,1193-1196,1239.
+    val allow_future: Boolean? = null,
+    val allow_past: Boolean? = null,
+    val date_validation_message: String? = null,
+    val picker_presentation: String? = null,
+    val picker_mode: String? = null,
+    val picker_spacing: Double? = null,
+    val wheel_bg_color: String? = null,
+    val wheel_height: Double? = null,
+    val calendar_bg_color: String? = null,
+    // SPEC-401-A R49 (Lens A #2) — Sprint 7 scroll-collapse behaviour.
+    // iOS ContentBlockTypes.swift:1143 + ContentBlockRendererView.swift:51,68
+    // + ThreeZoneStepLayout.swift:19. Without this header images don't
+    // collapse on scroll on Android (visual desync).
+    val collapse_on_scroll: Boolean? = null,
     val field_style: FormFieldBlockStyle? = null,
     // SPEC-070-A J.22 — ImmutableList for Compose stability.
     val field_options: kotlinx.collections.immutable.ImmutableList<InputOption>? = null,
@@ -4736,7 +4758,41 @@ private fun FormInputSelectBlock(
     val useVariable = block.field_config?.get("use_variable") as? String
     val useWebhook = block.field_config?.get("use_webhook") as? String
     // For now, dynamic options require server round-trip. Display static options if present.
+    // SPEC-401-A R49 (Lens A #1) — multi-select branch. iOS
+    // FormInputBlockViews.swift:403-406 selects between single + multi
+    // based on `block.multi_select == true`. For multi-mode the value
+    // written to inputValues is List<String> (list of selected values),
+    // for single-mode it remains a single String. Dropdown layout is
+    // single-only on both platforms (multi-dropdown is rare UX).
+    val isMulti = (block.multi_select == true) ||
+        ((block.field_config?.get("multi_select") as? Boolean) == true)
     var selectedValue by remember { mutableStateOf(inputValues[fieldId] as? String ?: "") }
+    val initialSelected: Set<String> = remember {
+        when (val existing = inputValues[fieldId]) {
+            is List<*> -> existing.filterIsInstance<String>().toSet()
+            is String -> if (existing.isNotEmpty()) setOf(existing) else emptySet()
+            else -> emptySet()
+        }
+    }
+    var selectedValues by remember { mutableStateOf(initialSelected) }
+    fun toggleMulti(value: String) {
+        selectedValues = if (selectedValues.contains(value)) {
+            selectedValues - value
+        } else {
+            selectedValues + value
+        }
+        inputValues[fieldId] = selectedValues.toList()
+    }
+    fun isOptionSelected(value: String): Boolean =
+        if (isMulti) selectedValues.contains(value) else selectedValue == value
+    fun pickOption(value: String) {
+        if (isMulti) {
+            toggleMulti(value)
+        } else {
+            selectedValue = value
+            inputValues[fieldId] = value
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -4746,20 +4802,18 @@ private fun FormInputSelectBlock(
 
         when (displayStyle) {
             "stacked" -> {
-                // Stacked: Column of cards with RadioButton
+                // Stacked: Column of cards with RadioButton (single) or Checkbox (multi).
                 Column(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     options.forEach { option ->
-                        val isSelected = selectedValue == option.value
+                        // SPEC-401-A R49 (Lens A #1) — multi-aware selection.
+                        val isSelected = isOptionSelected(option.value)
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    selectedValue = option.value
-                                    inputValues[fieldId] = option.value
-                                },
+                                .clickable { pickOption(option.value) },
                             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
@@ -4774,16 +4828,23 @@ private fun FormInputSelectBlock(
                                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                RadioButton(
-                                    selected = isSelected,
-                                    onClick = {
-                                        selectedValue = option.value
-                                        inputValues[fieldId] = option.value
-                                    },
-                                    colors = RadioButtonDefaults.colors(
-                                        selectedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
-                                    ),
-                                )
+                                if (isMulti) {
+                                    Checkbox(
+                                        checked = isSelected,
+                                        onCheckedChange = { pickOption(option.value) },
+                                        colors = CheckboxDefaults.colors(
+                                            checkedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
+                                        ),
+                                    )
+                                } else {
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = { pickOption(option.value) },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
+                                        ),
+                                    )
+                                }
                                 // Gap 7: Option image_url
                                 option.image_url?.let { url ->
                                     if (url.isNotEmpty()) {
@@ -4812,14 +4873,12 @@ private fun FormInputSelectBlock(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             row.forEach { option ->
-                                val isSelected = selectedValue == option.value
+                                // SPEC-401-A R49 (Lens A #1) — multi-aware selection.
+                                val isSelected = isOptionSelected(option.value)
                                 Card(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clickable {
-                                            selectedValue = option.value
-                                            inputValues[fieldId] = option.value
-                                        },
+                                        .clickable { pickOption(option.value) },
                                     shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,

@@ -1320,6 +1320,23 @@ internal object OnboardingConfigParser {
             field_label = bm["field_label"] as? String,
             field_placeholder = bm["field_placeholder"] as? String,
             field_required = bm["field_required"] as? Boolean,
+            // SPEC-401-A R49 (Lens A #1) — multi_select on input_select
+            // (iOS ContentBlockTypes.swift:1120). Without this Android
+            // always renders single-select even when authored multi.
+            multi_select = bm["multi_select"] as? Boolean,
+            // SPEC-401-A R49 (Lens A #3-#5) — date picker constraints +
+            // chrome (iOS ContentBlockStandaloneViews.swift:966-1239).
+            allow_future = bm["allow_future"] as? Boolean,
+            allow_past = bm["allow_past"] as? Boolean,
+            date_validation_message = bm["date_validation_message"] as? String,
+            picker_presentation = bm["picker_presentation"] as? String,
+            picker_mode = bm["picker_mode"] as? String,
+            picker_spacing = (bm["picker_spacing"] as? Number)?.toDouble(),
+            wheel_bg_color = bm["wheel_bg_color"] as? String,
+            wheel_height = (bm["wheel_height"] as? Number)?.toDouble(),
+            calendar_bg_color = bm["calendar_bg_color"] as? String,
+            // SPEC-401-A R49 (Lens A #2) — Sprint 7 scroll-collapse.
+            collapse_on_scroll = bm["collapse_on_scroll"] as? Boolean,
             field_options = (bm["field_options"] as? List<*>)?.mapNotNull { fo ->
                 if (fo is Map<*, *>) {
                     @Suppress("UNCHECKED_CAST")
