@@ -2792,13 +2792,13 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
 
                 // Right column: title + subtitle
                 // SPEC-401-A R47 (Lens C #5+#6) — title↔subtitle 4dp
-                // (iOS VStack(spacing: 4)) + bottom padding per-item to
-                // match iOS .padding(.bottom, isCompact ? 8 : 12)
-                // (ContentBlockRendererView.swift:900,913).
+                // (iOS VStack(spacing: 4)).
+                // SPEC-401-A R52 (Lens A R51 #14, P2) — drop inner bottom
+                // padding. Outer Row already supplies `itemSpacing` (20/32dp);
+                // the inner duplicate stacked to 28/44dp total inter-row gap
+                // vs iOS ~16/20pt, making timeline rows visibly over-spaced.
                 Column(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(bottom = if (isCompact) 8.dp else 12.dp),
+                    modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
                     val titleText = loc?.invoke("block.${block.id}.item.$index.title", item.title) ?: item.title
