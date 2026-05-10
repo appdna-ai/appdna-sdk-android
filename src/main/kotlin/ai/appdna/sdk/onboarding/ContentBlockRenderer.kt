@@ -2130,7 +2130,9 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
     val textColor = StyleEngine.parseColor(block.text_color ?: "#000000")
     val accentColor = StyleEngine.parseColor(block.accent_color ?: "#6366F1")
     val bgColor = block.bg_color?.let { StyleEngine.parseColor(it) }
-    val fontSize = (block.font_size ?: 24.0).sp
+    // SPEC-401-A R32 — match iOS ContentBlockStandaloneViews.swift:112
+    // default font_size 28 (was 24).
+    val fontSize = (block.font_size ?: 28.0).sp
 
     val showDays = block.show_days ?: true
     val showHours = block.show_hours ?: true
@@ -2166,6 +2168,10 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
     // previously only rendered it when on_expire_action ==
     // "show_expired_text", so the default-unset case fell through
     // to the digital "00:00" timer indefinitely.
+    // SPEC-401-A R32 — match iOS ContentBlockStandaloneViews.swift:112
+    // default font_size 28 (was 24 on Android, 4pt smaller for any
+    // countdown_timer authored without explicit font_size — most paywall
+    // promo timers).
     if (expired && block.on_expire_action != "auto_advance") {
         // SPEC-401-A R23 — match iOS ContentBlockStandaloneViews.swift
         // :154-160. iOS forces `.font(.subheadline.weight(.semibold))` +
