@@ -672,7 +672,14 @@ data class TimelineItem(
     val title: String,
     val subtitle: String? = null,
     val icon: String? = null,
-    val status: String = "upcoming",  // completed | current | upcoming
+    // SPEC-401-A R18 — match iOS ContentBlockTypes.swift:796 — `String?`
+    // (no default). When console publishes a timeline_item without `status`,
+    // iOS evaluates `item.status == "upcoming"` as false → solid-black title;
+    // Android previously defaulted to "upcoming" → ALWAYS greyed-out title
+    // for omitted-status items. Switching to nullable aligns the title
+    // foreground while keeping the status circle's `default → upcoming`
+    // fallback in `timelineStatusColor` (line 2554) intact.
+    val status: String? = null,  // completed | current | upcoming
 )
 
 /** Animated loading item config (SPEC-089d §3.6). */
@@ -2620,7 +2627,10 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
                     // to FontWeight.Normal for non-current items, dropping the
                     // semibold weight on completed/upcoming rows.
                     val titleBaseStyle = TextStyle(
-                        fontSize = 16.sp,
+                        // SPEC-401-A R18 — match iOS Dynamic Type defaults
+                        // (`.subheadline` = 15pt at default Larger Text). Was
+                        // 16.sp which diverged from system font scaling.
+                        fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = if (item.status == "upcoming") Color.Gray else Color.Unspecified,
                     )
@@ -2639,7 +2649,8 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
 
                     item.subtitle?.let { subtitle ->
                         val subtitleText = loc?.invoke("block.${block.id}.item.$index.subtitle", subtitle) ?: subtitle
-                        val subtitleBaseStyle = TextStyle(fontSize = 13.sp, color = Color.Gray)
+                        // SPEC-401-A R18 — match iOS `.caption` = 12pt default.
+                        val subtitleBaseStyle = TextStyle(fontSize = 12.sp, color = Color.Gray)
                         val subtitleEffective = if (block.subtitle_style != null) {
                             StyleEngine.applyTextStyle(subtitleBaseStyle, block.subtitle_style)
                         } else subtitleBaseStyle
