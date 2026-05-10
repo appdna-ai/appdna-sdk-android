@@ -387,11 +387,15 @@ fun SurveyScreen(
         if (showIntro && config.appearance.introLottieUrl != null) {
             Spacer(Modifier.weight(1f))
             LottieBlockView(
+                // SPEC-401-A R74 (Lens A P2) — intro Lottie height 120dp
+                // matches iOS SurveyRenderer.swift:154 `height: 120`. Was
+                // 200 — Android rendered 67% taller than iOS for the same
+                // intro_lottie_url. Visible regression side-by-side.
                 block = LottieBlock(
                     lottie_url = config.appearance.introLottieUrl,
                     autoplay = true,
                     loop = false,
-                    height = 200f,
+                    height = 120f,
                 )
             )
             Spacer(Modifier.weight(1f))
@@ -601,11 +605,15 @@ fun SurveyScreen(
             if (config.appearance.thankyouLottieUrl != null) {
                 Spacer(Modifier.height(8.dp))
                 LottieBlockView(
+                    // SPEC-401-A R74 (Lens A P2) — thank-you Lottie height
+                    // 140dp matches iOS SurveyRenderer.swift:171 `height: 140`.
+                    // Was 100 — Android rendered 30% shorter than iOS for
+                    // the same thankyou_lottie_url.
                     block = LottieBlock(
                         lottie_url = config.appearance.thankyouLottieUrl,
                         autoplay = true,
                         loop = false,
-                        height = 100f,
+                        height = 140f,
                     )
                 )
             }
