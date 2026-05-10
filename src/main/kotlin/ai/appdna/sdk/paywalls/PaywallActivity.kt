@@ -1913,6 +1913,14 @@ private fun PaywallSectionView(
                     Spacer(Modifier.height(8.dp))
                 }
                 // CTA Button — paints gradient if present, else solid color.
+                // SPEC-401-A R70 (Lens C P1) — gate enabled state by both
+                // `!isPurchasing` AND `selectedPlanId != null` matching iOS
+                // `.disabled(isPurchasing || selectedPlanId == nil)` at
+                // PaywallRenderer.swift:205. Plus 50% alpha when disabled
+                // mirrors SwiftUI's auto-dim on `.disabled`. Was firing
+                // onCTATap() with no plan selected — purchase no-op'd or
+                // bought a default-fallback plan.
+                val ctaEnabled = !isPurchasing && selectedPlanId != null
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1924,7 +1932,8 @@ private fun PaywallSectionView(
                             if (ctaBrush != null) Modifier.background(ctaBrush)
                             else Modifier.background(buttonBgColor)
                         )
-                        .clickable(enabled = !isPurchasing) { onCTATap() },
+                        .alpha(if (ctaEnabled) 1f else 0.5f)
+                        .clickable(enabled = ctaEnabled) { onCTATap() },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (isPurchasing) {

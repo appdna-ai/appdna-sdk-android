@@ -400,8 +400,21 @@ fun SurveyScreen(
 
         // Progress
         if (config.appearance.showProgress && visibleQuestions.isNotEmpty()) {
+            // SPEC-401-A R70 (Lens C P2) — animate progress fill via
+            // `animateFloatAsState` (300ms tween) matching iOS SwiftUI
+            // ProgressView's implicit ~0.35s easeInOut animation on value
+            // change at SurveyRenderer.swift:186. Was passing raw Float
+            // each recomposition — bar snapped instantly between segments
+            // while iOS smoothly fills. Onboarding ProgressBar already
+            // uses the same pattern at OnboardingActivity.kt:~1167.
+            val targetProgress = (currentIndex + 1).toFloat() / visibleQuestions.size
+            val animatedProgress by androidx.compose.animation.core.animateFloatAsState(
+                targetValue = targetProgress,
+                animationSpec = androidx.compose.animation.core.tween(durationMillis = 300),
+                label = "survey_progress",
+            )
             LinearProgressIndicator(
-                progress = (currentIndex + 1).toFloat() / visibleQuestions.size,
+                progress = animatedProgress,
                 modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
                 color = accentColor,
             )

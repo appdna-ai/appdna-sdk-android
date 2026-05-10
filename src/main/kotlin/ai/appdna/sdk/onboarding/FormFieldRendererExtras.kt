@@ -44,6 +44,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
@@ -218,6 +219,12 @@ internal fun RatingField(
         modifier = Modifier.semantics(mergeDescendants = true) {
             contentDescription = "Rating"
             stateDescription = "$current of $maxStars stars"
+            // SPEC-401-A R70 (Lens C P3) — Polite live region so TalkBack
+            // announces stateDescription change immediately when the user
+            // taps a star, without requiring re-focus. iOS SwiftUI
+            // `.accessibilityValue("...stars")` auto-announces on state
+            // change at ContentBlockStandaloneViews.swift:54-55.
+            liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite
         },
     ) {
         for (i in 1..maxStars) {

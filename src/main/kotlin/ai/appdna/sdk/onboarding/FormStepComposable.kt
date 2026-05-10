@@ -534,16 +534,29 @@ private fun FormFieldControl(
                     targetState = current,
                     label = "stepper_value",
                 ) { displayed ->
-                    Text(
-                        text = "${formatNumber(displayed, decimalPlaces)}${field.config?.unit?.let { " $it" } ?: ""}",
-                        // SPEC-401-A R57 (Lens A R57 #8, P2) — 17sp SemiBold
-                        // matches iOS .font(.headline) at FormStepView.swift
-                        // :475-476. Was 20sp Bold — visually heavier than iOS.
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.widthIn(min = 48.dp)
-                    )
+                    // SPEC-401-A R70 (Lens A P2) — split value + unit into TWO
+                    // Text nodes: number at 17sp SemiBold (iOS .font(.headline))
+                    // and unit at 15sp .secondary tone (iOS .font(.subheadline)
+                    // .foregroundColor(.secondary)) at FormFieldRendererExtras
+                    // .swift:474-481. Was one combined Text — unit rendered at
+                    // full primary weight, looking heavier than iOS.
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = formatNumber(displayed, decimalPlaces),
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.widthIn(min = 48.dp)
+                        )
+                        field.config?.unit?.let { unit ->
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                text = unit,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            )
+                        }
+                    }
                 }
                 Spacer(Modifier.width(16.dp))
                 IconButton(
