@@ -1839,7 +1839,8 @@ fun OnboardingStepView(
                 // Skip button
                 if (step.config.skip_enabled == true) {
                     TextButton(onClick = onSkip, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                        Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                        // SPEC-401-A R52 (Lens A R51 #20, P3) — Skip 15sp matching iOS .subheadline.
+                        Text("Skip", fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
                     }
                 }
             }
@@ -1891,7 +1892,8 @@ fun OnboardingStepView(
                     onClick = onSkip,
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 8.dp),
                 ) {
-                    Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                    // SPEC-401-A R52 (Lens A R51 #20, P3) — Skip 15sp matching iOS .subheadline.
+                    Text("Skip", fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
                 }
             }
         }
@@ -2776,7 +2778,8 @@ private fun BlockBasedStepView(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = 16.dp),
             ) {
-                Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+                // SPEC-401-A R52 (Lens A R51 #20, P3) — Skip 15sp matching iOS .subheadline.
+                Text("Skip", fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
             }
         }
 

@@ -1614,7 +1614,10 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                     // SPEC-401-A R44 — theme-adaptive secondary color
                     // (was hardcoded Color.Gray). iOS uses .secondary
                     // (ContentBlockRendererView.swift:459).
-                    "numbered" -> Text("${index + 1}.", fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
+                    // SPEC-401-A R52 (Lens A R51 #19, P3) — explicit 15sp matching
+                    // iOS .subheadline.weight(.semibold) at
+                    // ContentBlockRendererView.swift:457-459.
+                    "numbered" -> Text("${index + 1}.", fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
                     // SPEC-401-A \u2014 render `check` marker as Material
                     // CheckCircle icon (mirrors iOS `checkmark.circle.fill`).
                     // Was a plain Unicode glyph at 16sp which looked like
