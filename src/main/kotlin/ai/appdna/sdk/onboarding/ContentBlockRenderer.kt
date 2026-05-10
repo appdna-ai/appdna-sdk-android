@@ -138,15 +138,27 @@ data class BlockShadowStyle(
     val y: Double = 2.0,
     val blur: Double = 8.0,
     val spread: Double = 0.0,
-    val color: String = "#1A000000",  // ~10% black
+    // SPEC-401-A R26 — match iOS ContentBlockTypes.swift:60. iOS treats
+    // a missing `shadow.color` as transparent (invisible shadow); Android
+    // was hardcoding #1A000000 (10% black) which made the same JSON
+    // `shadow: { x: 4, y: 4, blur: 12 }` (no color) render visibly on
+    // Android but invisibly on iOS.
+    val color: String = "transparent",
 )
 
 /** Gradient definition for block_style background. */
 @androidx.compose.runtime.Immutable
 data class BlockGradientStyle(
     val angle: Double = 135.0,
-    val start: String = "#6366f1",
-    val end: String = "#a855f7",
+    // SPEC-401-A R26 — match iOS ContentBlockTypes.swift:67-68. iOS
+    // gradient endpoint defaults are black (#000000) and white
+    // (#FFFFFF) — applied only when console publishes a gradient
+    // without start/end. Android was injecting brand indigo→purple
+    // (#6366f1 → #a855f7) which made the same JSON `gradient: { angle:
+    // 90 }` render as a brand-tinted gradient on Android while iOS
+    // showed a black→white gradient.
+    val start: String = "#000000",
+    val end: String = "#FFFFFF",
 )
 
 // MARK: - Block Style Modifier Extension (SPEC-089d §6.1)
@@ -218,9 +230,44 @@ fun Modifier.applyBlockStyle(style: BlockStyle?): Modifier {
     // Border
     if (style.border_width != null && style.border_width > 0) {
         val borderColor = StyleEngine.parseColor(style.border_color ?: "#000000")
-        // Note: dashed/dotted borders require Canvas — for now we render solid only.
-        // border_style is parsed but not yet differentiated visually.
-        mod = mod.then(Modifier.border(style.border_width.dp, borderColor, shape))
+        val borderWidthDp = style.border_width.dp
+        val cornerRadiusVal = (style.border_radius ?: 0.0).toFloat()
+        // SPEC-401-A R26 — match iOS ContentBlockTypes.swift:132-141 which
+        // implements dashed `[8, 4]` and dotted `[2, 4]` strokes via
+        // SwiftUI `StrokeStyle`. Android previously rendered all variants
+        // as solid via `Modifier.border` because Compose's border modifier
+        // doesn't natively support dash patterns. Now uses `drawBehind`
+        // with `PathEffect.dashPathEffect` for dashed/dotted; keeps the
+        // existing `Modifier.border` for the solid case (faster path).
+        mod = when (style.border_style?.lowercase()) {
+            "dashed", "dotted" -> {
+                val pattern = if (style.border_style.lowercase() == "dotted") {
+                    floatArrayOf(2f, 4f)
+                } else {
+                    floatArrayOf(8f, 4f)
+                }
+                mod.then(
+                    Modifier.drawBehind {
+                        drawRoundRect(
+                            color = borderColor,
+                            size = size,
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                cornerRadiusVal * density,
+                                cornerRadiusVal * density,
+                            ),
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = borderWidthDp.toPx(),
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                    floatArrayOf(pattern[0] * density, pattern[1] * density),
+                                    0f,
+                                ),
+                            ),
+                        )
+                    }
+                )
+            }
+            else -> mod.then(Modifier.border(borderWidthDp, borderColor, shape))
+        }
     }
 
     // Inner padding
@@ -1373,8 +1420,22 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
     // SPEC-089d §6.5: Pressed style — collect interaction source for scale/opacity
     val interactionSource = remember { MutableInteractionSource() }
     val isPressed by interactionSource.collectIsPressedAsState()
-    val pressedScale = if (isPressed) (block.pressed_style?.scale ?: 0.97).toFloat() else 1f
-    val pressedAlpha = if (isPressed) (block.pressed_style?.opacity ?: 0.9).toFloat() else 1f
+    // SPEC-401-A R26 — match iOS ContentBlockTypes.swift:650 which wraps
+    // pressed-style scale/opacity in `.animation(.easeInOut(duration: 0.1),
+    // value: isPressed)` — smooth 100ms transition. Android was reading raw
+    // Float values directly into graphicsLayer, producing a one-frame snap
+    // (visible "pop" on press/release). animateFloatAsState(tween(100))
+    // gives the same easeInOut interpolation.
+    val pressedScale by animateFloatAsState(
+        targetValue = if (isPressed) (block.pressed_style?.scale ?: 0.97).toFloat() else 1f,
+        animationSpec = tween(durationMillis = 100),
+        label = "pressedScale",
+    )
+    val pressedAlpha by animateFloatAsState(
+        targetValue = if (isPressed) (block.pressed_style?.opacity ?: 0.9).toFloat() else 1f,
+        animationSpec = tween(durationMillis = 100),
+        label = "pressedAlpha",
+    )
     val pressedModifier = if (block.pressed_style != null) {
         Modifier
             .graphicsLayer(scaleX = pressedScale, scaleY = pressedScale, alpha = pressedAlpha)

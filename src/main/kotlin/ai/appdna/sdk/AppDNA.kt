@@ -849,6 +849,38 @@ object AppDNA {
         flowId: String? = null,
         listener: AppDNAOnboardingDelegate? = null
     ): Boolean {
+        // SPEC-401-A R26 — match iOS AppDNA.swift:386-394 thread-safety:
+        // iOS uses `Thread.isMainThread` + `DispatchQueue.main.sync` to
+        // marshal off-thread callers. Android was running the entire
+        // present path (analytics track, delegate.onOnboardingStarted,
+        // mutation of OnboardingActivity.pendingLaunchPayload static
+        // var) on whatever thread the caller used — typical hosts call
+        // from FCM `onMessageReceived` workers / retention webhook
+        // callbacks / coroutine launches → race on the static payload +
+        // delegates expect main-thread invocation. Marshal to the main
+        // looper synchronously (mirrors iOS `.sync` semantics).
+        val mainLooper = android.os.Looper.getMainLooper()
+        if (android.os.Looper.myLooper() != mainLooper) {
+            var result = false
+            val latch = java.util.concurrent.CountDownLatch(1)
+            android.os.Handler(mainLooper).post {
+                result = presentOnMain(activity, flowId, listener)
+                latch.countDown()
+            }
+            // Bounded wait so a stuck main thread can't permanently block
+            // the caller. 5s is generous — if the main thread isn't
+            // available, present would have failed anyway.
+            latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
+            return result
+        }
+        return presentOnMain(activity, flowId, listener)
+    }
+
+    private fun presentOnMain(
+        activity: Activity,
+        flowId: String?,
+        listener: AppDNAOnboardingDelegate?,
+    ): Boolean {
         return onboardingFlowManager?.present(
             activity = activity,
             flowId = flowId,
