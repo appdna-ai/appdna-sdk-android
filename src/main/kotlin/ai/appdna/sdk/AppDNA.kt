@@ -677,6 +677,17 @@ object AppDNA {
      */
     @JvmStatic
     @JvmOverloads
+    /**
+     * SPEC-401-A R80 (Lens B P2) — internal emit that skips survey/message
+     * re-evaluation. Mirrors iOS `eventTracker.track(...)` direct path used
+     * by MessageManager.swift:136/152/174 to avoid re-entrant trigger
+     * recursion. Public `AppDNA.track()` still drives survey + message
+     * triggers as documented.
+     */
+    internal fun trackInternal(event: String, properties: Map<String, Any>? = null) {
+        eventTracker?.track(event, properties)
+    }
+
     fun track(event: String, properties: Map<String, Any>? = null) {
         val tracker = eventTracker
         if (tracker == null) {

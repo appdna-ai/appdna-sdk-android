@@ -78,7 +78,7 @@ class MessageManager(
 
     /**
      * Evaluate every active message against an event. Called from
-     * `AppDNA.track()` after the event has been written to the queue
+     * `AppDNA.trackInternal()` after the event has been written to the queue
      * (see file-top wiring TODO).
      */
     fun onEvent(eventName: String, props: Map<String, Any?>) {
@@ -207,7 +207,7 @@ class MessageManager(
         // see the updated counter via `canShow`.
         frequencyTracker.recordShown(messageId, config.trigger_rules.frequency)
 
-        AppDNA.track(
+        AppDNA.trackInternal(
             "in_app_message_shown",
             mapOf(
                 "message_id" to messageId,
@@ -229,7 +229,7 @@ class MessageManager(
                         config = config,
                         onCTATap = {
                             val ctaActionType = config.content.cta_action?.type ?: "dismiss"
-                            AppDNA.track(
+                            AppDNA.trackInternal(
                                 "in_app_message_clicked",
                                 mapOf("message_id" to messageId, "cta_action" to ctaActionType),
                             )
@@ -241,7 +241,7 @@ class MessageManager(
                             dialog.dismiss()
                         },
                         onDismiss = {
-                            AppDNA.track(
+                            AppDNA.trackInternal(
                                 "in_app_message_dismissed",
                                 mapOf("message_id" to messageId),
                             )

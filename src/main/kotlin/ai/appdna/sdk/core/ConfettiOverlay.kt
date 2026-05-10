@@ -34,16 +34,19 @@ fun ConfettiOverlay(
     val effectColors = if (!effect.colors.isNullOrEmpty()) {
         effect.colors.map { StyleEngine.parseColor(it) }
     } else {
+        // SPEC-401-A R80 (Lens C P2) — palette VALUES match iOS Apple HIG
+        // semantic colors mapping to sRGB. Previously used Tailwind hex
+        // (purple-600 0x9333EA, orange-500 0xF97316, pink-500 0xEC4899)
+        // which renders as bluer-violet, vermillion, and pure magenta —
+        // visibly different from iOS .purple (#AF52DE), .orange (#FF9500),
+        // .pink (#FF2D55). Hearts middle pink also corrected from
+        // CSS HotPink (0xFF69B4) to iOS .pink (#FF2D55).
         when (effect.type) {
-            "hearts" -> listOf(Color.Red, Color(0xFFFF69B4), Color(0xFFFF6B9D))
+            "hearts" -> listOf(Color.Red, Color(0xFFFF2D55), Color(0xFFFF6B9D))
             "snow" -> listOf(Color.White, Color(0xFFF0F0F0), Color(0xFFE5E5E5))
-            "sparkle" -> listOf(Color.Yellow, Color(0xFFFFA500), Color(0xFFFFD700))
-            // SPEC-401-A R71 (Lens A P1) — `fireworks` palette mirrors iOS
-            // ConfettiOverlay.swift:32 `[red, blue, green, yellow, purple,
-            // orange]` (6 colors, no pink). Was falling through to confetti
-            // palette which adds pink — visible color drift.
-            "fireworks" -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFF9333EA), Color(0xFFF97316))
-            else -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFF9333EA), Color(0xFFF97316), Color(0xFFEC4899))
+            "sparkle" -> listOf(Color.Yellow, Color(0xFFFF9500), Color(0xFFFFD700))
+            "fireworks" -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFFAF52DE), Color(0xFFFF9500))
+            else -> listOf(Color.Red, Color.Blue, Color.Green, Color.Yellow, Color(0xFFAF52DE), Color(0xFFFF9500), Color(0xFFFF2D55))
         }
     }
 
