@@ -352,6 +352,26 @@ class PaywallActivity : ComponentActivity() {
         internal fun activeInstance(paywallId: String): PaywallActivity? =
             activePaywallInstances[paywallId]?.get()
 
+        /**
+         * SPEC-401-A R83 (Lens B P1) — finish ALL live paywall activities
+         * (one per paywallId in normal use). Called from
+         * [PaywallManager.handlePostPurchaseFailure] when
+         * `on_failure.action == "dismiss"` so the paywall actually closes
+         * after a card-decline, mirroring iOS PaywallManager.swift:322-324
+         * `viewController.dismiss(animated:true)`.
+         */
+        @JvmStatic
+        internal fun dismissCurrent() {
+            val handler = android.os.Handler(android.os.Looper.getMainLooper())
+            activePaywallInstances.values.forEach { ref ->
+                ref.get()?.let { activity ->
+                    handler.post {
+                        if (!activity.isFinishing) activity.finish()
+                    }
+                }
+            }
+        }
+
         // Read-only accessor for `onBackPressed` to consult the active
         // paywall's `dismiss.allowed` field. Returns null if the Activity
         // already consumed and removed its slot, in which case the back
@@ -1639,6 +1659,50 @@ private fun PaywallSectionView(
                                         plan.trialLabel?.let {
                                             Spacer(Modifier.height(4.dp))
                                             Text(text = it, style = periodStyle)
+                                        }
+                                        // SPEC-401-A R83 (Lens A P1) — render expanded body
+                                        // matching iOS PaywallRenderer.swift:2080-2105:
+                                        // description, savings_text (green bold), and full
+                                        // features list with leading checkmark icons. DTO
+                                        // fields exist in PaywallConfig.kt:400-403; was a
+                                        // pure renderer gap. Without this, accordion sold
+                                        // as 'expandable details' showed almost nothing
+                                        // when expanded.
+                                        plan.description?.takeIf { it.isNotBlank() }?.let { desc ->
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(
+                                                text = loc("plan.$planIdx.description", desc),
+                                                style = periodStyle,
+                                            )
+                                        }
+                                        plan.savings_text?.takeIf { it.isNotBlank() }?.let { savings ->
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                text = loc("plan.$planIdx.savings", savings),
+                                                color = parseHexColor("#22C55E"),
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                            )
+                                        }
+                                        plan.features?.takeIf { it.isNotEmpty() }?.let { features ->
+                                            Spacer(Modifier.height(8.dp))
+                                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                features.forEachIndexed { fIdx, feature ->
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = "✓",
+                                                            color = parseHexColor("#22C55E"),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp,
+                                                        )
+                                                        Spacer(Modifier.width(6.dp))
+                                                        Text(
+                                                            text = loc("plan.$planIdx.feature.$fIdx", feature),
+                                                            style = periodStyle,
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

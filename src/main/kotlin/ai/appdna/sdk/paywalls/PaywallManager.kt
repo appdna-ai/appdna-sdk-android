@@ -384,6 +384,14 @@ internal class PaywallManager(
         if (config == null) return
         when (config.action) {
             "dismiss" -> {
+                // SPEC-401-A R83 (Lens B P1) — actually finish the
+                // PaywallActivity matching iOS PaywallManager.swift:322-324
+                // `viewController.dismiss(animated: true)`. Was only firing
+                // delegate but leaving Activity on-screen — paywall stayed
+                // visible after card-decline while host code's
+                // `onPaywallDismissed` callback already fired (host
+                // navigation broke).
+                PaywallActivity.dismissCurrent()
                 listener?.onPaywallDismissed(paywallId = paywallId)
             }
             "show_error", "retry" -> {
