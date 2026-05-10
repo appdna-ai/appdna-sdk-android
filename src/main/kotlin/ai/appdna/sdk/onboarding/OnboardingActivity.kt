@@ -1157,7 +1157,14 @@ internal fun OnboardingFlowHost(
                             textAlign = TextAlign.Center,
                             fontSize = 12.sp,
                             fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                            color = MaterialTheme.colorScheme.onBackground,
+                            // SPEC-401-A R54 (Lens C R54 #1, P2) — fraction
+                            // digits inherit progressColor matching iOS
+                            // OnboardingRenderer.swift:217-221
+                            // `Text("\(current+1)/\(total)").foregroundColor(fillColor)`.
+                            // Was MaterialTheme.colorScheme.onBackground (near
+                            // black/white), now indigo `#6366F1` (or authored
+                            // override) just like the dots/segments use.
+                            color = progressColor,
                         )
                     }
                     else -> {
@@ -2841,7 +2848,11 @@ private fun BlockBasedStepView(
                 Text(
                     text = validationMessage ?: "",
                     color = Color.White,
-                    fontSize = 14.sp,
+                    // SPEC-401-A R54 (Lens A R54 #3, P3) — 14→15sp Medium
+                    // matching iOS .subheadline.weight(.medium) at
+                    // OnboardingRenderer.swift:1393-1394.
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Medium,
                     // SPEC-401-A R37 (Lens C #4) — assertive announce so
                     // screen-reader users know why Continue didn't advance.
                     modifier = Modifier.semantics { liveRegion = LiveRegionMode.Assertive },
@@ -3181,9 +3192,17 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
                     Spacer(Modifier.width(16.dp))
                     // SPEC-401-A R48 (Lens A #8) — title↔subtitle 4dp gap
                     // matching iOS VStack(spacing: 4).
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(text = item.title.interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
-                        Text(text = item.subtitle.interpolated(), fontSize = 14.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                    // SPEC-401-A R54 (Lens A R54 #5, P2) — title 16→17sp
+                    // (.headline), subtitle 14→15sp (.subheadline) per
+                    // iOS ValuePropStepView.swift:29,32. weight(1f) so
+                    // multi-line text wraps to remaining row width
+                    // (iOS HStack uses Spacer() trailing — same effect).
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(text = item.title.interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
+                        Text(text = item.subtitle.interpolated(), fontSize = 15.sp, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
                     }
                 }
             }

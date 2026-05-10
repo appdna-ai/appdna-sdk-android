@@ -366,37 +366,39 @@ fun ChatStepComposable(
             .background(hex(style?.background_color, "#0F172A"))
     ) {
         // Header
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        // SPEC-401-A R54 (Lens A R54 #6, P3) — 4dp VStack spacing matching
+        // iOS ChatStepView.swift:138-159 VStack(spacing: 4).
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             // SPEC-401-A R52 (Lens A R51 #15, P3) — header title 16→17sp
             // matching iOS ChatStepView.swift:142 .headline.
             step.config.title?.let { Text(it, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 17.sp) }
             if (persona?.name != null && persona.role != null) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // SPEC-401-A — render `persona.avatar_url` when set, else
-                    // fall back to the initial-based circle. Mirrors iOS
-                    // ChatStepView.swift:149,173 which loads via BundledAsyncImage.
-                    val initial = persona?.name?.firstOrNull()?.toString() ?: "A"
                     val avatarUrl = persona?.avatar_url?.takeIf { it.isNotBlank() }
-                    Box(
-                        // SPEC-401-A R52 (Lens A R50 #9, P2) — header avatar
-                        // placeholder bg uses iOS-canonical
-                        // `Color.gray.opacity(0.3)` instead of chat-theme
-                        // ai_bubble_bg. Matches iOS ChatStepView.swift:147-150
-                        // `Circle().fill(Color.gray.opacity(0.3))` placeholder.
-                        modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.3f)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (avatarUrl != null) {
+                    // SPEC-401-A R54 (Lens A R54 #6, P3) — only render the
+                    // avatar Box when avatar_url exists. iOS ChatStepView.swift
+                    // :138-159 has NO fallback initial circle in the HEADER;
+                    // shows persona name+role as plain text only when no
+                    // image. (Message bubbles still keep their initial
+                    // fallback at lines 421-432, matching iOS 168-175.)
+                    if (avatarUrl != null) {
+                        Box(
+                            // SPEC-401-A R52 (Lens A R50 #9, P2) — header avatar
+                            // placeholder bg uses iOS-canonical
+                            // `Color.gray.opacity(0.3)`.
+                            modifier = Modifier.size(28.dp).clip(CircleShape).background(Color.Gray.copy(alpha = 0.3f)),
+                            contentAlignment = Alignment.Center,
+                        ) {
                             ai.appdna.sdk.core.NetworkImage(
                                 url = avatarUrl,
                                 modifier = Modifier.size(28.dp).clip(CircleShape),
                                 contentDescription = persona.name,
                                 contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                             )
-                        } else {
-                            // SPEC-401-A R52 (Lens A R51 #17, P3) — fallback initial
-                            // 11→12sp matching iOS .caption.bold (~12pt).
-                            Text(initial, color = hex(style?.ai_bubble_text, "#E2E8F0"), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Text("${persona.name} - ${persona.role}", color = Color.Gray, fontSize = 12.sp)
@@ -507,16 +509,24 @@ fun ChatStepComposable(
                             modifier = Modifier.background(aiBubbleBg, RoundedCornerShape(16.dp)).padding(12.dp)
                         ) {
                             for (dotIndex in 0..2) {
+                                // SPEC-401-A R54 (Lens C R54 #2, P2) — per-dot
+                                // delay moved out of `tween(delayMillis)` into
+                                // `initialStartOffset` so it applies ONCE before
+                                // the first iteration, not before every cycle.
+                                // SwiftUI `.delay(...)` semantics — iOS
+                                // ChatStepView.swift:223 dots pulse continuously
+                                // after initial stagger; Android tween(delay) was
+                                // pausing 200/400ms between every cycle.
                                 val alpha by infiniteTx.animateFloat(
                                     initialValue = 0.3f,
                                     targetValue = 1.0f,
                                     animationSpec = androidx.compose.animation.core.infiniteRepeatable(
                                         animation = androidx.compose.animation.core.tween(
                                             durationMillis = 600,
-                                            delayMillis = dotIndex * 200,
                                             easing = androidx.compose.animation.core.FastOutSlowInEasing,
                                         ),
                                         repeatMode = androidx.compose.animation.core.RepeatMode.Reverse,
+                                        initialStartOffset = androidx.compose.animation.core.StartOffset(dotIndex * 200),
                                     ),
                                     label = "typing_dot_$dotIndex",
                                 )

@@ -1420,7 +1420,9 @@ private fun ImageBlock(block: ContentBlock) {
 @Composable
 private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
     val text = block.text ?: "Continue"
-    val baseStyle = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+    // SPEC-401-A R54 (Lens A R54 #4, P2) — 16→17sp matching iOS
+    // .body.weight(.semibold) at ContentBlockRendererView.swift:395-396.
+    val baseStyle = TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     val context = LocalContext.current
     val btnVariant = block.variant ?: "primary"
