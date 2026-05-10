@@ -70,6 +70,10 @@ data class BackgroundStyleConfig(
     val overlay_opacity: Double? = null,
     val lottie_url: String? = null,
     val animation_loop: Boolean? = null,
+    // SPEC-401-A R35 — match iOS BackgroundStyle "rive" branch
+    // (StyleEngine.swift:393-425). Rive step backgrounds rendered transparent
+    // on Android because the parser dropped the field.
+    val rive_url: String? = null,
 )
 
 data class GradientConfig(

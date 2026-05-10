@@ -1387,12 +1387,19 @@ internal fun OnboardingFlowHost(
         }
 
         // SPEC-083: Error banner
-        if (showError && errorMessage != null) {
+        // SPEC-401-A R35 — wrap in AnimatedVisibility to mirror iOS
+        // OnboardingRenderer.swift:80-83,318-347 transition + the success
+        // banner sibling below. Was popping in/out instantly.
+        AnimatedVisibility(
+            visible = showError && errorMessage != null,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { -it }) + fadeOut(),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp)
-                    .align(Alignment.TopCenter)
                     .padding(top = if (flow.settings.show_progress && currentStep?.hide_progress != true) 56.dp else 52.dp)
                     .background(Color.Red, RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -2243,6 +2250,18 @@ private fun BlockBasedStepView(
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
+    // SPEC-401-A R35 — in-app validation pill (Lens C #4). iOS shows a
+    // bottom-aligned styled pill `OnboardingRenderer.swift:1383-1402`
+    // instead of system Toast. android.widget.Toast inherits OEM theming
+    // and looks foreign vs. the rest of the SDK UI.
+    var validationMessage by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(validationMessage) {
+        if (validationMessage != null) {
+            kotlinx.coroutines.delay(2500)
+            validationMessage = null
+        }
+    }
+
     // SPEC-084: Localization helper for step text
     // SPEC-087: Also interpolates {{variables}} after localization
     fun loc(key: String, fallback: String): String {
@@ -2310,9 +2329,9 @@ private fun BlockBasedStepView(
                 } else {
                     "Please complete required fields"
                 }
-                android.widget.Toast
-                    .makeText(activityCtx, msg, android.widget.Toast.LENGTH_SHORT)
-                    .show()
+                // SPEC-401-A R35 — surface as in-app pill instead of system
+                // Toast (iOS OnboardingRenderer.swift:1383-1402).
+                validationMessage = msg
                 return
             }
         }
@@ -2514,6 +2533,32 @@ private fun BlockBasedStepView(
                         }
                     }
                 }
+                "rive" -> {
+                    // SPEC-401-A R35 — full-screen Rive background (iOS
+                    // StyleEngine.swift:393-425). Mirrors the "lottie" branch.
+                    Box(Modifier.fillMaxSize()) {
+                        bg.rive_url?.let { url ->
+                            val screenHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat()
+                            ai.appdna.sdk.core.RiveBlockView(
+                                block = ai.appdna.sdk.core.RiveBlock(
+                                    rive_url = url,
+                                    autoplay = true,
+                                    height = screenHeight,
+                                    alignment = "center",
+                                ),
+                            )
+                        }
+                        bg.overlay?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }?.let { overlay ->
+                            val op = bg.overlay_opacity ?: run {
+                                val l = overlay.lowercase()
+                                if (l == "#000000" || l == "#ffffff" || l == "000000" || l == "ffffff") 0.4 else null
+                            }
+                            val color = ai.appdna.sdk.core.StyleEngine.parseColor(overlay)
+                            val tinted = if (op != null) color.copy(alpha = op.toFloat()) else color
+                            Box(Modifier.fillMaxSize().background(tinted))
+                        }
+                    }
+                }
                 else -> {}
             }
         }
@@ -2622,6 +2667,31 @@ private fun BlockBasedStepView(
                     .padding(bottom = 16.dp),
             ) {
                 Text("Skip", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f))
+            }
+        }
+
+        // SPEC-401-A R35 — in-app validation pill (Lens C #4). Mirrors iOS
+        // bottom-pill at OnboardingRenderer.swift:1383-1402 — `.background(
+        // Color.black.opacity(0.8))`, `.cornerRadius(12)`, slide+fade
+        // transition. Replaces system Toast which inherited OEM theming.
+        AnimatedVisibility(
+            visible = validationMessage != null,
+            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 100.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.8f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    text = validationMessage ?: "",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                )
             }
         }
     }

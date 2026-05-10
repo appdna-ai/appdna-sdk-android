@@ -74,6 +74,8 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -651,6 +653,11 @@ data class ContentBlock(
     val unit: String? = null,
     val unit_position: String? = null,
     val visible_items: Int? = null,
+    // SPEC-401-A R35 — wheel_picker orientation per iOS (modernHorizontalWheel
+    // at ContentBlockStandaloneViews.swift:1521-1612). When unset or "vertical"
+    // a vertical LazyColumn renders. "horizontal" → center-snap LazyRow.
+    val wheel_orientation: String? = null,
+    val orientation: String? = null,
     // SPEC-089d Phase F: pulsing_avatar fields
     val pulse_color: String? = null,
     val pulse_ring_count: Int? = null,
@@ -737,6 +744,13 @@ data class LoadingItem(
     val label: String,
     val duration_ms: Int = 1000,
     val icon: String? = null,
+    // SPEC-401-A R35 — match iOS LoadingItemConfig (ContentBlockTypes.swift:816-825).
+    // Per-item orbit decoration used by the orbiting_icons variant. Already
+    // dropped on JSON parse before this field set was added.
+    val icon_url: String? = null,
+    val icon_bg_color: String? = null,
+    val icon_size: Float? = null,
+    val icon_orbit_angle: Float? = null,
 )
 
 /** Pricing plan config for pricing_card block (SPEC-089d §3.17). */
@@ -3714,6 +3728,9 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
     val unitPos = block.unit_position ?: "after"
     val highlightColor = StyleEngine.parseColor(block.highlight_color ?: block.active_color ?: "#6366F1")
     val fieldId = block.field_id ?: block.id
+    // SPEC-401-A R35 — horizontal mode per iOS modernHorizontalWheel
+    // (ContentBlockStandaloneViews.swift:1445,1454-1473,1521-1612).
+    val isHorizontal = (block.wheel_orientation ?: block.orientation)?.lowercase() == "horizontal"
 
     val values = remember {
         val vals = mutableListOf<Double>()
@@ -3731,9 +3748,22 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
 
     // Persist selected value
     val centeredIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    // SPEC-401-A R35 — haptic selection feedback on wheel snap (Lens C #1).
+    // iOS pre-warms UISelectionFeedbackGenerator and fires .selectionChanged()
+    // after the user starts interacting (ContentBlockStandaloneViews.swift:1500-1510).
+    val view = androidx.compose.ui.platform.LocalView.current
+    var hasUserInteracted by remember { mutableStateOf(false) }
+    var lastHapticIndex by remember { mutableStateOf(initialIndex) }
     LaunchedEffect(centeredIndex) {
         if (centeredIndex in values.indices) {
             inputValues[fieldId] = values[centeredIndex]
+        }
+        if (!hasUserInteracted && listState.isScrollInProgress) {
+            hasUserInteracted = true
+        }
+        if (hasUserInteracted && centeredIndex != lastHapticIndex && centeredIndex in values.indices) {
+            ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
+            lastHapticIndex = centeredIndex
         }
     }
 
@@ -3748,38 +3778,76 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
             Text(text = label, fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 8.dp))
         }
 
-        Box(
-            modifier = Modifier.fillMaxWidth().height(150.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            // Highlight strip at center
+        if (isHorizontal) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(40.dp)
-                    .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
-            )
-
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+                modifier = Modifier.fillMaxWidth().height(80.dp),
+                contentAlignment = Alignment.Center,
             ) {
-                items(values.size) { index ->
-                    val v = values[index]
-                    val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
-                    val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
-                    val isCenter = index == centeredIndex
+                // Center-anchored highlight chip
+                Box(
+                    modifier = Modifier
+                        .width(80.dp)
+                        .height(60.dp)
+                        .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                )
 
-                    Text(
-                        text = display,
-                        fontSize = if (isCenter) 22.sp else 16.sp,
-                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCenter) highlightColor else Color.Gray,
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        textAlign = TextAlign.Center,
-                    )
+                LazyRow(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+                ) {
+                    items(values.size) { index ->
+                        val v = values[index]
+                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+                        val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
+                        val isCenter = index == centeredIndex
+
+                        Text(
+                            text = display,
+                            fontSize = if (isCenter) 28.sp else 18.sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) highlightColor else Color.Gray,
+                            modifier = Modifier.width(80.dp).padding(horizontal = 8.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        } else {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(150.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                // Highlight strip at center
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(40.dp)
+                        .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
+                )
+
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
+                ) {
+                    items(values.size) { index ->
+                        val v = values[index]
+                        val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(v)
+                        val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
+                        val isCenter = index == centeredIndex
+
+                        Text(
+                            text = display,
+                            fontSize = if (isCenter) 22.sp else 16.sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) highlightColor else Color.Gray,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                            textAlign = TextAlign.Center,
+                        )
+                    }
                 }
             }
         }
@@ -4297,12 +4365,41 @@ private fun FormInputDateBlock(
     // impl only restored `pendingDate` (datetime sub-state) and left
     // displayText showing "Select date..." as if no answer existed.
     val savedRaw = (inputValues[fieldId] as? String).orEmpty()
-    var displayText by remember {
-        mutableStateOf(if (savedRaw.isNotEmpty()) savedRaw else (block.field_placeholder ?: "Select $mode..."))
+
+    // SPEC-401-A R35 \u2014 match iOS FormInputBlockViews.swift display formatting.
+    // iOS shows a localised `DateFormatter` short string when the user
+    // reopens the field; Android was leaking the raw ISO8601 wire format.
+    val isoFormatter = remember {
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }
     }
+    val displayFormatter = remember(mode) {
+        when (mode) {
+            "time" -> java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT, java.util.Locale.getDefault())
+            "datetime" -> java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT, java.util.Locale.getDefault())
+            else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.MEDIUM, java.util.Locale.getDefault())
+        }
+    }
+    fun formatForDisplay(iso: String): String {
+        if (iso.isEmpty()) return block.field_placeholder ?: "Select $mode..."
+        return try {
+            val parsed = isoFormatter.parse(iso)
+            if (parsed != null) displayFormatter.format(parsed) else iso
+        } catch (_: Exception) { iso }
+    }
+
+    var displayText by remember { mutableStateOf(formatForDisplay(savedRaw)) }
     var showDatePicker by remember { mutableStateOf(false) }
     var showTimePicker by remember { mutableStateOf(false) }
     var pendingDate by remember { mutableStateOf(savedRaw) }
+
+    // SPEC-401-A R35 \u2014 picker_variant per iOS FormInputBlockViews.swift:208-410.
+    // "graphical" \u2192 inline DatePicker; "compact"/null/unknown \u2192 tap-to-open
+    // button. "wheel" falls back to compact today (Material3 lacks a wheel
+    // date picker out of the box; tracked for follow-up).
+    val pickerVariant = (block.field_config?.get("picker_variant") as? String)?.lowercase() ?: "compact"
+    val inlineGraphical = pickerVariant == "graphical" && (mode == "date" || mode == "datetime")
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -4310,33 +4407,54 @@ private fun FormInputDateBlock(
     ) {
         FormFieldLabel(block)
 
-        // AC-042: Tappable button opens actual Material3 date/time picker
-        OutlinedButton(
-            onClick = {
-                when (mode) {
-                    "date", "datetime" -> showDatePicker = true
-                    "time" -> showTimePicker = true
+        if (inlineGraphical) {
+            val initialMillis = remember(savedRaw) {
+                if (savedRaw.isEmpty()) null else try { isoFormatter.parse(savedRaw)?.time } catch (_: Exception) { null }
+            }
+            val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
+            DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth())
+            LaunchedEffect(datePickerState.selectedDateMillis) {
+                val millis = datePickerState.selectedDateMillis
+                if (millis != null) {
+                    val isoStr = isoFormatter.format(java.util.Date(millis))
+                    if (mode == "datetime") {
+                        pendingDate = isoStr
+                        showTimePicker = true
+                    } else {
+                        displayText = formatForDisplay(isoStr)
+                        inputValues[fieldId] = isoStr
+                    }
                 }
-            },
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
-            border = androidx.compose.foundation.BorderStroke(
-                1.dp,
-                StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
-            ),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
-        ) {
-            Row(
+            }
+        } else {
+            // AC-042: Tappable button opens actual Material3 date/time picker
+            OutlinedButton(
+                onClick = {
+                    when (mode) {
+                        "date", "datetime" -> showDatePicker = true
+                        "time" -> showTimePicker = true
+                    }
+                },
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
+                shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                ),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.DarkGray),
             ) {
-                Text(text = displayText, fontSize = 14.sp)
-                Text(text = when (mode) {
-                    "date" -> "\uD83D\uDCC5"
-                    "time" -> "\u23F0"
-                    else -> "\uD83D\uDCC5"
-                }, fontSize = 16.sp)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = displayText, fontSize = 14.sp)
+                    Text(text = when (mode) {
+                        "date" -> "\uD83D\uDCC5"
+                        "time" -> "\u23F0"
+                        else -> "\uD83D\uDCC5"
+                    }, fontSize = 16.sp)
+                }
             }
         }
     }
@@ -4347,11 +4465,8 @@ private fun FormInputDateBlock(
     // consumers + journey triggers + host analytics saw incompatible
     // payloads from the two SDKs for the same flow. iOS's
     // ISO8601DateFormatter defaults emit `yyyy-MM-dd'T'HH:mm:ssZ` in UTC.
-    val isoFormatter = remember {
-        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
-            timeZone = java.util.TimeZone.getTimeZone("UTC")
-        }
-    }
+    // (R35 — formatter hoisted earlier in the function next to displayFormatter
+    // so both inline-graphical and dialog branches reuse the same instance.)
 
     // Material3 DatePickerDialog
     if (showDatePicker) {
@@ -4369,7 +4484,7 @@ private fun FormInputDateBlock(
                             pendingDate = isoStr
                             showTimePicker = true
                         } else {
-                            displayText = isoStr
+                            displayText = formatForDisplay(isoStr)
                             inputValues[fieldId] = isoStr
                         }
                     }
@@ -4403,12 +4518,12 @@ private fun FormInputDateBlock(
                                 cal.set(java.util.Calendar.MINUTE, timePickerState.minute)
                                 cal.set(java.util.Calendar.SECOND, 0)
                                 val combined = isoFormatter.format(cal.time)
-                                displayText = combined
+                                displayText = formatForDisplay(combined)
                                 inputValues[fieldId] = combined
                             }
                         } catch (_: Exception) {
                             // Fallback: keep pendingDate alone if parse fails.
-                            displayText = pendingDate
+                            displayText = formatForDisplay(pendingDate)
                             inputValues[fieldId] = pendingDate
                         }
                         pendingDate = ""
@@ -4419,7 +4534,7 @@ private fun FormInputDateBlock(
                         cal.set(java.util.Calendar.MINUTE, timePickerState.minute)
                         cal.set(java.util.Calendar.SECOND, 0)
                         val timeStr = isoFormatter.format(cal.time)
-                        displayText = timeStr
+                        displayText = formatForDisplay(timeStr)
                         inputValues[fieldId] = timeStr
                     }
                 }) { Text("OK") }
