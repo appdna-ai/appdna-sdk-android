@@ -1063,9 +1063,15 @@ internal fun OnboardingFlowHost(
                 // .background?.color > flow.settings.progress_color > default.
                 val stepProgressColor = currentStep?.config?.progress_color
                     ?: currentStep?.config?.element_style?.background?.color
+                // SPEC-401-A R53 (Lens C R53 #2, P2) — default to iOS-canonical
+                // indigo `#6366F1` (OnboardingRenderer.swift:186) instead of
+                // MaterialTheme.colorScheme.primary which on darkColorScheme()
+                // is M3 default purple (`#D0BCFF`) and on lightColorScheme()
+                // is `#6750A4`. Same flow with no author override now matches
+                // iOS on both light + dark mode.
                 val progressColor = (stepProgressColor ?: flow.settings.progress_color)?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
-                } ?: MaterialTheme.colorScheme.primary
+                } ?: Color(0xFF6366F1)
                 val progressTrackColor = flow.settings.progress_track_color?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: Color.Gray.copy(alpha = 0.2f)
