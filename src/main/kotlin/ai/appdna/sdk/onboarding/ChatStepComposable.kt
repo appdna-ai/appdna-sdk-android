@@ -179,9 +179,18 @@ fun ChatStepComposable(
         @Suppress("UNUSED_VARIABLE") val _start = playStart
     }
 
-    // Scroll to bottom on new message
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    // Scroll to bottom on new message OR when the typing indicator appears.
+    // SPEC-401-A R50 (Lens C #2, P1) — also depend on isTyping so the indicator
+    // row (appended below the last message at line ~461) scrolls into view.
+    // iOS pins to the "typing" anchor whenever the indicator is the last item
+    // (ChatStepView.swift:79-83). Without this fix the dots could render
+    // off-screen on long transcripts, leaving the user wondering if the AI
+    // was responding.
+    LaunchedEffect(messages.size, isTyping) {
+        if (messages.isNotEmpty()) {
+            val target = if (isTyping) messages.size else messages.size - 1
+            listState.animateScrollToItem(target.coerceAtLeast(0))
+        }
     }
 
     fun sendMessage(text: String) {

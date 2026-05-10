@@ -44,6 +44,7 @@ import ai.appdna.sdk.core.VideoBlock as CoreVideoBlock
 import ai.appdna.sdk.core.VideoBlockView as CoreVideoBlockView
 import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.resolveIcon
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.SpanStyle
@@ -3420,7 +3421,11 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         text = months[index],
                         fontSize = if (isCenter) 18.sp else 14.sp,
                         fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCenter) highlightColor else Color.Gray,
+                        // SPEC-401-A R50 (Lens C #3, P1) — DateWheelPicker
+                        // non-center text uses theme onSurface.alpha(0.6)
+                        // matching iOS .secondary (was Color.Gray, illegible
+                        // in dark mode).
+                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
@@ -3452,7 +3457,11 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         text = String.format(java.util.Locale.US, "%02d", day),
                         fontSize = if (isCenter) 18.sp else 14.sp,
                         fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCenter) highlightColor else Color.Gray,
+                        // SPEC-401-A R50 (Lens C #3, P1) — DateWheelPicker
+                        // non-center text uses theme onSurface.alpha(0.6)
+                        // matching iOS .secondary (was Color.Gray, illegible
+                        // in dark mode).
+                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
@@ -3482,7 +3491,11 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                         text = year.toString(),
                         fontSize = if (isCenter) 18.sp else 14.sp,
                         fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
-                        color = if (isCenter) highlightColor else Color.Gray,
+                        // SPEC-401-A R50 (Lens C #3, P1) — DateWheelPicker
+                        // non-center text uses theme onSurface.alpha(0.6)
+                        // matching iOS .secondary (was Color.Gray, illegible
+                        // in dark mode).
+                        color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 8.dp)
@@ -3864,8 +3877,23 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
     val initialIndex = values.indexOfFirst { it >= defaultVal }.coerceAtLeast(0)
     val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
 
-    // Persist selected value
-    val centeredIndex by remember { derivedStateOf { listState.firstVisibleItemIndex } }
+    // SPEC-401-A R50 (Lens C #1, P0) — derive the truly-centered item from
+    // viewport offset rather than `firstVisibleItemIndex`. iOS uses
+    // `.scrollPosition(anchor: .center)` (ContentBlockStandaloneViews.swift
+    // :1549) which always reports the index nearest the viewport midpoint.
+    // Without this fix, the highlight chip + bold/colored text rendered
+    // over a half-empty area: chip pinned to viewport center while
+    // `firstVisibleItemIndex` still pointed to the leftmost item.
+    val centeredIndex by remember {
+        derivedStateOf {
+            val info = listState.layoutInfo
+            val viewportCenter = info.viewportStartOffset +
+                (info.viewportEndOffset - info.viewportStartOffset) / 2
+            info.visibleItemsInfo.minByOrNull {
+                kotlin.math.abs((it.offset + it.size / 2) - viewportCenter)
+            }?.index ?: listState.firstVisibleItemIndex
+        }
+    }
     // SPEC-401-A R35 — haptic selection feedback on wheel snap (Lens C #1).
     // iOS pre-warms UISelectionFeedbackGenerator and fires .selectionChanged()
     // after the user starts interacting (ContentBlockStandaloneViews.swift:1500-1510).
@@ -3911,9 +3939,15 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                         .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
                 )
 
+                // SPEC-401-A R50 (Lens C #1, P0) — half-screen-minus-half-item
+                // contentPadding so the first/last items can scroll under the
+                // center highlight chip. iOS uses `.contentMargins(.horizontal,
+                // sidePad, for: .scrollContent)` at line 1547.
+                val sidePad = (LocalConfiguration.current.screenWidthDp.dp - 80.dp) / 2
                 LazyRow(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = sidePad),
                     verticalAlignment = Alignment.CenterVertically,
                     flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
                 ) {

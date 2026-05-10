@@ -213,7 +213,10 @@ fun LocationFieldComposable(
                         // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
                         // in favor of `HorizontalDivider`. Switch matches the
                         // R22 LinearProgressIndicator lambda-form pattern.
-                        HorizontalDivider(color = Color.LightGray.copy(alpha = 0.5f), thickness = 0.5.dp)
+                        // SPEC-401-A R50 (Lens C #4, P2) — theme-aware divider
+                        // (was Color.LightGray, faintly visible in dark mode).
+                        // Matches iOS native Divider() inheriting separator.
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 0.5.dp)
                     }
                 }
             } }
