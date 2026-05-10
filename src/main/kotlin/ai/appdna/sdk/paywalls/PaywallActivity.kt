@@ -2740,9 +2740,20 @@ private fun PaywallComparisonTableSection(
     val cols = section.data?.table_columns ?: return
     val rows = section.data.rows ?: return
     val checkColor = section.data.check_color?.let { parseHexColor(it) } ?: Color(0xFF22C55E)
-    val crossColor = section.data.cross_color?.let { parseHexColor(it) } ?: Color(0xFFEF4444)
+    // SPEC-401-A R79 (Lens A P1) — defaults match iOS PaywallRenderer.swift:
+    // 1397-1399. Cross was bright red `#EF4444`; iOS uses muted gray `#D1D5DB`.
+    // Border was 20%-white (invisible on light paywall); iOS uses `#E5E7EB`.
+    val crossColor = section.data.cross_color?.let { parseHexColor(it) } ?: parseHexColor("#D1D5DB")
     val highlightClr = section.data.highlight_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
-    val borderClr = section.data.border_color?.let { parseHexColor(it) } ?: Color.White.copy(alpha = 0.2f)
+    val borderClr = section.data.border_color?.let { parseHexColor(it) } ?: parseHexColor("#E5E7EB")
+    // SPEC-401-A R79 (Lens A P1) — theme-adaptive label colors matching iOS
+    // `.foregroundColor(.primary)` / `.secondary`. Was hardcoded white,
+    // invisible on light-themed paywalls.
+    val tablePrimaryText = MaterialTheme.colorScheme.onSurface
+    val tableSecondaryText = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    // SPEC-401-A R79 (Lens A P2) — header background `#F9FAFB` matching iOS
+    // PaywallRenderer.swift:1421. Was 5%-white (invisible on white paywall).
+    val tableHeaderBg = parseHexColor("#F9FAFB")
     val radius = section.data.corner_radius ?: 12f
 
     Column(
@@ -2754,7 +2765,7 @@ private fun PaywallComparisonTableSection(
     ) {
         // Header row
         Row(
-            modifier = Modifier.fillMaxWidth().background(Color.White.copy(alpha = 0.05f)),
+            modifier = Modifier.fillMaxWidth().background(tableHeaderBg),
         ) {
             // Feature label column header
             Box(modifier = Modifier.weight(1f).padding(vertical = 10.dp))
@@ -2770,7 +2781,7 @@ private fun PaywallComparisonTableSection(
                         text = col.label,
                         fontWeight = FontWeight.Bold,
                         fontSize = 12.sp,
-                        color = Color.White,
+                        color = tablePrimaryText,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -2787,7 +2798,7 @@ private fun PaywallComparisonTableSection(
                 Text(
                     text = row.feature,
                     fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.9f),
+                    color = tableSecondaryText,
                     modifier = Modifier.weight(1f).padding(horizontal = 8.dp, vertical = 8.dp),
                 )
                 row.values.forEachIndexed { valIdx, value ->
@@ -2813,7 +2824,7 @@ private fun PaywallComparisonTableSection(
                                 Text("\u2715", color = crossColor, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                             "partial", "~" ->
                                 Text("\u2014", color = Color(0xFFFBBF24), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            else -> Text(value, fontSize = 12.sp, color = Color.White, textAlign = TextAlign.Center)
+                            else -> Text(value, fontSize = 12.sp, color = tablePrimaryText, textAlign = TextAlign.Center)
                         }
                     }
                 }

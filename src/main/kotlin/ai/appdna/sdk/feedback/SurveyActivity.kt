@@ -305,9 +305,28 @@ fun SurveyScreen(
     val containerRadius = (config.appearance.cornerRadius ?: 0).dp
     // SPEC-070-A finalization S-4 — gradient + button_gradient. Mirrors
     // iOS SurveyRenderer.swift:84-100 StyleEngine.linearGradient. Two
-    // brushes consumed by host background and Submit button.
+    // brushes consumed by host background and Submit/Next button.
     val backgroundBrush: androidx.compose.ui.graphics.Brush? = remember(theme?.gradient) {
         theme?.gradient?.takeIf { (it.stops?.size ?: 0) >= 2 }?.let { g ->
+            val cols = g.stops!!.map { parseColor(it.color) }
+            val angle = g.angle ?: 180.0
+            val rads = Math.toRadians(angle)
+            val dx = kotlin.math.sin(rads).toFloat()
+            val dy = -kotlin.math.cos(rads).toFloat()
+            androidx.compose.ui.graphics.Brush.linearGradient(
+                colors = cols,
+                start = androidx.compose.ui.geometry.Offset((0.5f - dx / 2f) * 1000f, (0.5f - dy / 2f) * 1000f),
+                end = androidx.compose.ui.geometry.Offset((0.5f + dx / 2f) * 1000f, (0.5f + dy / 2f) * 1000f),
+            )
+        }
+    }
+    // SPEC-401-A R79 (Lens C P1) — theme.button_gradient applied to the
+    // Next + Submit primary CTAs matching iOS SurveyRenderer.swift:94-100,
+    // 233, 243 `buttonBackground(enabled:)`. Was parsed (SurveyConfig.kt:
+    // 663) but never read. Surveys silently dropped author button_gradient
+    // while paywalls + onboarding honored it.
+    val buttonBrush: androidx.compose.ui.graphics.Brush? = remember(theme?.buttonGradient) {
+        theme?.buttonGradient?.takeIf { (it.stops?.size ?: 0) >= 2 }?.let { g ->
             val cols = g.stops!!.map { parseColor(it.color) }
             val angle = g.angle ?: 180.0
             val rads = Math.toRadians(angle)
@@ -532,16 +551,33 @@ fun SurveyScreen(
 
             if (currentIndex < visibleQuestions.size - 1) {
                 val nextCd = stringResource(R.string.appdna_a11y_survey_next)
-                Button(
-                    onClick = { currentIndex++ },
-                    enabled = canAdvance,
-                    colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                    modifier = Modifier.semantics { contentDescription = nextCd },
-                ) { Text("Next") }
+                // SPEC-401-A R79 (Lens C P1) — apply buttonBrush via Box
+                // wrapper when theme.button_gradient is set; fall back to
+                // solid containerColor otherwise. Mirrors iOS
+                // SurveyRenderer.swift:94-100.
+                if (buttonBrush != null && canAdvance) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(buttonBrush)
+                            .clickable { currentIndex++ }
+                            .padding(horizontal = 24.dp, vertical = 10.dp)
+                            .semantics { contentDescription = nextCd },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Next", color = Color.White, fontWeight = FontWeight.SemiBold) }
+                } else {
+                    Button(
+                        onClick = { currentIndex++ },
+                        enabled = canAdvance,
+                        colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
+                        modifier = Modifier.semantics { contentDescription = nextCd },
+                    ) { Text("Next") }
+                }
             } else {
                 val submitCd = stringResource(R.string.appdna_a11y_survey_submit)
-                Button(
-                    onClick = {
+                // SPEC-401-A R79 (Lens C P1) — buttonBrush gradient on
+                // Submit when configured.
+                val submitOnClick: () -> Unit = {
                         // SPEC-085: Haptic on submit
                         HapticEngine.triggerIfEnabled(
                             currentView,
@@ -577,11 +613,25 @@ fun SurveyScreen(
                         } else {
                             onComplete(allAnswers)
                         }
-                    },
+                }
+                if (buttonBrush != null && canAdvance) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(buttonBrush)
+                            .clickable { submitOnClick() }
+                            .padding(horizontal = 24.dp, vertical = 10.dp)
+                            .semantics { contentDescription = submitCd },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Submit", color = Color.White, fontWeight = FontWeight.SemiBold) }
+                } else {
+                Button(
+                    onClick = submitOnClick,
                     enabled = canAdvance,
                     colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                     modifier = Modifier.semantics { contentDescription = submitCd },
                 ) { Text("Submit") }
+                }
             }
         }
 
