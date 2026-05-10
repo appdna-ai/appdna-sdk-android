@@ -3288,9 +3288,20 @@ private fun CircularGaugeBlock(block: ContentBlock) {
     val showPct = block.show_percentage ?: false
     val pctLocation = block.percentage_location ?: "below"
 
-    // Gradient setup
-    val gradStartHex = block.gradient_start_color
-    val gradEndHex = block.gradient_end_color
+    // SPEC-401-A R72 (Lens A P1) — gauge gradient_start_color +
+    // gradient_end_color live INSIDE field_config, NOT at the top-level
+    // ContentBlock. iOS ContentBlockStandaloneViews.swift:703-705 reads
+    // `block.field_config?["gradient_start_color"]`. Console editor at
+    // `src/.../StepContentEditor.tsx:3814-3815` writes to
+    // `field_config.gradient_start_color`. Android was reading the
+    // top-level field which the parser never populates from field_config
+    // — every console-published gauge gradient rendered as a solid color
+    // on Android while sweeping correctly on iOS. Read field_config first,
+    // fall back to top-level for back-compat.
+    val gradStartHex = (block.field_config?.get("gradient_start_color") as? String)
+        ?: block.gradient_start_color
+    val gradEndHex = (block.field_config?.get("gradient_end_color") as? String)
+        ?: block.gradient_end_color
     val useGradient = !gradStartHex.isNullOrEmpty() && !gradEndHex.isNullOrEmpty()
     val gradColors: List<Color> = if (useGradient) {
         listOf(StyleEngine.parseColor(gradStartHex!!), StyleEngine.parseColor(gradEndHex!!))
