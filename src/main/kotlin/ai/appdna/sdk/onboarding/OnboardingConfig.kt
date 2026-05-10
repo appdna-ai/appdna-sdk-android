@@ -662,10 +662,23 @@ internal object OnboardingConfigParser {
                 }?.toImmutableList()
                 val fieldConfigMap = fm["config"] as? Map<String, Any>
                 val fieldConfig = fieldConfigMap?.let { fc ->
+                    // SPEC-401-A R41 — same shape of parser drift R36/R37
+                    // closed for ContentBlock + R40 closed for nested
+                    // children, but for the FormField envelope's `config`
+                    // sub-map. Was reading 21 of 47 declared fields → every
+                    // form_input_rating / range_slider / image_picker /
+                    // color_picker / multiline_chips / signature / multiline
+                    // text fell through to hardcoded renderer defaults
+                    // regardless of console authoring. Renderer reads
+                    // (FormFieldRendererExtras.kt + FormStepComposable.kt)
+                    // the missing keys directly via `config?.X`.
                     FormFieldConfig(
                         max_length = (fc["max_length"] as? Number)?.toInt(),
+                        min_length = (fc["min_length"] as? Number)?.toInt(),
                         keyboard_type = fc["keyboard_type"] as? String,
                         autocapitalize = fc["autocapitalize"] as? String,
+                        autocorrect = fc["autocorrect"] as? Boolean,
+                        multiline_min_lines = (fc["multiline_min_lines"] as? Number)?.toInt(),
                         min_value = (fc["min_value"] as? Number)?.toDouble(),
                         max_value = (fc["max_value"] as? Number)?.toDouble(),
                         step = (fc["step"] as? Number)?.toDouble(),
@@ -673,15 +686,46 @@ internal object OnboardingConfigParser {
                         decimal_places = (fc["decimal_places"] as? Number)?.toInt(),
                         min_date = fc["min_date"] as? String,
                         max_date = fc["max_date"] as? String,
+                        date_format = fc["date_format"] as? String,
                         picker_style = fc["picker_style"] as? String,
                         search_enabled = fc["search_enabled"] as? Boolean,
                         multi_select = fc["multi_select"] as? Boolean,
+                        max_selections = (fc["max_selections"] as? Number)?.toInt(),
                         default_value = fc["default_value"],
+                        // Location (SPEC-089)
                         location_type = fc["location_type"] as? String,
                         location_bias_country = fc["location_bias_country"] as? String,
                         location_language = fc["location_language"] as? String,
                         location_placeholder = fc["location_placeholder"] as? String,
-                        location_min_chars = (fc["location_min_chars"] as? Number)?.toInt()
+                        location_min_chars = (fc["location_min_chars"] as? Number)?.toInt(),
+                        // SPEC-401-A R41 — rating
+                        max_stars = (fc["max_stars"] as? Number)?.toInt(),
+                        allow_half = fc["allow_half"] as? Boolean,
+                        star_size = (fc["star_size"] as? Number)?.toInt(),
+                        filled_color = fc["filled_color"] as? String,
+                        empty_color = fc["empty_color"] as? String,
+                        // range_slider
+                        min_label = fc["min_label"] as? String,
+                        max_label = fc["max_label"] as? String,
+                        // image_picker
+                        max_size_mb = (fc["max_size_mb"] as? Number)?.toDouble(),
+                        allowed_types = fc["allowed_types"] as? String,
+                        aspect_ratio = fc["aspect_ratio"] as? String,
+                        placeholder_text = fc["placeholder_text"] as? String,
+                        // color picker
+                        default_color = fc["default_color"] as? String,
+                        show_opacity = fc["show_opacity"] as? Boolean,
+                        preset_colors = (fc["preset_colors"] as? List<*>)?.filterIsInstance<String>(),
+                        // url validation
+                        validate_format = fc["validate_format"] as? Boolean,
+                        // multiline_chips
+                        max_chips = (fc["max_chips"] as? Number)?.toInt(),
+                        suggestions = (fc["suggestions"] as? List<*>)?.filterIsInstance<String>(),
+                        allow_custom = fc["allow_custom"] as? Boolean,
+                        // signature
+                        stroke_color = fc["stroke_color"] as? String,
+                        stroke_width = (fc["stroke_width"] as? Number)?.toDouble(),
+                        clear_button_text = fc["clear_button_text"] as? String,
                     )
                 }
                 val validationMap = fm["validation"] as? Map<String, Any>
@@ -822,6 +866,15 @@ internal object OnboardingConfigParser {
             layout = configMap["layout"] as? Map<String, Any>,
             fields = fields,
             validation_mode = configMap["validation_mode"] as? String,
+            // SPEC-401-A R41 — `field_defaults` parser drop. Data class
+            // declares it (line 193); FormStepComposable.kt reads it via
+            // `config.field_defaults?.forEach`; OnboardingActivity merges
+            // it with override at line 954. But the JSON parser never
+            // assigned it to the StepConfig constructor — only the
+            // SPEC-083 override path populated it. Console-authored
+            // `field_defaults` (vs. hook-supplied) was dropped on parse,
+            // so editor pre-fills never reached the form composable.
+            field_defaults = configMap["field_defaults"] as? Map<String, Any>,
             content_blocks = contentBlocks,
             layout_variant = configMap["layout_variant"] as? String,
             background = background,
@@ -1520,6 +1573,11 @@ internal object OnboardingConfigParser {
                     thumb_color = fs["thumb_color"] as? String,
                     toggle_on_color = fs["toggle_on_color"] as? String,
                     toggle_off_color = fs["toggle_off_color"] as? String,
+                    // SPEC-401-A R41 — match iOS ContentBlockTypes.swift:291-312
+                    // (3 fields R37 missed). Renderer wiring follow-up.
+                    height = fs["height"] as? String,
+                    font_weight = fs["font_weight"] as? String,
+                    focused_background_color = fs["focused_background_color"] as? String,
                 )
             },
 

@@ -805,6 +805,13 @@ data class FormFieldBlockStyle(
     val thumb_color: String? = null,
     val toggle_on_color: String? = null,
     val toggle_off_color: String? = null,
+    // SPEC-401-A R41 — match iOS ContentBlockTypes.swift:291-312 (3 missing
+    // fields). Renderer wiring of focused-state background + size token +
+    // weight is a separate ticket; data-class + parser presence prevents
+    // future R-round renderer fixes from being shadowed by missing field.
+    val height: String? = null,
+    val font_weight: String? = null,
+    val focused_background_color: String? = null,
 )
 
 /**
