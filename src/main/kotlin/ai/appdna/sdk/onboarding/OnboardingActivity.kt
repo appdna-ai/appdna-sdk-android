@@ -1719,7 +1719,10 @@ internal fun OnboardingFlowHost(
                     ) {
                         CircularProgressIndicator(
                             color = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            // SPEC-401-A R84 (Lens C F3) — 32→28dp matches
+                            // iOS `ProgressView().scaleEffect(1.2)` ≈ 24pt × 1.2
+                            // ≈ 29pt at OnboardingRenderer.swift:302-303.
+                            modifier = Modifier.size(28.dp)
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(

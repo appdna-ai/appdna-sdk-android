@@ -13,10 +13,33 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+
+// SPEC-401-A R84 (Lens C F2) — read once whether the user has Reduce Motion
+// enabled (Settings → Accessibility → Remove animations sets all 3 scale
+// settings to 0). iOS SwiftUI `.animation()` / `.transition()` are gated
+// implicitly by `UIAccessibility.isReduceMotionEnabled` — Compose does not
+// auto-gate, so each entry/stagger/CTA/glow modifier opts out manually below.
+@Composable
+fun rememberReduceMotion(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        try {
+            val scale = android.provider.Settings.Global.getFloat(
+                context.contentResolver,
+                android.provider.Settings.Global.TRANSITION_ANIMATION_SCALE,
+                1f,
+            )
+            scale == 0f
+        } catch (_: android.provider.Settings.SettingNotFoundException) {
+            false
+        }
+    }
+}
 
 // MARK: - Entry Animation
 
@@ -24,6 +47,8 @@ import kotlinx.coroutines.delay
 fun Modifier.entryAnimation(animation: String?, durationMs: Int? = null): Modifier {
     val anim = animation ?: "none"
     if (anim == "none") return this
+    // SPEC-401-A R84 (Lens C F2) — short-circuit when Reduce Motion is on.
+    if (rememberReduceMotion()) return this
 
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { appeared = true }
@@ -73,6 +98,8 @@ fun Modifier.entryAnimation(animation: String?, durationMs: Int? = null): Modifi
 fun Modifier.sectionStagger(animation: String?, delayMs: Int? = null): Modifier {
     val anim = animation ?: "none"
     if (anim == "none") return this
+    // SPEC-401-A R84 (Lens C F2) — short-circuit when Reduce Motion is on.
+    if (rememberReduceMotion()) return this
 
     var appeared by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -121,6 +148,8 @@ fun Modifier.sectionStagger(animation: String?, delayMs: Int? = null): Modifier 
 
 @Composable
 fun Modifier.ctaAnimation(animation: String?): Modifier {
+    // SPEC-401-A R84 (Lens C F2) — short-circuit when Reduce Motion is on.
+    if (rememberReduceMotion()) return this
     return when (animation) {
         "pulse" -> this.pulseEffect()
         "glow" -> this.glowEffect()
@@ -184,6 +213,8 @@ private fun Modifier.bounceEffect(): Modifier {
 fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Modifier {
     val anim = animation ?: "none"
     if (anim == "none") return this
+    // SPEC-401-A R84 (Lens C F2) — short-circuit when Reduce Motion is on.
+    if (rememberReduceMotion()) return this
 
     // SPEC-401-A R64 (Lens C P2) — match iOS `spring(response: 0.3,
     // dampingFraction: 0.7)` at AnimationModifiers.swift:125. Compose
@@ -200,7 +231,10 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
         label = "plan_scale",
     )
     val elevation by animateFloatAsState(
-        targetValue = if (anim == "glow" && isSelected) 12f else 0f,
+        // SPEC-401-A R84 (Lens C F1) — drop 12→10 to match iOS shadow(radius:10)
+        // at AnimationModifiers.swift:118. R64 nailed the spring + accent color
+        // but missed the radius magnitude — Android halo rendered ~20% larger.
+        targetValue = if (anim == "glow" && isSelected) 10f else 0f,
         animationSpec = planSpring,
         label = "plan_glow",
     )
@@ -226,6 +260,8 @@ fun Modifier.planSelectionAnimation(animation: String?, isSelected: Boolean): Mo
 fun Modifier.dismissAnimation(animation: String?, dismiss: Boolean): Modifier {
     val anim = animation ?: "none"
     if (anim == "none") return this
+    // SPEC-401-A R84 (Lens C F2) — short-circuit when Reduce Motion is on.
+    if (rememberReduceMotion()) return this
 
     // SPEC-401-A R56 (Lens C R56 #2, P1) — only fade for fade_out anim;
     // matches iOS AnimationModifiers.swift:138

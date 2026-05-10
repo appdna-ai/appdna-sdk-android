@@ -56,6 +56,10 @@ import ai.appdna.sdk.core.HapticEngine
 import ai.appdna.sdk.core.HapticType
 import ai.appdna.sdk.core.IconView
 import ai.appdna.sdk.core.IconReference
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.automirrored.filled.StarHalf
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -2092,11 +2096,36 @@ private fun PaywallSectionView(
                             section.style?.elements?.get("value")?.text_style
                         )
                         section.data?.rating?.let { rating ->
-                            val stars = "\u2605".repeat(rating.toInt())
-                            Text(text = stars, color = Color(0xFFFBBF24), fontSize = 20.sp)
+                            // SPEC-401-A R84 (Lens A F3) \u2014 render 5 fixed stars
+                            // with filled/half/outline based on rating instead
+                            // of `repeat(rating.toInt())` which dropped the
+                            // half-star (4.5\u2605 rendered as 4 solid stars).
+                            // Mirrors iOS PaywallRenderer.swift socialProofSection
+                            // app_rating star loop.
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                for (i in 0 until 5) {
+                                    val delta = rating - i
+                                    val (vector, alpha) = when {
+                                        delta >= 1.0 -> Icons.Filled.Star to 1f
+                                        delta >= 0.5 -> Icons.AutoMirrored.Filled.StarHalf to 1f
+                                        else -> Icons.Filled.StarBorder to 0.6f
+                                    }
+                                    Icon(
+                                        imageVector = vector,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFBBF24).copy(alpha = alpha),
+                                        modifier = Modifier.size(20.dp),
+                                    )
+                                }
+                            }
                             section.data.review_count?.let { count ->
+                                // SPEC-401-A R84 (Lens A F3) \u2014 compact count
+                                // formatter (e.g. 1245 \u2192 "1.2K") matching iOS
+                                // formatCount; was the literal string
+                                // "$rating from $count reviews".
+                                val compact = formatCompactCount(count)
                                 Text(
-                                    text = loc("social_proof.review_text", "$rating from $count reviews"),
+                                    text = loc("social_proof.review_text", "($compact)"),
                                     style = socialValueStyle,
                                 )
                             }
@@ -2114,19 +2143,73 @@ private fun PaywallSectionView(
             }
         }
         "guarantee" -> {
-            section.data?.guarantee_text?.let {
-                val guaranteeTextStyle = StyleEngine.applyTextStyle(
-                    TextStyle(fontSize = 12.sp, color = Color.White.copy(alpha = 0.5f), textAlign = TextAlign.Center),
-                    section.style?.elements?.get("text")?.text_style
-                )
-                Text(
-                    text = loc("guarantee.text", it),
-                    style = guaranteeTextStyle,
+            // SPEC-401-A R84 (Lens A F1) — full 4-element VStack matching
+            // iOS PaywallRenderer.swift:594-661 (icon + capsule badge + title +
+            // description). Was bare 12sp text dropping icon/title/description/
+            // accent color/badge styling.
+            val accentColor = StyleEngine.parseColor(section.data?.accent_color ?: "#22C55E")
+            val hasContent = section.data?.guarantee_text != null
+                || section.data?.title != null
+                || section.data?.text != null
+                || section.data?.description != null
+            if (hasContent) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
-                )
+                        .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    // Icon (SF Symbol → Material via IconView; fallback shield)
+                    val iconName = section.data?.icon
+                    IconView(
+                        ref = IconReference(
+                            library = "sf-symbols",
+                            name = iconName?.takeIf { it.contains(".") || it.contains("_") }
+                                ?: "shield.checkmark.fill",
+                            color = section.data?.accent_color ?: "#22C55E",
+                            size = 28f,
+                        ),
+                        defaultSize = 28f,
+                    )
+                    // Badge text (capsule)
+                    val badge = section.data?.guarantee_text ?: section.data?.text
+                    if (badge != null) {
+                        val badgeStyle = StyleEngine.applyTextStyle(
+                            TextStyle(fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = accentColor),
+                            section.style?.elements?.get("badge")?.text_style
+                        )
+                        Text(
+                            text = loc("guarantee.badge", badge),
+                            style = badgeStyle,
+                            modifier = Modifier
+                                .background(accentColor.copy(alpha = 0.15f), RoundedCornerShape(999.dp))
+                                .padding(horizontal = 12.dp, vertical = 4.dp),
+                        )
+                    }
+                    // Title
+                    section.data?.title?.let { title ->
+                        val titleStyle = StyleEngine.applyTextStyle(
+                            TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface),
+                            section.style?.elements?.get("title")?.text_style
+                        )
+                        Text(text = loc("guarantee.title", title), style = titleStyle)
+                    }
+                    // Description (mirrors iOS fallback chain)
+                    val desc = section.data?.description
+                        ?: section.data?.title?.let { _ ->
+                            section.data.text ?: section.data.guarantee_text
+                        }
+                    desc?.let {
+                        val descStyle = StyleEngine.applyTextStyle(
+                            TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f), textAlign = TextAlign.Center),
+                            section.style?.elements?.get("text")?.text_style
+                                ?: section.style?.elements?.get("description")?.text_style
+                        )
+                        Text(text = loc("guarantee.description", it), style = descStyle)
+                    }
+                }
             }
         }
         // SPEC-084: Missing sections
@@ -2194,8 +2277,16 @@ private fun PaywallSectionView(
             }
         }
         "testimonial" -> {
+            // SPEC-401-A R84 (Lens A F2) \u2014 honor `data.layout` (quote / card /
+            // minimal / default) matching iOS PaywallRenderer.swift:715-799.
+            // Was hardcoded "quote" layout regardless of console value.
+            val testimonialLayout = section.data?.layout ?: "quote"
             val quoteStyle = StyleEngine.applyTextStyle(
-                TextStyle(color = Color.White.copy(alpha = 0.9f), fontSize = 14.sp, textAlign = TextAlign.Center),
+                TextStyle(
+                    color = Color.White.copy(alpha = 0.9f),
+                    fontSize = if (testimonialLayout == "minimal") 12.sp else 14.sp,
+                    textAlign = TextAlign.Center,
+                ),
                 section.style?.elements?.get("quote")?.text_style
             )
             val authorNameStyle = StyleEngine.applyTextStyle(
@@ -2206,50 +2297,72 @@ private fun PaywallSectionView(
                 TextStyle(color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp),
                 section.style?.elements?.get("author_role")?.text_style
             )
+            val cardModifier = if (testimonialLayout == "card") {
+                Modifier
+                    .background(Color(0xFFF9FAFB), RoundedCornerShape(12.dp))
+                    .border(1.dp, Color(0xFFE5E7EB), RoundedCornerShape(12.dp))
+                    .padding(16.dp)
+            } else Modifier
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .then(cardModifier)
+                    .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
             ) {
-                Text(
-                    text = "\u201C",
-                    fontSize = 40.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF6366F1),
-                )
-                Text(
-                    text = loc("testimonial.quote", section.data?.quote ?: section.data?.testimonial ?: ""),
-                    style = quoteStyle,
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    // Author avatar (URL) or initials fallback
-                    val avatarUrl = section.data?.avatar_url
-                    if (!avatarUrl.isNullOrBlank()) {
-                        ai.appdna.sdk.core.NetworkImage(
-                            url = avatarUrl,
-                            modifier = Modifier.size(40.dp).clip(CircleShape),
-                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                        )
-                    } else {
-                        section.data?.author_name?.let { name ->
-                            val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }.take(2).joinToString("")
-                            Box(
-                                modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF6366F1).copy(alpha = 0.2f)),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(initials, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF6366F1))
+                // Quote-mark only on "quote" layout
+                if (testimonialLayout == "quote") {
+                    Text(
+                        text = "\u201C",
+                        fontSize = 40.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6366F1),
+                    )
+                }
+                if (testimonialLayout == "minimal") {
+                    // Inline "\u2014 Author Name" caption
+                    val author = section.data?.author_name?.let { " \u2014 $it" } ?: ""
+                    Text(
+                        text = loc("testimonial.quote", section.data?.quote ?: section.data?.testimonial ?: "") + author,
+                        style = quoteStyle,
+                    )
+                } else {
+                    Text(
+                        text = loc("testimonial.quote", section.data?.quote ?: section.data?.testimonial ?: ""),
+                        style = quoteStyle,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        // Author avatar (URL) or initials fallback
+                        val avatarUrl = section.data?.avatar_url
+                        if (!avatarUrl.isNullOrBlank()) {
+                            ai.appdna.sdk.core.NetworkImage(
+                                url = avatarUrl,
+                                modifier = Modifier.size(40.dp).clip(CircleShape),
+                                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                            )
+                        } else {
+                            section.data?.author_name?.let { name ->
+                                val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }.take(2).joinToString("")
+                                Box(
+                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF6366F1).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(initials, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF6366F1))
+                                }
                             }
                         }
-                    }
-                    Column {
-                        section.data?.author_name?.let {
-                            Text(loc("testimonial.author_name", it), style = authorNameStyle)
-                        }
-                        section.data?.author_role?.let {
-                            Text(loc("testimonial.author_role", it), style = authorRoleStyle)
+                        Column {
+                            section.data?.author_name?.let {
+                                Text(loc("testimonial.author_name", it), style = authorNameStyle)
+                            }
+                            section.data?.author_role?.let {
+                                Text(loc("testimonial.author_role", it), style = authorRoleStyle)
+                            }
                         }
                     }
                 }
@@ -3382,5 +3495,25 @@ private object ReviewAvatarEmojiMap {
         // pass it through.
         if (s.any { it.code > 127 }) return s
         return byName[s.lowercase()]
+    }
+}
+
+// SPEC-401-A R84 (Lens A F3) — compact count formatter mirroring iOS
+// PaywallRenderer.swift `formatCount` (e.g. 1245 → "1.2K", 12450 → "12K",
+// 1245000 → "1.2M"). Lower than 1000 → bare number.
+private fun formatCompactCount(count: Int): String {
+    val abs = kotlin.math.abs(count)
+    return when {
+        abs >= 1_000_000 -> {
+            val whole = abs / 1_000_000
+            val tenths = (abs % 1_000_000) / 100_000
+            if (tenths == 0 || whole >= 10) "${whole}M" else "${whole}.${tenths}M"
+        }
+        abs >= 1_000 -> {
+            val whole = abs / 1_000
+            val tenths = (abs % 1_000) / 100
+            if (tenths == 0 || whole >= 10) "${whole}K" else "${whole}.${tenths}K"
+        }
+        else -> "$abs"
     }
 }
