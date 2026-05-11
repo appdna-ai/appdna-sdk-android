@@ -407,6 +407,10 @@ fun SurveyScreen(
     ) {
         // SPEC-085 + SPEC-070-A finalization Lens B P1 — intro Lottie shows
         // ALONE (replaces question UI) for 2s, mirrors iOS showIntro gate.
+        // NOTE: R86 Lens C F2 intro-hide fade-out deferred — early-bail
+        // via `return@Column` after rendering intro is incompatible with
+        // AnimatedVisibility's exit-only-when-not-rendered pattern; safer
+        // to leave the instant hide than to refactor the bail path.
         if (showIntro && config.appearance.introLottieUrl != null) {
             Spacer(Modifier.weight(1f))
             LottieBlockView(

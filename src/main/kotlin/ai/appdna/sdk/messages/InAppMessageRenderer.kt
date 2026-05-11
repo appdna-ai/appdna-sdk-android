@@ -3,6 +3,7 @@ package ai.appdna.sdk.messages
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -208,7 +209,12 @@ private fun BannerMessageView(
                             Button(
                                 onClick = onCTATap,
                                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                                shape = RoundedCornerShape(cornerRadius.dp),
+                                // SPEC-401-A R86 (Lens C F1) — CTA shape uses
+                                // `content.button_corner_radius ?? 8` matching
+                                // iOS BannerView.swift:78. Was reusing the
+                                // banner card corner_radius — silently dropped
+                                // every console-set button_corner_radius.
+                                shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                             ) {
                                 // SPEC-085: CTA icon
@@ -286,6 +292,7 @@ private fun ModalMessageView(
     }
 
     // Backdrop
+    val backdropInteractionSource = remember { MutableInteractionSource() }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -297,7 +304,15 @@ private fun ModalMessageView(
                     Modifier.background(Color.Black.copy(alpha = 0.5f))
                 }
             )
-            .clickable(onClick = onDismiss),
+            // SPEC-401-A R86 (Lens C F3) — null indication suppresses Material
+            // ripple on the dimmed scrim, matching iOS ModalView.swift:23
+            // `.onTapGesture` (no ripple). Was flashing a ripple highlight
+            // over the dim layer on tap-to-dismiss.
+            .clickable(
+                interactionSource = backdropInteractionSource,
+                indication = null,
+                onClick = onDismiss,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         // Modal card
@@ -418,7 +433,12 @@ private fun ModalMessageView(
                             .fillMaxWidth()
                             .height(48.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                        shape = RoundedCornerShape((content.corner_radius ?: 12).dp),
+                        // SPEC-401-A R86 (Lens C F1) — CTA shape uses
+                        // `content.button_corner_radius ?? 8` matching iOS
+                        // ModalView.swift:107. Was reusing modal card
+                        // corner_radius default 12 — dropped every
+                        // console-set button_corner_radius.
+                        shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
                     ) {
                         // SPEC-085: CTA icon
                         val ctaIcon = resolveIcon(content.cta_icon)
@@ -596,7 +616,11 @@ private fun FullscreenMessageView(
                         .fillMaxWidth()
                         .height(54.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                    shape = RoundedCornerShape(cornerRadius.dp),
+                    // SPEC-401-A R86 (Lens C F1) — CTA shape uses
+                    // `content.button_corner_radius ?? 8` matching iOS
+                    // FullscreenView.swift:99. Was reusing fullscreen card
+                    // corner_radius — dropped console-set button radius.
+                    shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
                 ) {
                     val ctaIcon = resolveIcon(content.cta_icon)
                     if (ctaIcon != null) {

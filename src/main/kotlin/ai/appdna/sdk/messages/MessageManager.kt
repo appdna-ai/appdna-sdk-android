@@ -156,12 +156,18 @@ class MessageManager(
     }
 
     /**
-     * Clear in-session frequency counters + queue gate. Called from
-     * `AppDNA.reset()`.
+     * Clear in-session frequency counters. Called from `AppDNA.reset()`.
+     *
+     * SPEC-401-A R86 (Lens B F1) — do NOT reset `isPresenting` here. iOS
+     * `MessageManager.resetSession()` leaves the gate untouched
+     * (InAppMessaging/MessageManager.swift:99-101). If `AppDNA.reset()` is
+     * called while a Dialog is actively showing, dropping the gate races
+     * a second concurrent present() (in-flight Dialog stays visible while
+     * a follow-up tracked event passes the gate and calls present() again,
+     * stacking dialogs). The gate is reset on natural dismiss or shutdown.
      */
     fun resetSession() {
         frequencyTracker.resetSession()
-        isPresenting.set(false)
     }
 
     /**

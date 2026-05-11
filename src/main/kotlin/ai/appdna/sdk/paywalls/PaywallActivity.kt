@@ -3083,17 +3083,24 @@ private fun PaywallPromoInputSection(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth(),
         ) {
-            OutlinedTextField(
+            // SPEC-401-A R86 (Lens A F6) — filled TextField with #F9FAFB bg +
+            // theme-adaptive text matches iOS PaywallRenderer.swift:1481-1488.
+            // Was OutlinedTextField with white-on-dark-only palette → invisible
+            // placeholder on light-mode paywalls.
+            TextField(
                 value = effectivePromoCode,
                 onValueChange = updateCode,
-                placeholder = { Text(section.data?.placeholder ?: "Promo code", color = Color.White.copy(alpha = 0.4f)) },
+                placeholder = { Text(section.data?.placeholder ?: "Promo code", color = MaterialTheme.colorScheme.onSurfaceVariant) },
                 modifier = Modifier.weight(1f),
                 singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    focusedBorderColor = Color(0xFF6366F1),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.2f),
+                shape = RoundedCornerShape(8.dp),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = parseHexColor("#F9FAFB"),
+                    unfocusedContainerColor = parseHexColor("#F9FAFB"),
+                    focusedIndicatorColor = Color.Transparent,
+                    unfocusedIndicatorColor = Color.Transparent,
+                    focusedTextColor = MaterialTheme.colorScheme.onSurface,
+                    unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
                 ),
             )
             Button(
@@ -3179,7 +3186,10 @@ private fun PaywallToggleSection(
                 Text(
                     text = loc("toggle.description", it),
                     fontSize = 12.sp,
-                    color = section.data.description_color?.let { c -> parseHexColor(c) } ?: Color.White.copy(alpha = 0.6f),
+                    // SPEC-401-A R86 (Lens A F7) — default #9CA3AF matches iOS
+                    // PaywallRenderer.swift:1545. Was Color.White 0.6 alpha →
+                    // invisible on #FFFFFF paywall background.
+                    color = section.data.description_color?.let { c -> parseHexColor(c) } ?: parseHexColor("#9CA3AF"),
                 )
             }
         }
@@ -3402,7 +3412,10 @@ private fun PaywallStickyFooter(
     onRestore: () -> Unit,
     loc: (String, String) -> String,
 ) {
-    val bgColor = section.data?.background_color?.let { parseHexColor(it) } ?: Color.Black.copy(alpha = 0.95f)
+    // SPEC-401-A R86 (Lens A F1) — default background #FFFFFF matches iOS
+    // PaywallRenderer.swift:1054. Was Color.Black 0.95 alpha → light-mode
+    // paywalls rendered dark footer.
+    val bgColor = section.data?.background_color?.let { parseHexColor(it) } ?: Color.White
     val context = androidx.compose.ui.platform.LocalContext.current
 
     Column(
@@ -3418,7 +3431,9 @@ private fun PaywallStickyFooter(
             Button(
                 onClick = onCTATap,
                 enabled = !isPurchasing,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
+                // SPEC-401-A R86 (Lens A F2) — honor cta_height + cta_font_size
+                // matching iOS PaywallRenderer.swift:1067,1072. Was hardcoded.
+                modifier = Modifier.fillMaxWidth().height((section.data.cta_height ?: 52f).dp),
                 shape = RoundedCornerShape((section.data.cta_corner_radius ?: 14f).dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = section.data.cta_bg_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
@@ -3430,7 +3445,7 @@ private fun PaywallStickyFooter(
                     Text(
                         text = loc("sticky_footer.cta", ctaText),
                         fontWeight = FontWeight.SemiBold,
-                        fontSize = 17.sp,
+                        fontSize = (section.data.cta_font_size ?: 17f).sp,
                         color = section.data.cta_text_color?.let { parseHexColor(it) } ?: Color.White,
                     )
                 }
@@ -3453,7 +3468,11 @@ private fun PaywallStickyFooter(
             }) {
                 Text(
                     text = loc("sticky_footer.secondary", secondaryText),
-                    color = Color.White.copy(alpha = 0.6f),
+                    // SPEC-401-A R86 (Lens A F4) — theme-adaptive secondary
+                    // matches iOS `.foregroundColor(.secondary)` at
+                    // PaywallRenderer.swift:1095. Was White 0.6 alpha → broken
+                    // on light footers.
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                 )
             }
@@ -3464,7 +3483,9 @@ private fun PaywallStickyFooter(
             Spacer(Modifier.height(4.dp))
             Text(
                 text = loc("sticky_footer.legal", legalText),
-                color = Color.White.copy(alpha = 0.4f),
+                // SPEC-401-A R86 (Lens A F5) — theme-adaptive legal matches iOS
+                // `.foregroundColor(.secondary)` at PaywallRenderer.swift:1103.
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                 fontSize = 10.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
