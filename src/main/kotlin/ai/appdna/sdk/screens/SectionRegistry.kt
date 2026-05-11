@@ -15,8 +15,16 @@ internal object SectionRegistry {
         val renderer = renderers[section.type]
         if (renderer != null) {
             renderer(section, context)
+            return
         }
-        // Unknown sections render nothing (AC-066, AC-089)
+        // R87 P1 — content_blocks fallback for unknown section types that
+        // ship `data.blocks`. Mirrors iOS SectionRegistry.swift:37-43 so
+        // console-experimental section types not yet known to the SDK still
+        // render their inline blocks instead of disappearing.
+        if (section.data["blocks"] != null) {
+            renderers["content_blocks"]?.invoke(section, context)
+        }
+        // Otherwise unknown sections render nothing (AC-066, AC-089)
     }
 
     fun hasRenderer(type: String): Boolean = renderers.containsKey(type)

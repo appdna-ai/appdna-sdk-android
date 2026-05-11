@@ -994,17 +994,28 @@ object AppDNA {
         return sb.toString()
     }
 
-    /** Show a server-driven multi-screen flow by ID. */
+    /**
+     * Show a server-driven multi-screen flow by ID. Mirrors iOS
+     * `AppDNA.showFlow(_:completion:)` at AppDNA.swift:406. Forwards to
+     * `ScreenManager.shared.showFlow(...)`. R87 P2 — surfaced as
+     * `@JvmStatic` + `@JvmOverloads` so Java callers can call
+     * `AppDNA.showFlow("welcome")` without supplying a null callback.
+     */
+    @JvmStatic
+    @JvmOverloads
     fun showFlow(flowId: String, callback: ((ai.appdna.sdk.screens.FlowResult) -> Unit)? = null) {
         ai.appdna.sdk.screens.ScreenManager.shared.showFlow(flowId, callback)
     }
 
     /** Dismiss the currently presented server-driven screen or flow. */
+    @JvmStatic
     fun dismissScreen() {
         ai.appdna.sdk.screens.ScreenManager.shared.dismissScreen()
     }
 
     /** Enable navigation interception for server-driven screens. */
+    @JvmStatic
+    @JvmOverloads
     fun enableNavigationInterception(forScreens: List<String>? = null) {
         ai.appdna.sdk.screens.ScreenManager.shared.enableNavigationInterception(forScreens)
     }

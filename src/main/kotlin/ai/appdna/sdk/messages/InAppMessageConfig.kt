@@ -312,7 +312,13 @@ internal object MessageConfigParser {
         val triggerRules = TriggerRules(
             event = rulesMap["event"] as? String ?: "",
             conditions = conditions,
-            frequency = rulesMap["frequency"] as? String ?: "every_time",
+            // R87 P1 — default `once` matches iOS
+            // `triggerRules.frequency ?? .once` at MessageManager.swift:56,133.
+            // Was `every_time` → console-published messages with no frequency
+            // configured showed on EVERY event-match on Android while iOS
+            // showed them exactly once per user. Same message diverged
+            // visibly between platforms after the second trigger fire.
+            frequency = rulesMap["frequency"] as? String ?: "once",
             max_displays = (rulesMap["max_displays"] as? Number)?.toInt(),
             delay_seconds = (rulesMap["delay_seconds"] as? Number)?.toInt(),
         )

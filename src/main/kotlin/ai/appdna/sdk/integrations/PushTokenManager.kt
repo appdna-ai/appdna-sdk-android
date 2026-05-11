@@ -27,6 +27,13 @@ internal class PushTokenManager(
 ) {
     companion object {
         private const val KEY_PUSH_TOKEN = "push_token"
+        /**
+         * Request code passed to [ActivityCompat.requestPermissions] when
+         * [requestPermission] is invoked with an Activity. Hosts can match this
+         * value in `onRequestPermissionsResult` to identify the SDK-initiated
+         * permission prompt.
+         */
+        const val PUSH_PERMISSION_REQUEST_CODE = 0xAD7A
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -42,11 +49,35 @@ internal class PushTokenManager(
     var pushListener: ai.appdna.sdk.AppDNAPushDelegate? = null
 
     /**
-     * Request push notification permission (stub — Android 13+ runtime permission
-     * must be requested from the hosting Activity).
+     * Request push notification permission.
+     *
+     * Mirrors iOS PushTokenManager.swift requestAuthorization. On Android API 33+
+     * (TIRAMISU) we request POST_NOTIFICATIONS at runtime; pre-33 the manifest
+     * declaration is sufficient and we treat the call as already-granted.
+     *
+     * The runtime prompt must come from an Activity context. Pass the host
+     * Activity in via [activity] — if null we fall back to the SDK app context
+     * which on API 33+ cannot show a prompt; in that case we log a warning so
+     * the host knows to surface the prompt themselves.
      */
-    fun requestPermission() {
-        Log.info("Push permission request: on Android, request POST_NOTIFICATIONS permission from your Activity")
+    fun requestPermission(activity: android.app.Activity? = null) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+            Log.info("Push permission: pre-API-33, manifest declaration is sufficient")
+            return
+        }
+        val perm = android.Manifest.permission.POST_NOTIFICATIONS
+        val granted = androidx.core.content.ContextCompat.checkSelfPermission(context, perm) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        if (granted) {
+            Log.info("Push permission already granted")
+            return
+        }
+        val host = activity
+        if (host != null) {
+            androidx.core.app.ActivityCompat.requestPermissions(host, arrayOf(perm), PUSH_PERMISSION_REQUEST_CODE)
+        } else {
+            Log.warning("Push permission request: pass an Activity to requestPermission() to show the runtime prompt; otherwise call ActivityCompat.requestPermissions(activity, [POST_NOTIFICATIONS], ${PUSH_PERMISSION_REQUEST_CODE}) yourself")
+        }
     }
 
     /**
