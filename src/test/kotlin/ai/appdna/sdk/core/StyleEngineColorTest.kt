@@ -78,15 +78,21 @@ class StyleEngineColorTest {
     // -----------------------------------------------------------------------
 
     @Test
-    fun `4-char shorthand expands to RGBA`() {
-        // #1234 → #11223344
-        assertRgba(StyleEngine.parseColor("#1234"), r = 0x11, g = 0x22, b = 0x33, a = 0x44)
+    fun `4-char shorthand returns transparent matching iOS`() {
+        // SPEC-402 A.1 — R64 reverted shorthand expansion to match iOS
+        // PaywallHelperViews.swift:81-87 (`count == 6 || count == 8`
+        // only). 3/4-char shorthand falls through to Color.Transparent.
+        // Android previously expanded `#1234` → `#11223344`, producing
+        // visible color on Android but transparent on iOS for identical
+        // payloads.
+        assertRgba(StyleEngine.parseColor("#1234"), r = 0, g = 0, b = 0, a = 0)
     }
 
     @Test
-    fun `3-char shorthand expands to RGB with full opacity`() {
-        // #1A3 → #11AA33
-        assertRgba(StyleEngine.parseColor("#1A3"), r = 0x11, g = 0xAA, b = 0x33, a = 0xFF)
+    fun `3-char shorthand returns transparent matching iOS`() {
+        // SPEC-402 A.1 — same fix as 4-char above; #1A3 returns
+        // Color.Transparent matching iOS.
+        assertRgba(StyleEngine.parseColor("#1A3"), r = 0, g = 0, b = 0, a = 0)
     }
 
     // -----------------------------------------------------------------------

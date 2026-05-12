@@ -393,12 +393,13 @@ class ContentBlockParsingTest {
             )
         )
         assertEquals("circular_gauge", blocks[0].type)
-        // Phase F fields — not yet wired in parser; documenting current behavior
-        assertNull(blocks[0].gauge_value)
-        assertNull(blocks[0].max_gauge_value)
-        assertNull(blocks[0].sublabel)
-        assertNull(blocks[0].stroke_width)
-        assertNull(blocks[0].animate)
+        // SPEC-402 A.1+A.2 — Phase F decoder wired in SPEC-070-A audit
+        // batches; max_gauge_value decoder gap closed in SPEC-402 A.2.
+        assertEquals(75.0, blocks[0].gauge_value ?: 0.0, 0.01)
+        assertEquals(100.0, blocks[0].max_gauge_value ?: 0.0, 0.01)
+        assertEquals("Health Score", blocks[0].sublabel)
+        assertEquals(12.0, blocks[0].stroke_width ?: 0.0, 0.01)
+        assertEquals(true, blocks[0].animate)
     }
 
     @Test
@@ -417,21 +418,25 @@ class ContentBlockParsingTest {
         assertEquals("pulsing_avatar", blocks[0].type)
         assertEquals("https://example.com/avatar.jpg", blocks[0].image_url)
         assertEquals(120.0, blocks[0].height ?: 0.0, 0.01)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].pulse_color)
-        assertNull(blocks[0].pulse_ring_count)
-        assertNull(blocks[0].pulse_speed)
+        // SPEC-402 A.1 — Phase F decoder wired in SPEC-070-A audit batches;
+        // OnboardingConfig.kt:1561-1563 reads all 3 fields.
+        assertEquals("#6366f1", blocks[0].pulse_color)
+        assertEquals(3, blocks[0].pulse_ring_count)
+        assertEquals(1.5, blocks[0].pulse_speed ?: 0.0, 0.01)
     }
 
     @Test
     fun parseWheelPicker() {
+        // SPEC-402 A.1 — `max_value_picker` is the iOS canonical name
+        // (ContentBlockTypes.swift); `max_value` is reserved for the
+        // CircularGauge block. JSON test fixture renamed accordingly.
         val blocks = parseBlocks(
             mapOf(
                 "id" to "wp1",
                 "type" to "wheel_picker",
                 "field_id" to "age",
                 "min_value" to 18.0,
-                "max_value" to 99.0,
+                "max_value_picker" to 99.0,
                 "step_value" to 1.0,
                 "default_picker_value" to 25.0,
                 "unit" to "years",
@@ -440,12 +445,13 @@ class ContentBlockParsingTest {
         )
         assertEquals("wheel_picker", blocks[0].type)
         assertEquals("age", blocks[0].field_id)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].max_value_picker)
-        assertNull(blocks[0].step_value)
-        assertNull(blocks[0].default_picker_value)
-        assertNull(blocks[0].unit)
-        assertNull(blocks[0].visible_items)
+        // SPEC-402 A.1 — Phase F decoder wired in SPEC-070-A audit batches;
+        // OnboardingConfig.kt:1528-1533 reads all 5 fields.
+        assertEquals(99.0, blocks[0].max_value_picker ?: 0.0, 0.01)
+        assertEquals(1.0, blocks[0].step_value ?: 0.0, 0.01)
+        assertEquals(25.0, blocks[0].default_picker_value ?: 0.0, 0.01)
+        assertEquals("years", blocks[0].unit)
+        assertEquals(5, blocks[0].visible_items)
     }
 
     @Test
@@ -467,11 +473,18 @@ class ContentBlockParsingTest {
         )
         assertEquals("date_wheel_picker", blocks[0].type)
         assertEquals("birthdate", blocks[0].field_id)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].columns)
-        assertNull(blocks[0].default_date_value)
-        assertNull(blocks[0].min_date)
-        assertNull(blocks[0].max_date)
+        // SPEC-402 A.1+A.2 — Phase F decoder wired in SPEC-070-A audit
+        // batches; `columns` decoder gap closed in SPEC-402 A.2.
+        assertEquals(3, blocks[0].columns?.size)
+        assertEquals("month", blocks[0].columns?.get(0)?.type)
+        assertEquals("Month", blocks[0].columns?.get(0)?.label)
+        assertEquals("day", blocks[0].columns?.get(1)?.type)
+        assertEquals("Day", blocks[0].columns?.get(1)?.label)
+        assertEquals("year", blocks[0].columns?.get(2)?.type)
+        assertEquals("Year", blocks[0].columns?.get(2)?.label)
+        assertEquals("2000-01-15", blocks[0].default_date_value)
+        assertEquals("1920-01-01", blocks[0].min_date)
+        assertEquals("2010-12-31", blocks[0].max_date)
     }
 
     @Test
@@ -580,9 +593,11 @@ class ContentBlockParsingTest {
             )
         )
         assertEquals("custom_view", blocks[0].type)
-        // Phase F fields — not yet wired in parser
-        assertNull(blocks[0].view_key)
-        assertNull(blocks[0].custom_config)
+        // SPEC-402 A.1 — Phase F decoder wired in SPEC-070-A audit batches;
+        // OnboardingConfig.kt:1667-1668 reads view_key + custom_config.
+        assertEquals("onboarding_map", blocks[0].view_key)
+        assertEquals(3, blocks[0].custom_config?.size)
+        assertEquals(12, blocks[0].custom_config?.get("zoom"))
     }
 
     @Test
@@ -735,8 +750,9 @@ class ContentBlockParsingTest {
             )
         )
         assertEquals("image", blocks[0].type)
-        // Phase F field — not yet wired in parser
-        assertNull(blocks[0].z_index)
+        // SPEC-402 A.1 — Phase F decoder wired in SPEC-070-A audit batches;
+        // OnboardingConfig.kt:1665 reads z_index.
+        assertEquals(10.0, blocks[0].z_index ?: 0.0, 0.01)
     }
 
     // MARK: - Element sizing parsing
@@ -877,7 +893,7 @@ class ContentBlockParsingTest {
     }
 
     @Test
-    fun parseInputOptionWithBothIdAndValue() {
+    fun parseInputOption_valueTakesPriorityOverId() {
         val blocks = parseBlocks(
             mapOf(
                 "id" to "iof2",
@@ -889,9 +905,12 @@ class ContentBlockParsingTest {
                 )
             )
         )
-        // When option has both "id" and "value", "id" takes priority (parser: fm["id"] ?: fm["value"])
-        assertEquals("starter_plan", blocks[0].field_options?.get(0)?.value)
-        assertEquals("pro_plan", blocks[0].field_options?.get(1)?.value)
+        // SPEC-402 A.1 — `value` takes priority over `id` to match iOS
+        // ContentBlockTypes.swift:358-360 (`rawValue ?? rawId`). Parser at
+        // OnboardingConfig.kt:1373: `fm["value"] ?: fm["id"]`. Was id-first,
+        // breaking server-side answer-code joins for authors who set both.
+        assertEquals("starter", blocks[0].field_options?.get(0)?.value)
+        assertEquals("pro", blocks[0].field_options?.get(1)?.value)
     }
 
     // MARK: - Field mismatch fallbacks

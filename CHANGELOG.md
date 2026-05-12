@@ -7,12 +7,15 @@ the project uses [Semantic Versioning](https://semver.org/).
 ## [1.0.32] — 2026-05-06
 
 Android SDK uses its own version sequence (independent of iOS — Android
-last released `1.0.31`). The `appdnaFeatureParity=1.0.60` marker in
+last released `1.0.31`). The `appdnaFeatureParity=1.0.61` marker in
 `gradle.properties` declares which iOS SDK version this Android release
-wraps for cross-platform feature parity (CI enforces equality once
-SPEC-070-A is signed off as complete). Note: an earlier draft of this
-changelog tagged this release as `1.0.60`; that was a mis-merge of the
-iOS version into the Android sequence and has been corrected.
+wraps for cross-platform feature parity: SPEC-070-A brought Android to iOS
+1.0.60 parity, and SPEC-401 Phase D mirrored the 4 iOS 1.0.61
+entitlement-aware paywall fixes (entitlement gate, bridge restore,
+auto-dismiss, identify-time cache refresh) onto Android in the same
+release tag. Note: an earlier draft of this changelog tagged this release
+as `1.0.60`; that was a mis-merge of the iOS version into the Android
+sequence and has been corrected.
 
 Cross-platform feature parity catch-up to iOS — closes the gap from previous
 Android-only follow-up debt across SPEC-038, SPEC-082, SPEC-083, SPEC-084,

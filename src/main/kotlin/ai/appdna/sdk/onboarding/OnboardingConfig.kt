@@ -1540,6 +1540,22 @@ internal object OnboardingConfigParser {
             min_date = bm["min_date"] as? String,
             max_date = bm["max_date"] as? String,
             default_date_value = bm["default_date_value"] as? String,
+            // SPEC-402 A.2 — `columns` (per-wheel type/label/values list)
+            // was declared on ContentBlock + read by the renderer but
+            // never extracted from JSON. date_wheel_picker fell through
+            // to default month/day/year columns regardless of console.
+            columns = (bm["columns"] as? List<*>)?.mapNotNull { c ->
+                if (c is Map<*, *>) {
+                    @Suppress("UNCHECKED_CAST") val cm = c as Map<String, Any>
+                    DateWheelColumn(
+                        type = cm["type"] as? String ?: "",
+                        label = cm["label"] as? String,
+                        values = (cm["values"] as? List<*>)
+                            ?.mapNotNull { it as? String }
+                            ?.toImmutableList(),
+                    )
+                } else null
+            }?.toImmutableList(),
 
             // PulsingAvatar (Phase F + R3)
             pulse_color = bm["pulse_color"] as? String,
@@ -1565,6 +1581,11 @@ internal object OnboardingConfigParser {
             // CircularGauge (Phase F — block previously rendered fully default)
             gauge_value = (bm["gauge_value"] as? Number)?.toDouble(),
             max_value = (bm["max_value"] as? Number)?.toDouble(),
+            // SPEC-402 A.2 — both max_value AND max_gauge_value are
+            // accepted iOS-side (ContentBlockRenderer.swift falls back
+            // `block.max_value ?? block.max_gauge_value ?? 100.0`).
+            // Decoder previously dropped max_gauge_value silently.
+            max_gauge_value = (bm["max_gauge_value"] as? Number)?.toDouble(),
             gauge_variant = bm["gauge_variant"] as? String,
             gradient_start_color = bm["gradient_start_color"] as? String,
             gradient_end_color = bm["gradient_end_color"] as? String,

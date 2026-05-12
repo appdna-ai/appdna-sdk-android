@@ -119,6 +119,16 @@ class NativeBillingManager internal constructor(
     /** Active purchase continuation — only one purchase flow at a time. */
     private var purchaseContinuation: CancellableContinuation<PurchaseResult>? = null
 
+    /**
+     * SPEC-402 C3 — product currently mid-purchase. Set by [purchase] before
+     * launching the Play billing flow and cleared on terminal callbacks. Play's
+     * `PurchasesUpdatedListener` does NOT surface the originally-requested
+     * product on non-OK callbacks (USER_CANCELED, SERVICE_DISCONNECTED, …) so
+     * we carry it through ourselves to keep `product_id` populated on every
+     * `purchase_canceled` / `purchase_failed` analytic — matching iOS.
+     */
+    private var pendingProductId: String? = null
+
     /** Attribution context for the current purchase. */
     var currentPaywallId: String? = null
     var currentExperimentId: String? = null
@@ -126,9 +136,10 @@ class NativeBillingManager internal constructor(
     // SPEC-070-A A.20 — process-lifecycle observer that polls
     // `BillingClient.queryPurchasesAsync` on every foreground entry, diffs
     // against the snapshot persisted in [LocalStorage], and emits
-    // `subscription_renewed` / `subscription_cancelled` /
-    // `subscription_renewal_failed` events. Mirrors iOS
-    // `Billing.SubscriptionStatusObserver` (which is StoreKit-driven).
+    // `subscription_renewed` / `subscription_canceled` /
+    // `subscription_renewal_failed` events (SPEC-402 C2: canonical single-l
+    // spelling). Mirrors iOS `Billing.SubscriptionStatusObserver` (which is
+    // StoreKit-driven).
     private val foregroundObserver = LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_START) {
             scope.launch { reconcileSubscriptionState() }
@@ -150,9 +161,14 @@ class NativeBillingManager internal constructor(
             }
             BillingClient.BillingResponseCode.USER_CANCELED -> {
                 Log.debug("Purchase cancelled by user")
-                AppDNA.track("purchase_canceled", mapOf(
-                    "paywall_id" to (currentPaywallId ?: "")
-                ))
+                // SPEC-402 C4 — include `product_id` so the analytic matches
+                // iOS canonical shape (Play's PurchasesUpdatedListener does
+                // not surface the originally-requested product on cancel;
+                // pendingProductId set by [purchase] before launch carries it).
+                AppDNA.track("purchase_canceled", buildMap {
+                    put("paywall_id", currentPaywallId ?: "")
+                    pendingProductId?.let { put("product_id", it) }
+                })
                 resumePurchase(PurchaseResult.Cancelled)
             }
             BillingClient.BillingResponseCode.ITEM_ALREADY_OWNED -> {
@@ -174,7 +190,7 @@ class NativeBillingManager internal constructor(
             BillingClient.BillingResponseCode.ITEM_NOT_OWNED -> {
                 Log.warning("Item not owned")
                 resumePurchase(PurchaseResult.Failed("Item not owned"))
-                trackPurchaseFailed("item_not_owned", billingResult.debugMessage)
+                trackPurchaseFailed("item_not_owned", billingResult.debugMessage, pendingProductId)
             }
             // SPEC-070-A finalization B-4 — explicit branches for every
             // BillingResponseCode that previously fell into the `else` ->
@@ -191,57 +207,60 @@ class NativeBillingManager internal constructor(
             BillingClient.BillingResponseCode.SERVICE_DISCONNECTED -> {
                 Log.warning("Purchase: service disconnected")
                 resumePurchase(PurchaseResult.Failed("service_disconnected"))
-                trackPurchaseFailed("service_disconnected", billingResult.debugMessage)
+                // SPEC-402 C3 — pendingProductId may be null here (this code
+                // can fire during initial connection setup before any purchase
+                // is in-flight); the helper omits the key when null.
+                trackPurchaseFailed("service_disconnected", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.SERVICE_UNAVAILABLE -> {
                 Log.warning("Purchase: service unavailable (network)")
                 resumePurchase(PurchaseResult.Failed("service_unavailable"))
-                trackPurchaseFailed("service_unavailable", billingResult.debugMessage)
+                trackPurchaseFailed("service_unavailable", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.SERVICE_TIMEOUT -> {
                 Log.warning("Purchase: service timeout")
                 resumePurchase(PurchaseResult.Failed("service_timeout"))
-                trackPurchaseFailed("service_timeout", billingResult.debugMessage)
+                trackPurchaseFailed("service_timeout", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.BILLING_UNAVAILABLE -> {
                 // Device has no Play Store / not signed in / API too old.
                 Log.warning("Purchase: billing unavailable on this device")
                 resumePurchase(PurchaseResult.Failed("billing_unavailable"))
-                trackPurchaseFailed("billing_unavailable", billingResult.debugMessage)
+                trackPurchaseFailed("billing_unavailable", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.ITEM_UNAVAILABLE -> {
                 // Product not configured for this app / region.
                 Log.warning("Purchase: item unavailable")
                 resumePurchase(PurchaseResult.Failed("item_unavailable"))
-                trackPurchaseFailed("item_unavailable", billingResult.debugMessage)
+                trackPurchaseFailed("item_unavailable", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.DEVELOPER_ERROR -> {
                 // Misconfigured request — productId/offer mismatch, etc.
                 Log.warning("Purchase: developer error: ${billingResult.debugMessage}")
                 resumePurchase(PurchaseResult.Failed("developer_error"))
-                trackPurchaseFailed("developer_error", billingResult.debugMessage)
+                trackPurchaseFailed("developer_error", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.FEATURE_NOT_SUPPORTED -> {
                 Log.warning("Purchase: feature not supported")
                 resumePurchase(PurchaseResult.Failed("feature_not_supported"))
-                trackPurchaseFailed("feature_not_supported", billingResult.debugMessage)
+                trackPurchaseFailed("feature_not_supported", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.NETWORK_ERROR -> {
                 Log.warning("Purchase: network error")
                 resumePurchase(PurchaseResult.Failed("network_error"))
-                trackPurchaseFailed("network_error", billingResult.debugMessage)
+                trackPurchaseFailed("network_error", billingResult.debugMessage, pendingProductId)
             }
             BillingClient.BillingResponseCode.ERROR -> {
                 Log.warning("Purchase: generic billing error: ${billingResult.debugMessage}")
                 resumePurchase(PurchaseResult.Failed("billing_error"))
-                trackPurchaseFailed("billing_error", billingResult.debugMessage)
+                trackPurchaseFailed("billing_error", billingResult.debugMessage, pendingProductId)
             }
             else -> {
                 // Unknown future code — log + report opaque failure rather
                 // than silent Unknown.
                 Log.warning("Purchase update: unknown code=${billingResult.responseCode}, msg=${billingResult.debugMessage}")
                 resumePurchase(PurchaseResult.Failed("unknown_code_${billingResult.responseCode}"))
-                trackPurchaseFailed("unknown_code_${billingResult.responseCode}", billingResult.debugMessage)
+                trackPurchaseFailed("unknown_code_${billingResult.responseCode}", billingResult.debugMessage, pendingProductId)
             }
         }
     }
@@ -277,12 +296,25 @@ class NativeBillingManager internal constructor(
      * response code branch above. Emits a `purchase_failed` analytic with
      * a typed `reason` field so funnel dashboards can split silent-fail
      * causes (network vs misconfigured product vs disconnected service).
+     *
+     * SPEC-402 C3 — accepts the originally-requested productId so the event
+     * payload matches iOS (`Billing/NativeBillingManager.swift` always sets
+     * `product_id` on purchase_failed). Most non-OK Play callbacks have no
+     * purchase object in scope; only [pendingProductId] (set in [purchase]
+     * before launching the billing flow) carries it through. Sites with no
+     * pending purchase (e.g. SERVICE_DISCONNECTED during initial setup)
+     * pass null and the field is omitted rather than fabricated.
      */
-    private fun trackPurchaseFailed(reason: String, debugMessage: String?) {
+    private fun trackPurchaseFailed(
+        reason: String,
+        debugMessage: String?,
+        productId: String? = null,
+    ) {
         AppDNA.track("purchase_failed", buildMap {
             put("paywall_id", currentPaywallId ?: "")
             put("reason", reason)
             if (!debugMessage.isNullOrBlank()) put("debug_message", debugMessage)
+            if (!productId.isNullOrBlank()) put("product_id", productId)
         })
     }
 
@@ -346,7 +378,8 @@ class NativeBillingManager internal constructor(
      *  - Product **previously active**, now MISSING from Play → if its
      *    persisted `expiresAt` was in the future we emit
      *    `subscription_renewal_failed` (likely billing retry / hold);
-     *    otherwise it's a normal cancellation → `subscription_cancelled`.
+     *    otherwise it's a normal cancellation → `subscription_canceled`
+     *    (SPEC-402 C2 — single-l US spelling).
      *  - Product **previously active** with `expiresAt` X, still active but
      *    `expiresAt` ≠ X → `subscription_renewed` (Play extended the period).
      *  - Product **new** since last snapshot → handled by the synchronous
@@ -442,7 +475,12 @@ class NativeBillingManager internal constructor(
                 // now absent from Play queryPurchases. Without StoreKit-style
                 // notifications we can't be 100% sure; iOS calls this
                 // "subscription_renewal_failed" and emits the same event.
-                val event = if (prev.isAutoRenewing) "subscription_renewal_failed" else "subscription_cancelled"
+                // SPEC-402 C2 — `subscription_canceled` (single-l US spelling)
+                // matches iOS server-side notification convention + dbt bronze
+                // CASE-rewrite in `stg_purchase_events.sql` (Part B). Historic
+                // Android `subscription_cancelled` rows are backfilled via a
+                // post-merge `dbt run --select stg_purchase_events --full-refresh`.
+                val event = if (prev.isAutoRenewing) "subscription_renewal_failed" else "subscription_canceled"
                 AppDNA.track(event, mapOf("product_id" to productId))
             }
         }
@@ -538,6 +576,10 @@ class NativeBillingManager internal constructor(
         options: PurchaseOptions? = null,
     ): PurchaseResult {
         Log.info("Starting purchase for product: $productId")
+        // SPEC-402 C3 — pin the requested productId so non-OK Play callbacks
+        // (USER_CANCELED, SERVICE_DISCONNECTED, …) can attribute their
+        // analytics back to it. Cleared in [resumePurchase] on any terminal.
+        pendingProductId = productId
         // SPEC-070-A finalization parity — match iOS NativeBillingManager.swift:73-77
         // (product_id + paywall_id + experiment_id).
         AppDNA.track("purchase_started", mapOf(
@@ -777,8 +819,10 @@ class NativeBillingManager internal constructor(
 
             // SPEC-070-A G.7 — aggregate event with restored_count, matching
             // iOS `Paywalls/PaywallManager.swift:340` shape.
+            // SPEC-402 C1 — emit as Int (not String) to match iOS. Looker
+            // number filters silently misbehave on String-typed numerics.
             AppDNA.track("purchase_restored", mapOf(
-                "restored_count" to entitlements.size.toString()
+                "restored_count" to entitlements.size
             ))
 
             // SPEC-070-A B.2 — typed delegate fan-out.
@@ -974,8 +1018,13 @@ class NativeBillingManager internal constructor(
 
     /**
      * Resume the suspended purchase coroutine with the given result.
+     *
+     * SPEC-402 C3 — also clears [pendingProductId]. Every terminal purchase
+     * outcome (success / cancel / fail / unknown) flows through here, so
+     * clearing on resume guarantees the field doesn't leak across purchases.
      */
     private fun resumePurchase(result: PurchaseResult) {
+        pendingProductId = null
         purchaseContinuation?.let { continuation ->
             purchaseContinuation = null
             continuation.resume(result) {}

@@ -512,13 +512,18 @@ class MessageConfigParsingTest {
     }
 
     @Test
-    fun parseTriggerRules_frequencyDefaultsToEveryTime() {
+    fun parseTriggerRules_frequencyDefaultsToOnce() {
+        // SPEC-402 A.1 — R87 P1-2 changed parse-site default to `once`
+        // at InAppMessageConfig.kt:321 to match iOS MessageManager.swift
+        // (`triggerRules.frequency ?? .once`). Console-published messages
+        // with no frequency configured were showing on every event-match
+        // on Android while iOS showed them exactly once.
         val msg = parseMessage(extras = mapOf(
             "trigger_rules" to mapOf(
                 "event" to "any_event",
             ),
         ))
-        assertEquals("every_time", msg.trigger_rules.frequency)
+        assertEquals("once", msg.trigger_rules.frequency)
     }
 
     @Test
@@ -841,6 +846,8 @@ class MessageConfigParsingTest {
 
     @Test
     fun parseEdgeCase_missingTriggerRulesMap() {
+        // SPEC-402 A.1 — default frequency is `once` to match iOS
+        // (TriggerRules data class default at InAppMessageConfig.kt:171).
         val msgMap = mapOf<String, Any>(
             "name" to "No Triggers",
             "message_type" to "modal",
@@ -849,7 +856,7 @@ class MessageConfigParsingTest {
         val result = MessageConfigParser.parseMessages(mapOf("no_triggers" to msgMap))
         val msg = result["no_triggers"]!!
         assertEquals("", msg.trigger_rules.event)
-        assertEquals("every_time", msg.trigger_rules.frequency)
+        assertEquals("once", msg.trigger_rules.frequency)
         assertNull(msg.trigger_rules.conditions)
     }
 

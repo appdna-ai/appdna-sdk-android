@@ -386,8 +386,6 @@ object StyleEngine {
      * Byte order matches iOS `Color(hex:)` in `Paywalls/PaywallHelperViews.swift`:
      *   - 6-char  → RGB,  alpha = 0xFF
      *   - 8-char  → RGBA  (R, G, B, A — NOT Compose's default ARGB long form)
-     *   - 3-char  → expanded RGB shorthand (e.g. `#1A3` → `#11AA33`), alpha = 0xFF
-     *   - 4-char  → expanded RGBA shorthand (e.g. `#1234` → `#11223344`)
      *   - "transparent" / "clear" → Color.Transparent
      *   - any other / parse failure → Color.Transparent (matches iOS fallback `(0, 0, 0, 0)`)
      *
