@@ -7,6 +7,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 
 data class ParticleEffect(
     val type: String = "confetti",       // "confetti", "sparkle", "fireworks", "snow", "hearts"
@@ -18,6 +21,19 @@ data class ParticleEffect(
     val intensity: String = "medium",    // "light", "medium", "heavy"
     val colors: List<String>? = null,
 )
+
+// R88 — emoji glyph per particle type matches iOS ConfettiOverlay.swift:39-42.
+// hearts ❤️, snow ❄️, sparkle ✨, fireworks 🎆. confetti falls back to a
+// colored rectangle (drawn as a circle here for round-trip consistency with
+// iOS's small geometric confetti pieces). NOTE: empty string means "no glyph
+// — render as colored circle/rect."
+private fun glyphForType(type: String): String = when (type) {
+    "hearts" -> "❤️"   // ❤️
+    "snow" -> "❄️"      // ❄️
+    "sparkle" -> "✨"          // ✨
+    "fireworks" -> "🎆" // 🎆
+    else -> ""
+}
 
 @Composable
 fun ConfettiOverlay(
@@ -50,13 +66,7 @@ fun ConfettiOverlay(
         }
     }
 
-    // SPEC-401-A R71 (Lens A P1, deferred) — non-confetti glyph rendering
-    // (hearts ❤, snow ❄, sparkle ✨, fireworks 🎆) needs Compose 1.7+
-    // `DrawScope.drawText(textMeasurer, …)`. Current BoM 2024.02.02 only has
-    // drawCircle/drawPath. Defer until BoM upgrade — for now hearts/snow/
-    // sparkle/fireworks render as colored dots with type-specific palette
-    // (still better than uniform palette).
-
+    val glyph = glyphForType(effect.type)
     val progress = remember { Animatable(0f) }
 
     LaunchedEffect(trigger) {
@@ -98,19 +108,51 @@ fun ConfettiOverlay(
             // of tall devices (Pixel 6/7 ≈ 3120 px, tablets larger). Heavy
             // confetti looked stunted vs iOS full-screen rain.
             val fallDistance = size.height + 50f
-            particles.forEach { particle ->
-                val x = particle.startX / 1000f * size.width + particle.speedX * t
-                // particle.speedY is now a 0..1 multiplier of fallDistance
-                // so the slowest particles travel ~33% canvas, fastest 100%.
-                val y = particle.startY + particle.speedY * fallDistance * t
-                val alpha = (1f - t).coerceIn(0f, 1f)
 
-                if (y < size.height + 50) {
-                    drawCircle(
-                        color = particle.color.copy(alpha = alpha),
-                        radius = particle.size,
-                        center = Offset(x.coerceIn(0f, size.width), y),
-                    )
+            // R88 — when the effect type has a glyph (hearts/snow/sparkle/
+            // fireworks), draw the emoji via NativeCanvas.drawText for parity
+            // with iOS ConfettiOverlay.swift:67-75 which composes a `Text(...)`
+            // per particle. Plain "confetti" stays drawCircle (matches iOS
+            // Rectangle()). drawIntoCanvas + NativeCanvas is available since
+            // Compose 1.0 — no BoM upgrade required (R71 deferral resolved).
+            if (glyph.isNotEmpty()) {
+                drawIntoCanvas { canvas ->
+                    val paint = android.graphics.Paint().apply {
+                        isAntiAlias = true
+                        textAlign = android.graphics.Paint.Align.CENTER
+                    }
+                    particles.forEach { particle ->
+                        val x = particle.startX / 1000f * size.width + particle.speedX * t
+                        val y = particle.startY + particle.speedY * fallDistance * t
+                        val alpha = (1f - t).coerceIn(0f, 1f)
+                        if (y < size.height + 50) {
+                            // Particle size 4..12 → glyph size 20..36sp.
+                            // iOS uses .font(.system(size: particle.size * 2))
+                            // → 8..24pt. We bias slightly larger for parity
+                            // with Compose default-size emoji metrics.
+                            paint.textSize = particle.size * 3f
+                            paint.alpha = (alpha * 255).toInt().coerceIn(0, 255)
+                            canvas.nativeCanvas.drawText(
+                                glyph,
+                                x.coerceIn(0f, size.width),
+                                y,
+                                paint,
+                            )
+                        }
+                    }
+                }
+            } else {
+                particles.forEach { particle ->
+                    val x = particle.startX / 1000f * size.width + particle.speedX * t
+                    val y = particle.startY + particle.speedY * fallDistance * t
+                    val alpha = (1f - t).coerceIn(0f, 1f)
+                    if (y < size.height + 50) {
+                        drawCircle(
+                            color = particle.color.copy(alpha = alpha),
+                            radius = particle.size,
+                            center = Offset(x.coerceIn(0f, size.width), y),
+                        )
+                    }
                 }
             }
         }
