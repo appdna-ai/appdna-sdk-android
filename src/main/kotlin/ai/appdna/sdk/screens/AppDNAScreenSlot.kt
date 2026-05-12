@@ -190,6 +190,10 @@ fun AppDNAScreenSlot(name: String) {
             // a non-scrolling Column. `pager` falls through to scroll on
             // Android until an accompanist-compose dependency lands.
             val layoutType = config.layout.type
+            // R89 — `pager` layout uses Compose foundation HorizontalPager
+            // (available since BoM 2023.10+, already used by paywalls).
+            // Mirrors iOS ScreenRenderer TabView .page style.
+            val isPagerLayout = layoutType == "pager"
             // SPEC-070-A finalization B6 P2 — honor `layout.safe_area` by
             // adding system-status-bar padding when truthy (iOS renders
             // inside the safeAreaInsets by default). Hosts that embed
@@ -234,6 +238,32 @@ fun AppDNAScreenSlot(name: String) {
                             } else androidx.compose.foundation.layout.Spacer(androidx.compose.ui.Modifier.width(40.dp))
                         }
                     }
+                if (isPagerLayout) {
+                    // R89 — HorizontalPager: one main section per page,
+                    // mirrors iOS ScreenRenderer TabView(.page). Visibility
+                    // filter applied up-front so page indices stay stable.
+                    val pages = mainSections.filter { evaluateScreenSectionVisibility(it.visibilityCondition) }
+                    if (pages.isNotEmpty()) {
+                        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                        val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { pages.size })
+                        @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+                        androidx.compose.foundation.pager.HorizontalPager(
+                            state = pagerState,
+                            modifier = androidx.compose.ui.Modifier.fillMaxWidth(),
+                        ) { pageIndex ->
+                            val section = pages[pageIndex]
+                            val animType = section.entranceAnimation?.type
+                            val animDur = section.entranceAnimation?.durationMs
+                            if (animType != null && animType != "none") {
+                                androidx.compose.foundation.layout.Box(
+                                    modifier = androidx.compose.ui.Modifier.entryAnimation(animType, animDur),
+                                ) { SectionRegistry.Render(section, context) }
+                            } else {
+                                SectionRegistry.Render(section, context)
+                            }
+                        }
+                    }
+                } else {
                 Column(
                     modifier = androidx.compose.ui.Modifier
                         .fillMaxWidth()
@@ -260,6 +290,7 @@ fun AppDNAScreenSlot(name: String) {
                             SectionRegistry.Render(section, context)
                         }
                     }
+                }
                 }
                 } // close outer Column(navBar+content wrapper)
                 // Sticky footers must live in the Box scope (not inside the
