@@ -51,7 +51,13 @@ fun NpsQuestionView(
                     modifier = Modifier
                         .size(width = 30.dp, height = 40.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.1f))
+                        // R88 — match iOS NPSQuestionView.swift:25 hardcoded
+                        // `Color(hex: "#6366F1")` (indigo) for selected score
+                        // background. Was MaterialTheme.colorScheme.primary
+                        // which defaults to Material3 `#6750A4` (purple),
+                        // visibly different brand color from iOS at default
+                        // theme.
+                        .background(if (isSelected) Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.1f))
                         .clickable { onAnswer(SurveyAnswer(question.id, score)) }
                         .semantics { contentDescription = scoreCd },
                     contentAlignment = Alignment.Center

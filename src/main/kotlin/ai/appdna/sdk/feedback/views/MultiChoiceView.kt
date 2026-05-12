@@ -93,7 +93,9 @@ fun MultiChoiceView(
                             },
                         ),
                     shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
+                    // R88 — match iOS MultiChoiceView.swift:27 `Color(hex: "#6366F1")`
+                    // (indigo brand color) for selected border.
+                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),

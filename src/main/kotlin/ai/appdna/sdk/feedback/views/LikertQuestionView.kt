@@ -83,7 +83,11 @@ fun LikertQuestionView(
                         .size(width = 40.dp, height = 44.dp)
                         .clip(RoundedCornerShape(8.dp))
                         .background(
-                            if (isSelected) MaterialTheme.colorScheme.primary
+                            // R88 — match iOS Likert/NPS hardcoded #6366F1
+                            // brand color for selected background. Material3
+                            // primary defaults to purple (#6750A4), visibly
+                            // off-brand vs iOS at default theme.
+                            if (isSelected) Color(0xFF6366F1)
                             else Color.Gray.copy(alpha = 0.1f)
                         )
                         .clickable { onAnswer(SurveyAnswer(question.id, score)) }
