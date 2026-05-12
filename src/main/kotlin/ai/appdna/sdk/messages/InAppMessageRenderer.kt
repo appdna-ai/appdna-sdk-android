@@ -183,7 +183,10 @@ private fun BannerMessageView(
                                     // SPEC-070-A finalization P0 audit-11 M-35
                                     // — apply title_font_size + font_family
                                     // (parsed but previously ignored).
-                                    fontSize = (content.title_font_size ?: 14.0).sp,
+                                    // R89 — Banner title default 15sp matches
+                                    // iOS BannerView.swift:49 `.subheadline.bold`
+                                    // (.subheadline = 15pt). Was 14.
+                                    fontSize = (content.title_font_size ?: 15.0).sp,
                                     fontFamily = FontResolver.resolve(content.font_family),
                                     fontWeight = FontWeight.Bold,
                                     color = textColor,
@@ -414,7 +417,10 @@ private fun ModalMessageView(
                 content.body?.let {
                     Text(
                         text = it,
-                        fontSize = (content.body_font_size ?: 16.0).sp,
+                        // R89 — Modal body default 17sp matches iOS
+                        // ModalView.swift:84 `.body` font (.body = 17pt).
+                        // Was 16sp.
+                        fontSize = (content.body_font_size ?: 17.0).sp,
                         fontFamily = FontResolver.resolve(content.font_family),
                         textAlign = TextAlign.Center,
                         color = if (textColor != Color.Unspecified)
@@ -581,7 +587,10 @@ private fun FullscreenMessageView(
                 Text(
                     text = it,
                     // SPEC-070-A finalization P0 audit-11 M-35
-                    fontSize = (content.title_font_size ?: 32.0).sp,
+                    // R89 — Fullscreen title 34sp matches iOS FullscreenView
+                    // .swift:64 `.largeTitle.bold` (.largeTitle = 34pt).
+                    // Was 32.
+                    fontSize = (content.title_font_size ?: 34.0).sp,
                     fontFamily = FontResolver.resolve(content.font_family),
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
@@ -597,7 +606,9 @@ private fun FullscreenMessageView(
             content.body?.let {
                 Text(
                     text = it,
-                    fontSize = (content.body_font_size ?: 16.0).sp,
+                    // R89 — Fullscreen body 17sp matches iOS FullscreenView
+                    // .swift:73 `.body` font (.body = 17pt). Was 16.
+                    fontSize = (content.body_font_size ?: 17.0).sp,
                     fontFamily = FontResolver.resolve(content.font_family),
                     textAlign = TextAlign.Center,
                     color = if (textColor != Color.Unspecified)
@@ -779,8 +790,10 @@ private fun TooltipMessageView(
                         ) {
                             Text(
                                 text = it,
-                                // SPEC-070-A finalization P0 audit-11 M-35
-                                fontSize = (content.title_font_size ?: 14.0).sp,
+                                // R89 — Tooltip title default 15sp matches
+                                // iOS TooltipView.swift:44 `.subheadline.bold`
+                                // (.subheadline = 15pt). Was 14.
+                                fontSize = (content.title_font_size ?: 15.0).sp,
                                 fontFamily = FontResolver.resolve(content.font_family),
                                 fontWeight = FontWeight.SemiBold,
                                 textAlign = TextAlign.Start,
