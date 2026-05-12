@@ -631,6 +631,11 @@ internal fun OnboardingFlowHost(
             return
         }
         val onSuccessTarget = (triggerData?.get("on_success_target") as? String)?.takeIf { it.isNotBlank() }
+        // SPEC-403 — explicit skip-when-subscribed target. Empty / missing
+        // falls back to onSuccessTarget (preserving SPEC-401 1.0.61 flows
+        // that used on_success_target as a workaround) and then to the
+        // legacy "continue" edge follow inside routeOutcome below.
+        val onSubscribedSkipTarget = (triggerData?.get("on_subscribed_skip_target") as? String)?.takeIf { it.isNotBlank() }
         val onFailTarget = (triggerData?.get("on_fail_target") as? String)?.takeIf { it.isNotBlank() }
         val onDismissTarget = (triggerData?.get("on_dismiss_target") as? String)?.takeIf { it.isNotBlank() }
         val legacyDismiss = triggerData?.get("on_dismiss") as? String ?: "continue"
@@ -807,11 +812,11 @@ internal fun OnboardingFlowHost(
                     "reason" to "user_already_subscribed",
                 ),
             )
-            // Reuse the same routing primitive used after a real purchase
-            // so success-target wiring (continue / specific node / complete)
-            // takes a single code path. Default fallback is "continue" —
-            // mirrors iOS OnboardingRenderer presentPaywallTrigger.
-            routeOutcome(onSuccessTarget, "continue", "user_already_subscribed")
+            // SPEC-403 resolver chain — on_subscribed_skip_target wins,
+            // falls back to on_success_target (back-compat with SPEC-401
+            // 1.0.61 workaround flows), then to "continue" (legacy edge).
+            // Mirrors iOS OnboardingRenderer.presentPaywallTrigger.
+            routeOutcome(onSubscribedSkipTarget ?: onSuccessTarget, "continue", "user_already_subscribed")
             return
         }
 
