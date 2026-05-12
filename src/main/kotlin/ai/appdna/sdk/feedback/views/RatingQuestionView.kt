@@ -53,10 +53,13 @@ fun RatingQuestionView(
         "thumb" -> Icons.Outlined.ThumbUp
         else -> Icons.Outlined.Star
     }
+    // R88 — match iOS RatingQuestionView.swift:56-61. heart = .red (system),
+    // thumb = #6366F1 indigo (was Color.Blue pure blue → off-brand),
+    // star default = #FBBF24 warm gold (was #FFD700 pure gold).
     val activeColor = when (style) {
         "heart" -> Color.Red
-        "thumb" -> Color.Blue
-        else -> Color(0xFFFFD700)
+        "thumb" -> Color(0xFF6366F1)
+        else -> Color(0xFFFBBF24)
     }
 
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
