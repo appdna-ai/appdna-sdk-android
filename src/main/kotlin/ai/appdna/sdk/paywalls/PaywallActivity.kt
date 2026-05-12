@@ -1470,9 +1470,22 @@ private fun PaywallSectionView(
                             // PW-9: per-plan feature checkmark list.
                             if (showPlanFeatures && !plan.features.isNullOrEmpty()) {
                                 Spacer(Modifier.height(8.dp))
+                                // R88 — checkmark color matches iOS PlanCard.swift:162
+                                // `Color(hex: "#6366F1")` (indigo). When the plan is
+                                // selected and the host configured a custom
+                                // selectedTextColor, iOS uses that color for the
+                                // checkmark to keep contrast against the selected
+                                // background — mirrored here via resolvedTextColor.
+                                // Was hardcoded #10B981 (emerald green) which
+                                // diverged visibly from iOS at default theme.
+                                val featureCheckColor = if (isSelected && resolvedTextColor != Color.Unspecified) {
+                                    resolvedTextColor
+                                } else {
+                                    Color(0xFF6366F1)
+                                }
                                 plan.features.forEachIndexed { fIdx, feature ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(text = "✓ ", color = Color(0xFF10B981), fontSize = 13.sp)
+                                        Text(text = "✓ ", color = featureCheckColor, fontSize = 13.sp)
                                         Text(
                                             text = loc("plan.$planIdx.feature.$fIdx", feature),
                                             fontSize = 13.sp,
