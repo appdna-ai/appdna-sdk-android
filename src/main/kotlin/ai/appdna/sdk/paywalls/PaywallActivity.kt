@@ -2045,7 +2045,10 @@ private fun PaywallSectionView(
                         .height(ctaHeight)
                         .ctaAnimation(config.animation?.cta_animation)
                         .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
-                        .clip(RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 14f).dp))
+                        // R89 — CTA corner_radius default 12 matches iOS
+                        // PaywallCTA.resolvedCornerRadius at PaywallConfig.swift:515
+                        // `styleObj?.corner_radius ?? corner_radius ?? 12.0`. Was 14.
+                        .clip(RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 12f).dp))
                         .then(
                             if (ctaBrush != null) Modifier.background(ctaBrush)
                             else Modifier.background(buttonBgColor)

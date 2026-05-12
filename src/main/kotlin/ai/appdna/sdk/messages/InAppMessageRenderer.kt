@@ -278,7 +278,10 @@ private fun ModalMessageView(
     // SPEC-205 / SPEC-070-A D.6: fall back to MaterialTheme.surface so dark
     // mode picks up the seeded scheme color rather than hard-coded white.
     val bgColor = content.background_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.surface
-    val cornerRadius = content.corner_radius ?: 20
+    // R89 — corner_radius default 12 matches iOS ModalView.swift:134
+    // `content.corner_radius ?? 12`. Was 20 — modal cards rendered with
+    // dramatically rounder corners than iOS.
+    val cornerRadius = content.corner_radius ?: 12
     val currentView = LocalView.current
     var showConfetti by remember { mutableStateOf(false) }
 
