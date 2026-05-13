@@ -499,6 +499,7 @@ fun PaywallScreen(
     // PostPurchaseSuccess can fire confetti + lottie atop the paywall while
     // the dismiss timer counts down.
     var postPurchaseOverlay by remember { mutableStateOf<PostPurchaseOverlayState?>(null) }
+    val coroutineScope = rememberCoroutineScope()
     LaunchedEffect(Unit) {
         // Poll the companion-object slot for new overlay payloads. Cheap
         // (one variable read per frame) — and we only enter this loop while
@@ -508,11 +509,26 @@ fun PaywallScreen(
             if (pending != null && pending != postPurchaseOverlay) {
                 postPurchaseOverlay = pending
                 PaywallActivity.postPurchaseOverlay = null
+                // Auto-dismiss after 4s when the overlay has no Retry CTA
+                // — without this, an error overlay shown via show_error
+                // (no retry) with allowDismiss=false leaves the user
+                // stranded behind a dim backdrop with no escape. When
+                // action=="retry" the overlay stays up; user must pick
+                // Retry vs tap-to-dismiss. Mirrors iOS PaywallRenderer
+                // `.paywallPurchaseFailure` observer auto-dismiss.
+                if (pending.action != "retry") {
+                    val target = pending
+                    coroutineScope.launch {
+                        kotlinx.coroutines.delay(4000)
+                        if (postPurchaseOverlay === target) {
+                            postPurchaseOverlay = null
+                        }
+                    }
+                }
             }
             kotlinx.coroutines.delay(100)
         }
     }
-    val coroutineScope = rememberCoroutineScope()
     val currentView = LocalView.current
 
     fun triggerDismiss() {
