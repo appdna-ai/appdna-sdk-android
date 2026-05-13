@@ -266,7 +266,11 @@ data class PaywallSectionData(
     val card_corner_radius: Float? = null,
     val card_padding: Float? = null,
     val card_gap: Float? = null,
-    val card_shadow: Boolean? = null,
+    // Console emits either Boolean ("show shadow yes/no") OR a String enum
+    // ("sm"/"md"/"lg"/"none"). iOS PlanCard.swift:206-210 derives radius and
+    // y-offset from the string; Android previously discarded String values.
+    // Kept Any? so the renderer can switch on actual runtime type.
+    val card_shadow: Any? = null,
     val badge_position: String? = null,       // top_right, top_left, top_center, inline
     val badge_shape: String? = null,          // pill, rounded, square
     val badge_bg_color: String? = null,
@@ -1075,7 +1079,8 @@ internal object PaywallConfigParser {
                 card_corner_radius = (d["card_corner_radius"] as? Number)?.toFloat(),
                 card_padding = (d["card_padding"] as? Number)?.toFloat(),
                 card_gap = (d["card_gap"] as? Number)?.toFloat(),
-                card_shadow = d["card_shadow"] as? Boolean,
+                // Pass raw — renderer decodes Bool|String|null into elevation.
+                card_shadow = d["card_shadow"],
                 badge_position = d["badge_position"] as? String,
                 badge_shape = d["badge_shape"] as? String,
                 badge_bg_color = d["badge_bg_color"] as? String,

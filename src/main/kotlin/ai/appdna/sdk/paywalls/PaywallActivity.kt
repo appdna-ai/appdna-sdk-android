@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -1213,7 +1214,7 @@ private fun VideoBackgroundView(
     )
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 private fun PaywallSectionView(
     section: PaywallSection,
@@ -1234,9 +1235,15 @@ private fun PaywallSectionView(
 ) {
     when (section.type) {
         "header" -> {
+            // Mirror iOS HeaderSection.swift:54 — `.padding(.top, 40)` gives
+            // the title breathing room from the safe-area / nav bar.
+            // applyContainerStyle runs after so author overrides still win.
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 40.dp)
+                    .run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }
             ) {
                 // SPEC-401-A R77 (Lens A P1) — render header section image
                 // matching iOS HeaderSection.swift:19-28
@@ -1316,7 +1323,21 @@ private fun PaywallSectionView(
             val cardPad = (section.data?.card_padding ?: 16f).dp
             val cardGap = (section.data?.card_gap ?: 8f).dp
             val cardShape = RoundedCornerShape(cardRadius)
-            val cardShadowEnabled = section.data?.card_shadow ?: false
+            // Mirror iOS PlanCard.swift:206-210 — accept Bool OR String enum
+            // ("sm"/"md"/"lg"/"none") and derive elevation. String values
+            // were silently dropped before (cast-to-Boolean returned null).
+            val cardShadowRaw = section.data?.card_shadow
+            val cardShadowEnabled = when (cardShadowRaw) {
+                is Boolean -> cardShadowRaw
+                is String -> cardShadowRaw.lowercase() !in setOf("none", "false", "")
+                else -> false
+            }
+            val cardShadowElevation = when {
+                cardShadowRaw is String && cardShadowRaw.equals("sm", ignoreCase = true) -> 2.dp
+                cardShadowRaw is String && cardShadowRaw.equals("lg", ignoreCase = true) -> 8.dp
+                cardShadowEnabled -> 4.dp
+                else -> 0.dp
+            }
 
             // Text styles
             val planNameStyle = StyleEngine.applyTextStyle(
@@ -1337,8 +1358,10 @@ private fun PaywallSectionView(
             val badgeTxt = section.data?.badge_text_color?.let { parseHexColor(it) } ?: Color.White
             val badgeFontSize = (section.data?.badge_font_size ?: 11f).sp
             val badgeShapeStr = section.data?.badge_shape ?: "pill"
+            // Mirror iOS PlanCard.swift:314-323 — console emits "rectangle"
+            // as the iOS-native naming; keep "square" alias for back-compat.
             val badgeCorner = when (badgeShapeStr) {
-                "square" -> RoundedCornerShape(0.dp)
+                "square", "rectangle" -> RoundedCornerShape(2.dp)
                 "rounded" -> RoundedCornerShape(4.dp)
                 else -> RoundedCornerShape(999.dp) // pill
             }
@@ -1375,7 +1398,7 @@ private fun PaywallSectionView(
             @Composable
             fun PlanCard(plan: PaywallPlan, planIdx: Int, modifier: Modifier = Modifier) {
                 val isSelected = selectedPlanId == plan.id
-                val elevation = if (cardShadowEnabled) 4.dp else 0.dp
+                val elevation = cardShadowElevation
                 // PW-9: honor authored selected/unselected border + bg colors.
                 val selectedBorderColor = customSelectedBorder ?: Color(0xFF6366F1)
                 val unselectedBorder = unselectedBorderColor
@@ -1513,13 +1536,22 @@ private fun PaywallSectionView(
                             }
 
                             // PW-9: per-plan savings text (typically "Save 20%").
+                            // Mirror iOS PlanCard.swift:152 — base green is
+                            // #22C55E (Tailwind green-500), flipping to
+                            // selectedTextColor when the plan is selected so
+                            // it stays readable against custom selected_bg.
                             if (showSavings && !plan.savings_text.isNullOrBlank()) {
                                 Spacer(Modifier.height(4.dp))
+                                val savingsColor = if (isSelected && selectedTextColor != null) {
+                                    selectedTextColor
+                                } else {
+                                    Color(0xFF22C55E)
+                                }
                                 Text(
                                     text = loc("plan.$planIdx.savings", plan.savings_text),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = Color(0xFF10B981), // green by convention
+                                    color = savingsColor,
                                 )
                             }
 
@@ -1577,17 +1609,63 @@ private fun PaywallSectionView(
                             PlanCard(plan = plans[planIdx], planIdx = planIdx, modifier = Modifier.fillMaxWidth())
                         }
                     }
-                    "pill_selector", "segmented_toggle", "minimal_chips" -> {
-                        // Row of chips / segments
-                        Row(
+                    "segmented_toggle", "segmented" -> {
+                        // Mirror iOS PaywallRenderer.swift:1762-1783 — native
+                        // segmented control followed by a price line for the
+                        // currently-selected plan. Material3 SingleChoice
+                        // SegmentedButtonRow is the Compose analogue of
+                        // Picker(.segmented).
+                        val selectedIdx = plans.indexOfFirst { it.id == selectedPlanId }
+                            .coerceAtLeast(0)
+                        val selectedPlan = plans.getOrNull(selectedIdx)
+                        SingleChoiceSegmentedButtonRow(
                             modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            plans.forEachIndexed { planIdx, plan ->
+                                SegmentedButton(
+                                    selected = selectedPlanId == plan.id,
+                                    onClick = { onPlanSelect(plan.id) },
+                                    shape = SegmentedButtonDefaults.itemShape(
+                                        index = planIdx,
+                                        count = plans.size,
+                                    ),
+                                ) {
+                                    Text(
+                                        text = loc("plan.$planIdx.name", plan.displayName),
+                                        fontSize = 13.sp,
+                                        maxLines = 1,
+                                    )
+                                }
+                            }
+                        }
+                        selectedPlan?.let { sp ->
+                            Spacer(Modifier.height(12.dp))
+                            Text(
+                                text = loc("plan.$selectedIdx.price", sp.displayPrice) +
+                                    (sp.period?.let { " / ${loc("plan.$selectedIdx.period", it)}" } ?: ""),
+                                style = priceStyle,
+                                modifier = Modifier.fillMaxWidth(),
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+                    "pill_selector", "minimal_chips" -> {
+                        // Mirror iOS PaywallRenderer.swift:1736-1759 — horizontal
+                        // ScrollView so 4+ pills stay readable (previously each
+                        // pill was `.weight(1f)` and compressed to unreadable
+                        // widths). Each chip sizes to its content.
+                        val pillScrollState = rememberScrollState()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(pillScrollState)
+                                .padding(horizontal = 4.dp),
                             horizontalArrangement = Arrangement.spacedBy(cardGap),
                         ) {
                             plans.forEachIndexed { planIdx, plan ->
                                 val isSelected = selectedPlanId == plan.id
                                 Box(
                                     modifier = Modifier
-                                        .weight(1f)
                                         .clip(cardShape)
                                         .background(
                                             if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.1f),
@@ -1599,7 +1677,7 @@ private fun PaywallSectionView(
                                             cardShape,
                                         )
                                         .clickable { onPlanSelect(plan.id) }
-                                        .padding(vertical = 12.dp),
+                                        .padding(horizontal = 16.dp, vertical = 12.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1607,11 +1685,13 @@ private fun PaywallSectionView(
                                             text = loc("plan.$planIdx.name", plan.displayName),
                                             style = planNameStyle.copy(fontSize = 14.sp),
                                             textAlign = TextAlign.Center,
+                                            maxLines = 1,
                                         )
                                         Text(
                                             text = loc("plan.$planIdx.price", plan.displayPrice),
                                             style = priceStyle.copy(fontSize = 14.sp),
                                             textAlign = TextAlign.Center,
+                                            maxLines = 1,
                                         )
                                         plan.badge?.let {
                                             Spacer(Modifier.height(4.dp))
@@ -1806,12 +1886,10 @@ private fun PaywallSectionView(
                         }
                     }
                     "single_hero" -> {
-                        // iOS PaywallRenderer.swift:1941 — render only the
-                        // FIRST (hero) plan large + center-aligned, rest
-                        // collapsed under a "More options" expandable.
-                        // Mac-friendly minimum: render first plan as a
-                        // single full-width card; remaining plans below
-                        // as compact rows.
+                        // Mirror iOS PaywallRenderer.swift:2117-2122 — render
+                        // only the hero (first) plan; collapse remaining
+                        // plans under an expandable "More options" toggle so
+                        // the funnel defaults to the highlighted plan.
                         plans.firstOrNull()?.let { hero ->
                             PlanCard(
                                 plan = hero,
@@ -1819,12 +1897,30 @@ private fun PaywallSectionView(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 2),
                             )
                         }
-                        plans.drop(1).forEachIndexed { idx, plan ->
-                            PlanCard(
-                                plan = plan,
-                                planIdx = idx + 1,
-                                modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 4),
-                            )
+                        if (plans.size > 1) {
+                            var isHeroExpanded by remember { mutableStateOf(false) }
+                            Spacer(Modifier.height(4.dp))
+                            TextButton(
+                                onClick = { isHeroExpanded = !isHeroExpanded },
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    text = if (isHeroExpanded) "Hide options" else "More options",
+                                    color = Color.White.copy(alpha = 0.85f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                            androidx.compose.animation.AnimatedVisibility(visible = isHeroExpanded) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    plans.drop(1).forEachIndexed { idx, plan ->
+                                        PlanCard(
+                                            plan = plan,
+                                            planIdx = idx + 1,
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = cardGap / 4),
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                     "product_as_cta" -> {
