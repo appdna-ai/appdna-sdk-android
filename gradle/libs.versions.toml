@@ -50,12 +50,14 @@ okhttp = "4.12.0"
 coil = "2.7.0"
 
 # Rich media (SPEC-070-A E.1 — SPEC-085 parity)
-# SPEC-070-A finalization Phase 1 — Rive 9.6.5 → 9.11.1 ships native libs
-# 16 KB-aligned (required for Google Play submissions targeting Android 15+
-# after Nov 1, 2025). 9.11.x is a non-breaking patch over 9.6.x for the
-# RiveAnimationView Compose binding we use in `RiveBlockView.kt`.
+# Hotfix-1.0.33 — Rive 9.11.1 → 9.13.10. The prior claim that 9.11.1 shipped
+# 16 KB-aligned native libs was wrong (Android Studio's install-time popup
+# flagged `librive-android.so` as unaligned). Rive 9.13.0 (2024-12-10) added
+# 16 KB page size support by bumping the bundled NDK to r27c. Required for
+# Google Play submissions targeting Android 15+ after Nov 1, 2025. 9.13.10
+# is the latest within 9.13.x — no API change vs 9.11 (NDK rebuild only).
 lottie = "6.4.0"
-rive = "9.11.1"
+rive = "9.13.10"
 media3 = "1.4.0"
 androidSvg = "1.4"
 
