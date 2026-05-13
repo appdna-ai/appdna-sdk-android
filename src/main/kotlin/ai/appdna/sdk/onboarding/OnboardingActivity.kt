@@ -2887,10 +2887,15 @@ private fun BlockBasedStepView(
                                 )
                             )
                     )
+                    // Hotfix-1.0.33 — `ThreeZoneBlockLayout` already wraps its
+                    // top/center content in a verticalScroll. Wrapping it AGAIN
+                    // here in `Column(.verticalScroll)` nests two scrollables
+                    // with infinite max-height and crashes at measure time.
+                    // Mirrors iOS where the variant Container does not scroll;
+                    // only the inner zone ScrollView does.
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
                             .padding(20.dp),
                         verticalArrangement = Arrangement.Bottom,
                     ) {
@@ -2907,11 +2912,11 @@ private fun BlockBasedStepView(
                         modifier = Modifier.weight(0.4f).fillMaxHeight(),
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                     )
-                    // Content side (60%)
+                    // Content side (60%) — TZBL provides its own internal
+                    // verticalScroll (Hotfix-1.0.33 — was nested-scroll crash).
                     Column(
                         modifier = Modifier
                             .weight(0.6f)
-                            .verticalScroll(rememberScrollState())
                             .padding(16.dp),
                     ) {
                         ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
@@ -2919,10 +2924,10 @@ private fun BlockBasedStepView(
                 }
             }
             "image_bottom" -> {
+                // Hotfix-1.0.33 — outer scroll removed; TZBL owns scrolling.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
                     ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
@@ -2935,10 +2940,10 @@ private fun BlockBasedStepView(
                 }
             }
             "image_top" -> {
+                // Hotfix-1.0.33 — outer scroll removed; TZBL owns scrolling.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
                     ai.appdna.sdk.core.NetworkImage(
@@ -2951,10 +2956,10 @@ private fun BlockBasedStepView(
                 }
             }
             else -> { // no_image
+                // Hotfix-1.0.33 — outer scroll removed; TZBL owns scrolling.
                 Column(
                     modifier = Modifier
                         .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
                         .padding(20.dp),
                 ) {
                     ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
