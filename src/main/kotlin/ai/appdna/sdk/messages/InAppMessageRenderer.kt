@@ -237,13 +237,19 @@ private fun BannerMessageView(
                                 isVisible = false
                                 onDismiss()
                             },
-                            // SPEC-070-A J.11 \u2014 close X uses Text glyph; attach
-                            // a11y label for TalkBack.
+                            // SPEC-070-A J.11 \u2014 close X uses Material Close
+                            // icon (was Text glyph); mirrors iOS SF Symbol
+                            // `xmark`. a11y label attached for TalkBack.
                             modifier = Modifier
                                 .size(24.dp)
                                 .semantics { contentDescription = dismissCd },
                         ) {
-                            Text("\u2715", fontSize = 12.sp, color = Color.Gray)
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = null,
+                                tint = Color.Gray,
+                                modifier = Modifier.size(12.dp),
+                            )
                         }
                     }
 
@@ -339,12 +345,18 @@ private fun ModalMessageView(
                     val modalDismissCd = stringResource(R.string.appdna_a11y_message_close)
                     IconButton(
                         onClick = onDismiss,
-                        // SPEC-070-A J.11 \u2014 modal close X (Text glyph).
+                        // SPEC-070-A J.11 \u2014 modal close X uses Material
+                        // Close icon (mirrors iOS SF Symbol `xmark`).
                         modifier = Modifier
                             .size(32.dp)
                             .semantics { contentDescription = modalDismissCd },
                     ) {
-                        Text("\u2715", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = Color.Gray)
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = null,
+                            tint = Color.Gray,
+                            modifier = Modifier.size(16.dp),
+                        )
                     }
                 }
 
@@ -389,7 +401,10 @@ private fun ModalMessageView(
                                 .fillMaxWidth()
                                 .height(160.dp)
                                 .clip(RoundedCornerShape(8.dp)),
-                            contentScale = ContentScale.Crop,
+                            // Mirror iOS ModalView.swift:66 `.scaledToFit()` so
+                            // portrait posters render fully (Crop was cutting
+                            // top/bottom on tall images).
+                            contentScale = ContentScale.Fit,
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                     }
@@ -688,7 +703,13 @@ private fun FullscreenMessageView(
                 .size(36.dp)
                 .semantics { contentDescription = fullscreenCloseCd },
         ) {
-            Text("\u2715", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.DarkGray)
+            // Mirror iOS SF Symbol `xmark` (was Text glyph).
+            Icon(
+                imageVector = Icons.Filled.Close,
+                contentDescription = null,
+                tint = Color.DarkGray,
+                modifier = Modifier.size(18.dp),
+            )
         }
 
         // SPEC-085: Confetti overlay
@@ -821,26 +842,29 @@ private fun TooltipMessageView(
                         Spacer(modifier = Modifier.height(4.dp))
                     }
 
-                    // Body
+                    // Body — mirror iOS TooltipView.swift:47-51 (no
+                    // multilineTextAlignment → leading); centering the
+                    // tooltip body diverged from iOS card.
                     content.body?.let {
                         Text(
                             text = it,
                             fontSize = (content.body_font_size ?: 12.0).sp,
                             fontFamily = FontResolver.resolve(content.font_family),
-                            textAlign = TextAlign.Center,
                             color = if (textColor != Color.Unspecified)
                                 textColor.copy(alpha = 0.7f)
                             else Color.Gray,
                         )
                     }
 
-                    // CTA button with optional icon
+                    // CTA button with optional icon — corner_radius follows
+                    // button_corner_radius (was reusing the tooltip card
+                    // corner_radius, diverging from banner/modal/fullscreen).
                     content.cta_text?.let { ctaText ->
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = onCTATap,
                             colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                            shape = RoundedCornerShape(cornerRadius.dp),
+                            shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             // SPEC-085: CTA icon
