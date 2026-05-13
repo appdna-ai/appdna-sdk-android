@@ -691,7 +691,9 @@ fun SurveyScreen(
             )
             Text(
                 text = thankText,
-                style = MaterialTheme.typography.titleMedium.copy(
+                // Mirror iOS SurveyRenderer.swift:180 `.font(.title2.bold())`
+                // (~22pt). titleMedium is 16sp — visibly smaller on Android.
+                style = MaterialTheme.typography.titleLarge.copy(
                     fontWeight = FontWeight.Bold,
                     color = textColor,
                 ),

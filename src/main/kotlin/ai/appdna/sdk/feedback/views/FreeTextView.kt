@@ -52,6 +52,10 @@ fun FreeTextView(
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 120.dp),
+            // Mirror iOS FreeTextView.swift:36-51 — RoundedRectangle
+            // cornerRadius:8 stroke. Material3 default outlined textfield
+            // uses asymmetric rounding; force symmetric 8dp corners.
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(8.dp),
             // SPEC-070-A I.5b — text keyboard with `Done` IME action so the
             // soft keyboard exposes a dismiss key. Mirrors iOS
             // `submitLabel(.done)` used by SurveyRenderer's free-text view.
