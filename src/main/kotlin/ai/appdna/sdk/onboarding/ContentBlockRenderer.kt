@@ -5241,6 +5241,46 @@ private fun FormInputSelectBlock(
     // single-only on both platforms (multi-dropdown is rare UX).
     val isMulti = (block.multi_select == true) ||
         ((block.field_config?.get("multi_select") as? Boolean) == true)
+    // Hotfix-1.0.33 — field_config block-level styling reads, mirroring iOS
+    // FormInputBlockViews.swift:478-530 (`stackedSelectView`). Each iOS read
+    // gets a Kotlin counterpart so console-authored colors stop being silently
+    // dropped. The `option.bg_color / selected_bg_color / border_color /
+    // selected_border_color / selected_text_color` per-option fields are
+    // resolved inline at the option-row site below — these are just the
+    // block-level fallbacks behind them.
+    val cfg = block.field_config
+    val accentHex = block.field_style?.fill_color
+        ?: block.field_style?.focused_border_color
+        ?: block.active_color
+        ?: "#6366F1"
+    val fillCol = StyleEngine.parseColor(accentHex)
+    val cornerR = (block.field_style?.corner_radius ?: 10.0).dp
+    val cfgOptBg = (cfg?.get("bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val cfgOptBorder = (cfg?.get("border_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val cfgSelectedBg = (cfg?.get("selected_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val cfgSelectedText = (cfg?.get("selected_text_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val cfgOptText = (cfg?.get("text_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val unselectedBg = cfgOptBg
+        ?: block.field_style?.background_color?.let { StyleEngine.parseColor(it) }
+        ?: Color.Transparent
+    val selectedBg = cfgSelectedBg ?: fillCol.copy(alpha = 0.15f)
+    val unselectedBorder = cfgOptBorder
+        ?: block.field_style?.border_color?.let { StyleEngine.parseColor(it) }
+        ?: fillCol.copy(alpha = 0.3f)
+    val selectedBorder = fillCol
+    val textCol = cfgOptText
+        ?: block.field_style?.text_color?.let { StyleEngine.parseColor(it) }
+        ?: Color.Unspecified
+    val selectedTextCol = cfgSelectedText ?: textCol
+    // Selection indicator: "radio" (default), "border", "both", "none"
+    val selectionIndicator = (cfg?.get("selection_indicator") as? String) ?: "radio"
+    val showRadio = selectionIndicator == "radio" || selectionIndicator == "both"
+    val radioPosition = (cfg?.get("radio_position") as? String) ?: "right"
+    val radioOnLeft = radioPosition == "left" || radioPosition == "leading"
+    val selectedBorderW = ((cfg?.get("selected_border_width") as? Number)?.toDouble() ?: 2.0).dp
+    val unselectedBorderW = ((cfg?.get("unselected_border_width") as? Number)?.toDouble() ?: 1.0).dp
+    val bgOpacity = ((cfg?.get("background_opacity") as? Number)?.toDouble() ?: 1.0).toFloat().coerceIn(0f, 1f)
+    val optionSpacingDp = ((cfg?.get("option_spacing") as? Number)?.toDouble() ?: 8.0).dp
     var selectedValue by remember { mutableStateOf(inputValues[fieldId] as? String ?: "") }
     val initialSelected: Set<String> = remember {
         when (val existing = inputValues[fieldId]) {
@@ -5277,21 +5317,27 @@ private fun FormInputSelectBlock(
 
         when (displayStyle) {
             "stacked" -> {
-                // Stacked: Column of cards with RadioButton (single) or Checkbox (multi).
+                // Stacked: Column of cards. Per-option bg/border/text colors honored
+                // (Hotfix-1.0.33). Mirrors iOS FormInputBlockViews.swift:532-622.
                 Column(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(optionSpacingDp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     options.forEach { option ->
-                        // SPEC-401-A R49 (Lens A #1) — multi-aware selection.
                         val isSelected = isOptionSelected(option.value)
-                        // SPEC-401-A R64 (Lens C P1) — single click target so
-                        // TalkBack treats Card+Checkbox/RadioButton as ONE
-                        // element matching iOS FormInputBlockViews.swift
-                        // :559-620 single-Button wrap. Was Card.clickable +
-                        // inner Checkbox.onCheckedChange / RadioButton.onClick
-                        // → 2 click targets per row, double announcement,
-                        // 2× swipes per option to traverse.
+                        // Per-option color overrides — each option can carry its own
+                        // bg / border / selected colors that override the field_config
+                        // block-level fallbacks resolved above. Selected state wins so
+                        // `selected_text_color` always applies on top of `title_color`.
+                        val optUnselBg = option.bg_color?.let { StyleEngine.parseColor(it) } ?: unselectedBg
+                        val optSelBg = option.selected_bg_color?.let { StyleEngine.parseColor(it) } ?: selectedBg
+                        val optUnselBorder = option.border_color?.let { StyleEngine.parseColor(it) } ?: unselectedBorder
+                        val optSelBorder = option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: selectedBorder
+                        val optSelText = option.selected_text_color?.let { StyleEngine.parseColor(it) } ?: selectedTextCol
+                        val optTitleColor = if (isSelected) optSelText else (option.title_color?.let { StyleEngine.parseColor(it) } ?: textCol)
+                        // SPEC-401-A R64 — single click target so TalkBack treats
+                        // Card+Checkbox/RadioButton as ONE element. Card owns the
+                        // click + a11y; inner RadioButton/Checkbox uses null handler.
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -5310,66 +5356,47 @@ private fun FormInputSelectBlock(
                                         )
                                     }
                                 ),
-                            shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                            shape = RoundedCornerShape(cornerR),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
+                                containerColor = (if (isSelected) optSelBg else optUnselBg).copy(alpha = bgOpacity),
                             ),
-                            border = if (isSelected) {
-                                androidx.compose.foundation.BorderStroke(2.dp, StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"))
-                            } else {
-                                androidx.compose.foundation.BorderStroke(1.dp, StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"))
-                            },
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isSelected) selectedBorderW else unselectedBorderW,
+                                if (isSelected) optSelBorder else optUnselBorder,
+                            ),
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth().padding(12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                if (isMulti) {
-                                    Checkbox(
-                                        checked = isSelected,
-                                        // SPEC-401-A R64 (Lens C P1) — null
-                                        // handler so Card.toggleable owns
-                                        // the click + a11y semantics.
-                                        onCheckedChange = null,
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
-                                        ),
-                                    )
-                                } else {
-                                    RadioButton(
-                                        selected = isSelected,
-                                        // SPEC-401-A R64 (Lens C P1) — null
-                                        // handler so Card.selectable owns
-                                        // the click + a11y semantics.
-                                        onClick = null,
-                                        colors = RadioButtonDefaults.colors(
-                                            selectedColor = StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"),
-                                        ),
-                                    )
-                                }
-                                // Gap 7: Option image_url
-                                option.image_url?.let { url ->
-                                    if (url.isNotEmpty()) {
-                                        Spacer(Modifier.width(8.dp))
-                                        ai.appdna.sdk.core.NetworkImage(
-                                            url = url,
-                                            modifier = Modifier.size(24.dp).clip(CircleShape),
-                                            contentScale = ContentScale.Crop,
-                                        )
+                                if (showRadio && radioOnLeft) {
+                                    if (isMulti) {
+                                        Checkbox(checked = isSelected, onCheckedChange = null,
+                                            colors = CheckboxDefaults.colors(checkedColor = fillCol))
+                                    } else {
+                                        RadioButton(selected = isSelected, onClick = null,
+                                            colors = RadioButtonDefaults.colors(selectedColor = fillCol))
                                     }
+                                    Spacer(Modifier.width(8.dp))
                                 }
-                                Spacer(Modifier.width(8.dp))
-                                // SPEC-401-A R83 (Lens C P1) — apply per-option
-                                // title_color/title_font_size/title_font_weight
-                                // + render subtitle matching iOS
-                                // FormInputBlockViews.swift:546-585. Was
-                                // hardcoded 14sp + ignored subtitle line.
-                                Column {
+                                // Per-option image (with optional selected/unselected variants).
+                                option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
+                                    ai.appdna.sdk.core.NetworkImage(
+                                        url = url,
+                                        modifier = Modifier.size(24.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop,
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                option.icon?.takeIf { it.isNotEmpty() }?.let { icon ->
+                                    Text(text = icon)
+                                    Spacer(Modifier.width(8.dp))
+                                }
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = option.label,
                                         fontSize = (option.title_font_size ?: 14.0).sp,
-                                        color = option.title_color?.let { StyleEngine.parseColor(it) }
-                                            ?: Color.Unspecified,
+                                        color = optTitleColor,
                                         fontWeight = option.title_font_weight?.let { wStr ->
                                             ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
                                                 "thin" -> 100; "extralight", "ultralight" -> 200
@@ -5389,44 +5416,59 @@ private fun FormInputSelectBlock(
                                         )
                                     }
                                 }
+                                if (showRadio && !radioOnLeft) {
+                                    Spacer(Modifier.width(8.dp))
+                                    if (isMulti) {
+                                        Checkbox(checked = isSelected, onCheckedChange = null,
+                                            colors = CheckboxDefaults.colors(checkedColor = fillCol))
+                                    } else {
+                                        RadioButton(selected = isSelected, onClick = null,
+                                            colors = RadioButtonDefaults.colors(selectedColor = fillCol))
+                                    }
+                                }
                             }
                         }
                     }
                 }
             }
             "grid" -> {
-                // Grid: 2-column layout
-                val chunked = options.chunked(2)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Grid: N-column layout. Hotfix-1.0.33 — read `grid_columns` from
+                // field_config (default 2). Per-option color reads now honored.
+                val gridCols = ((cfg?.get("grid_columns") as? Number)?.toInt() ?: 2).coerceIn(1, 6)
+                val chunked = options.chunked(gridCols)
+                Column(verticalArrangement = Arrangement.spacedBy(optionSpacingDp)) {
                     chunked.forEach { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(optionSpacingDp),
                         ) {
                             row.forEach { option ->
-                                // SPEC-401-A R49 (Lens A #1) — multi-aware selection.
                                 val isSelected = isOptionSelected(option.value)
+                                val optUnselBg = option.bg_color?.let { StyleEngine.parseColor(it) } ?: unselectedBg
+                                val optSelBg = option.selected_bg_color?.let { StyleEngine.parseColor(it) } ?: selectedBg
+                                val optUnselBorder = option.border_color?.let { StyleEngine.parseColor(it) } ?: unselectedBorder
+                                val optSelBorder = option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: selectedBorder
+                                val optSelText = option.selected_text_color?.let { StyleEngine.parseColor(it) } ?: selectedTextCol
+                                val optTitleColor = if (isSelected) optSelText else (option.title_color?.let { StyleEngine.parseColor(it) } ?: textCol)
                                 Card(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clickable { pickOption(option.value) },
-                                    shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+                                    shape = RoundedCornerShape(cornerR),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isSelected) StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1").copy(alpha = 0.1f) else Color.Transparent,
+                                        containerColor = (if (isSelected) optSelBg else optUnselBg).copy(alpha = bgOpacity),
                                     ),
-                                    border = if (isSelected) {
-                                        androidx.compose.foundation.BorderStroke(2.dp, StyleEngine.parseColor(block.field_style?.fill_color ?: "#6366F1"))
-                                    } else {
-                                        androidx.compose.foundation.BorderStroke(1.dp, StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"))
-                                    },
+                                    border = androidx.compose.foundation.BorderStroke(
+                                        if (isSelected) selectedBorderW else unselectedBorderW,
+                                        if (isSelected) optSelBorder else optUnselBorder,
+                                    ),
                                 ) {
-                                    Column(
-                                        modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                    ) {
-                                        // Gap 7: Option image_url
-                                        option.image_url?.let { url ->
-                                            if (url.isNotEmpty()) {
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth().padding(12.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                        ) {
+                                            option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
                                                 ai.appdna.sdk.core.NetworkImage(
                                                     url = url,
                                                     modifier = Modifier.size(32.dp).clip(CircleShape),
@@ -5434,39 +5476,48 @@ private fun FormInputSelectBlock(
                                                 )
                                                 Spacer(Modifier.height(4.dp))
                                             }
-                                        }
-                                        // SPEC-401-A R83 (Lens C P1) — per-option
-                                        // styling + subtitle (grid branch).
-                                        Text(
-                                            text = option.label,
-                                            fontSize = (option.title_font_size ?: 14.0).sp,
-                                            color = option.title_color?.let { StyleEngine.parseColor(it) }
-                                                ?: Color.Unspecified,
-                                            fontWeight = option.title_font_weight?.let { wStr ->
-                                                ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
-                                                    "thin" -> 100; "extralight", "ultralight" -> 200
-                                                    "light" -> 300; "normal", "regular" -> 400
-                                                    "medium" -> 500; "semibold" -> 600
-                                                    "bold" -> 700; "extrabold", "heavy" -> 800
-                                                    "black" -> 900; else -> 400
-                                                })
-                                            } ?: FontWeight.Normal,
-                                            textAlign = TextAlign.Center,
-                                        )
-                                        option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
                                             Text(
-                                                text = subtitle,
-                                                fontSize = (option.subtitle_font_size ?: 12.0).sp,
-                                                color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
-                                                    ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                text = option.label,
+                                                fontSize = (option.title_font_size ?: 14.0).sp,
+                                                color = optTitleColor,
+                                                fontWeight = option.title_font_weight?.let { wStr ->
+                                                    ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
+                                                        "thin" -> 100; "extralight", "ultralight" -> 200
+                                                        "light" -> 300; "normal", "regular" -> 400
+                                                        "medium" -> 500; "semibold" -> 600
+                                                        "bold" -> 700; "extrabold", "heavy" -> 800
+                                                        "black" -> 900; else -> 400
+                                                    })
+                                                } ?: FontWeight.Normal,
                                                 textAlign = TextAlign.Center,
+                                            )
+                                            option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                                                Text(
+                                                    text = subtitle,
+                                                    fontSize = (option.subtitle_font_size ?: 12.0).sp,
+                                                    color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
+                                                        ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                    textAlign = TextAlign.Center,
+                                                )
+                                            }
+                                        }
+                                        // Selected/unselected toggle-badge overlay
+                                        // (top-right) matching iOS grid path.
+                                        val badgeIcon = if (isSelected) option.selected_icon else option.unselected_icon
+                                        if (!badgeIcon.isNullOrEmpty()) {
+                                            Text(
+                                                text = badgeIcon,
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .padding(6.dp),
+                                                fontSize = 12.sp,
                                             )
                                         }
                                     }
                                 }
                             }
-                            // Fill empty slot in last row
-                            if (row.size == 1) Spacer(Modifier.weight(1f))
+                            // Fill empty slots in last row to keep grid alignment
+                            repeat(gridCols - row.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }

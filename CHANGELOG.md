@@ -4,6 +4,27 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.33] — 2026-05-13
+
+Android-only hotfix to close iOS parity gaps in onboarding form rendering and
+auth-action validation.
+
+- `FormInputSelectBlock` (stacked + grid display styles) now honors per-option
+  styling fields from `field_options[]` — `bg_color`, `selected_bg_color`,
+  `border_color`, `selected_border_color`, `text_color`, `selected_text_color`
+  — and block-level `field_config` fields including `selection_indicator`,
+  `radio_position` (left/right), `selected_border_width`, `unselected_border_width`,
+  `option_spacing`, `bg_opacity`, and `grid_columns`. Previously every option
+  rendered with the same default colors regardless of console config, so
+  flows like Nurrai's stacked select showed one uniform tile instead of
+  four differently colored answers.
+- Grid display now renders `selected_icon` / `unselected_icon` toggle badges
+  in the top-end corner and supports configurable `grid_columns` (default 2)
+  with empty-slot fillers to keep the final row balanced.
+- `AUTH_ACTIONS_REQUIRING_VALIDATION` now includes `resend_verification`,
+  `enable_biometric`, `logout`, and `delete_account` so the form-validation
+  gate fires before these actions just like on iOS.
+
 ## [1.0.32] — 2026-05-06
 
 Android SDK uses its own version sequence (independent of iOS — Android

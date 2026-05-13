@@ -2511,6 +2511,17 @@ private val AUTH_ACTIONS_REQUIRING_VALIDATION = setOf(
     "set_new_password",
     "update_profile",
     "social_login", // provider already chosen; submitted profile fields still validated
+    // Hotfix-1.0.33 — close parity gap with iOS `emitAuthAction`
+    // (OnboardingRenderer.swift:1598-1606) which gates EVERY auth action via
+    // canAdvance. Android originally placed the gate at the dispatch switch
+    // keyed off membership, but missed these 4. Without them a screen that
+    // pairs a required input with `resend_verification` / `enable_biometric`
+    // / `logout` / `delete_account` advanced with empty payload on Android
+    // while iOS showed the validation pill.
+    "resend_verification",
+    "enable_biometric",
+    "logout",
+    "delete_account",
 )
 
 // SPEC-084: Block-based step view with 5 layout variants
