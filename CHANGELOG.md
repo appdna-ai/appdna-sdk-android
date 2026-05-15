@@ -4,6 +4,63 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.34] — 2026-05-15
+
+Cross-platform hotfix mirroring iOS 1.0.62. Closes the cross-account
+entitlement leak — same shape as the bug Bogdan reproduced on iOS: User A
+purchases on the device, User B signs in to the host app on the same
+device, B taps Restore (or just identifies), and `queryPurchasesAsync`
+returns A's purchase unfiltered, granting B a fake-premium state. The
+`appdnaFeatureParity` marker bumps to `1.0.62`.
+
+### Write side — every purchase now binds to the current app user
+
+`NativeBillingManager.purchase` already passed `BillingFlowParams.setObfuscatedAccountId`
+when the host supplied an explicit `options.appAccountToken`, but had no
+fallback for callers using the convenience API
+(`AppDNA.billing.purchase(productId)` with no options). Now resolves the
+token via the new `AppAccountTokenResolver` (deterministic UUID derived from
+`AppDNA.identify(userId)` — UUID pass-through if the userId is already a
+UUID, otherwise SHA-256(NAMESPACE || userId) → RFC-4122-shaped UUID). Same
+algorithm runs on iOS + (TODO) the backend receipt verifier so a cross-
+platform user binds to the same token everywhere. If no user is identified,
+the purchase still proceeds untagged with a warning (preserves first-launch
+flows; hosts should call `AppDNA.identify(userId)` BEFORE letting the user
+purchase).
+
+### Read side — every device-level purchase read is filtered
+
+The 3 sites that consume `BillingClient.queryPurchasesAsync`
+(`reconcileSubscriptionState`, `refreshEntitlementCache`,
+`restorePurchases`) now decode `Purchase.accountIdentifiers.obfuscatedAccountId`
+and route through the new `EntitlementOwnerFilter` before any purchase
+reaches the entitlement cache or the server-side `receiptVerifier.restore`.
+Decision matrix:
+
+```
+expectedToken null                    → grantAnonymousPolicy   (preserves pre-identify flows)
+expectedToken set, tx == expected     → grant
+expectedToken set, tx == nil          → grantUntaggedMigration (server claims ownership)
+expectedToken set, tx != expected     → DENY                   ← the headline fix
+```
+
+### Server-side defence (primary)
+
+`ReceiptVerifier.verify` and `ReceiptVerifier.restore` now send `app_user_id`
+in every request body. The backend MUST decode each transaction's
+`obfuscatedAccountId` and compare to the authenticated user — denying on
+mismatch and claiming ownership on null (migration-tolerant). The
+client-side filter above is belt-and-suspenders for the cached / silent
+paths.
+
+### Tests
+
+`src/test/kotlin/ai/appdna/sdk/billing/EntitlementOwnerFilterTest.kt` (5
+decision-matrix tests, including the headline cross-account-deny case) and
+`AppAccountTokenResolverTest.kt` (6 tests on determinism, UUID fast-path,
+and RFC-4122 shape — paired with the iOS frozen-vector test for
+cross-platform parity).
+
 ## [1.0.33] — 2026-05-13
 
 Android-only hotfix to close iOS parity gaps in onboarding form rendering and
