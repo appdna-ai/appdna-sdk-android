@@ -164,9 +164,10 @@ class AppAccountTokenResolverTest {
     }
 
     @Test fun `clearFirstIdentifiedUserId resets the anchor`() {
-        // Used by `AppDNA.reset()` — the explicit "sign out + start
-        // fresh" surface. After clear, the next identify becomes the
-        // new first.
+        // Internal/test-only API. (Note: `AppDNA.reset()` deliberately
+        // does NOT call this — the anchor's natural lifecycle is the
+        // app installation; uninstall / clear-data is the correct
+        // invalidation event. See `AppDNA.reset()` kdoc.)
         AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
         AppAccountTokenResolver.clearFirstIdentifiedUserId()
         assertNull(AppAccountTokenResolver.firstIdentifiedToken())
@@ -176,6 +177,56 @@ class AppAccountTokenResolverTest {
             "After clear(), the next identify becomes the new first-identifier",
             AppAccountTokenResolver.token(forUserId = "bob"),
             AppAccountTokenResolver.firstIdentifiedToken(),
+        )
+    }
+
+    @Test fun `record clear record same user re-anchors to same user`() {
+        // identify("A") -> clearFirstIdentifiedUserId() -> identify("A").
+        // After clearing the anchor (test/migration utility path — NOT
+        // what production `AppDNA.reset()` does), A becomes the new
+        // first-identifier again on the next record call. This is the
+        // round-trip contract for the resolver layer.
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        assertEquals(
+            AppAccountTokenResolver.token(forUserId = "alice"),
+            AppAccountTokenResolver.firstIdentifiedToken(),
+        )
+
+        AppAccountTokenResolver.clearFirstIdentifiedUserId()
+        assertNull(AppAccountTokenResolver.firstIdentifiedToken())
+
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        assertEquals(
+            "clear() -> record(A) MUST re-anchor to A",
+            AppAccountTokenResolver.token(forUserId = "alice"),
+            AppAccountTokenResolver.firstIdentifiedToken(),
+        )
+    }
+
+    @Test fun `concurrent record from many threads anchors to exactly one input`() {
+        // Stress test the TOCTOU window in
+        // `recordFirstIdentifiedUserIdIfNeeded`. The function is
+        // `@Synchronized` so a single winner is guaranteed; this test
+        // pins that invariant — after N concurrent first-identifies,
+        // the anchor is set to ONE of the N inputs (never unset,
+        // never to some other value).
+        val candidates = (0 until 50).map { "concurrent-user-$it" }
+        val expectedTokens = candidates.map { AppAccountTokenResolver.token(forUserId = it) }.toSet()
+
+        val threads = candidates.map { userId ->
+            Thread { AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded(userId) }
+        }
+        threads.forEach { it.start() }
+        threads.forEach { it.join(2_000) }
+
+        val derived = AppAccountTokenResolver.firstIdentifiedToken()
+        assertNotNull("Anchor must end up set after concurrent first-identifies (never null)", derived)
+        // The anchor must equal exactly one of the candidate UUIDs.
+        // (Set membership check — we don't care WHICH one won, only
+        // that it's a legitimate candidate.)
+        org.junit.Assert.assertTrue(
+            "Anchor must equal exactly one of the concurrent candidates — not some other value",
+            expectedTokens.contains(derived),
         )
     }
 }

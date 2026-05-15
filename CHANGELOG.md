@@ -35,7 +35,12 @@ expectedToken set, untagged, firstIdentifier null                   → DenyUnta
 
 `AppDNA.identify(userId)` records the userId as the first-identifier
 on this device the FIRST time it runs (idempotent — later
-`identify(B)` does NOT change the anchor). `AppDNA.reset()` clears it.
+`identify(B)` does NOT change the anchor). `AppDNA.reset()`
+**deliberately does NOT** clear the anchor (clearing on sign-out
+would re-open the leak: the next user identifying on the same
+device would become the new first-identifier and inherit untagged
+purchases). App uninstall / clear-data is the only path that wipes
+the anchor.
 
 Effect: the user who legitimately owns the untagged onboarding
 purchase (the device's first-identified user) keeps it on Restore; any

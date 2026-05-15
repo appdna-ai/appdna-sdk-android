@@ -137,27 +137,54 @@ internal object AppAccountTokenResolver {
      *  device. If already set, this is a no-op — a subsequent identify
      *  of a different user does NOT change the anchor (that user is
      *  scoped to `DenyUntaggedOtherUser`, not `GrantUntaggedMigration`).
-     *  Empty [userId] is ignored. */
+     *  Empty [userId] is ignored.
+     *
+     *  `@Synchronized` to close the TOCTOU window: iOS serialises
+     *  `identify(...)` on its own internal queue, but Android `identify`
+     *  can be called from any thread. Without this, two concurrent
+     *  first-identify calls could both observe `null` and the later
+     *  writer would win — usually harmless (anchor still ends up set
+     *  to ONE of them) but means the "earliest caller wins" invariant
+     *  is replaced by "last writer wins". The synchronized block
+     *  restores deterministic ordering. */
+    @Synchronized
     fun recordFirstIdentifiedUserIdIfNeeded(userId: String) {
         if (userId.isEmpty()) return
         val p = prefs() ?: return
         if (p.getString(FIRST_IDENTIFIED_USER_ID_KEY, null) == null) {
-            p.edit().putString(FIRST_IDENTIFIED_USER_ID_KEY, userId).apply()
+            // `commit()` (synchronous fsync) instead of `apply()`
+            // (async fsync) — security-relevant write that the very
+            // next read (from `firstIdentifiedToken()`) must observe.
+            // `apply()` buffers in memory, so a sequence
+            // `record(A); firstIdentifiedToken()` on the same thread
+            // is fine, but a cross-thread read between `apply()` and
+            // its background fsync could observe `null`. `commit()`
+            // closes that window deterministically.
+            p.edit().putString(FIRST_IDENTIFIED_USER_ID_KEY, userId).commit()
         }
     }
 
-    /** Clear the first-identifier anchor. Called from `AppDNA.reset()`
-     *  (the explicit "fully sign out + start fresh" surface). After this,
-     *  the next `identify(...)` becomes the new first-identifier for the
-     *  device. */
+    /** Clear the first-identifier anchor. **NOT** called by
+     *  `AppDNA.reset()` — the anchor is deliberately durable for the
+     *  lifetime of the app installation (uninstall / clear-data is the
+     *  correct invalidation event). This method is kept internal for
+     *  SDK test code and any future migration utility.
+     *  `@Synchronized` to serialise against `recordFirstIdentifiedUserIdIfNeeded`
+     *  and `firstIdentifiedToken`. */
+    @Synchronized
     fun clearFirstIdentifiedUserId() {
-        prefs()?.edit()?.remove(FIRST_IDENTIFIED_USER_ID_KEY)?.apply()
+        // `commit()` for the same reason as record — readers must
+        // observe the cleared state immediately.
+        prefs()?.edit()?.remove(FIRST_IDENTIFIED_USER_ID_KEY)?.commit()
     }
 
     /** Resolve the persisted first-identifier userId into a UUID token
      *  using the same derivation as `token(forUserId:)`. Returns null if
      *  the host has not yet identified any user on this device OR the
-     *  application context isn't initialized yet. */
+     *  application context isn't initialized yet.
+     *  `@Synchronized` so a reader can't tear against an in-flight
+     *  `record`/`clear` from another thread. */
+    @Synchronized
     fun firstIdentifiedToken(): UUID? {
         val userId = prefs()?.getString(FIRST_IDENTIFIED_USER_ID_KEY, null) ?: return null
         if (userId.isEmpty()) return null

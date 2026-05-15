@@ -592,8 +592,6 @@ object AppDNA {
         val previousAnonId = identityManager?.currentIdentity?.anonId
         val previousUserId = identityManager?.currentIdentity?.userId
 
-        identityManager?.identify(userId, traits)
-
         // Cross-account-leak defence — anchor the device's "first
         // identifier" the first time anyone identifies. Untagged
         // historical purchases (e.g. SDK-driven onboarding-paywall
@@ -603,7 +601,16 @@ object AppDNA {
         // anchor; that user gets `DenyUntaggedOtherUser` for untagged
         // purchases. Mirrors iOS AppDNA.swift behaviour. See
         // EntitlementOwnerFilter for the full decision matrix.
+        //
+        // Recorded BEFORE the inner identityManager.identify(...) call
+        // so that any downstream observer that immediately reads
+        // `firstIdentifiedToken()` sees the anchor populated. The
+        // resolver's recordFirstIdentifiedUserIdIfNeeded is
+        // `@Synchronized`, so concurrent identify() calls from
+        // different threads will agree on a single "first" winner.
         ai.appdna.sdk.billing.AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded(userId)
+
+        identityManager?.identify(userId, traits)
 
         // SPEC-070-A G.3: emit local `identify` event so the existing client
         // pipeline (BigQuery alias resolution + experiment exposure ledger)
@@ -668,6 +675,18 @@ object AppDNA {
 
     /**
      * Clear user identity (keeps anonymous ID).
+     *
+     * Resets the host-supplied user identity, experiment exposures, the
+     * in-app message session, the survey session, the web-entitlement
+     * observer, and the journey-triggered pending-message listener.
+     * **Does NOT clear the device's first-identifier anchor used by
+     * the cross-account-entitlement-leak defence** (see
+     * `EntitlementOwnerFilter`) — that anchor is intentionally durable
+     * for the lifetime of the app installation. App uninstall, or
+     * Settings → Apps → Clear data, is the only path that wipes it.
+     * This makes `reset()` safe to call as the host's "sign-out" hook
+     * without re-opening the leak surface for a subsequent user signing
+     * in on the same device.
      */
     @JvmStatic
     fun reset() {
@@ -678,13 +697,15 @@ object AppDNA {
         pendingMessageListener?.stopObserving()
         // SPEC-070-A A.9: clear in-session message frequency counters + queue.
         messageManager?.resetSession()
-        // Cross-account-leak defence — `reset()` is the explicit "fully
-        // sign out + start fresh" surface. Clearing the first-identifier
-        // anchor lets the NEXT `identify(...)` claim any untagged
-        // historical purchases on this device. Hosts that don't want
-        // this behaviour should call `identify(...)` directly without
-        // `reset()`. Mirrors iOS AppDNA.swift reset() behaviour.
-        ai.appdna.sdk.billing.AppAccountTokenResolver.clearFirstIdentifiedUserId()
+        // Cross-account-leak defence — DELIBERATELY do NOT call
+        // `AppAccountTokenResolver.clearFirstIdentifiedUserId()` here.
+        // The anchor is a security boundary: clearing it on sign-out
+        // would let the next `identify(B)` become the new first-
+        // identifier and inherit any untagged purchase on the device
+        // (the exact reproducer R2 surfaced). The anchor's natural
+        // lifecycle is the app installation; uninstall / clear-data
+        // wipes SharedPreferences, which is the correct invalidation
+        // event. Mirrors iOS AppDNA.swift reset() behaviour.
         Log.info("Identity reset")
     }
 
