@@ -1,5 +1,6 @@
 package ai.appdna.sdk.billing
 
+import ai.appdna.sdk.AppDNA
 import ai.appdna.sdk.Log
 import ai.appdna.sdk.network.ApiClient
 import org.json.JSONArray
@@ -43,6 +44,20 @@ internal class ReceiptVerifier(
             })
             if (paywallId != null) put("paywall_id", paywallId)
             if (experimentId != null) put("experiment_id", experimentId)
+            // Cross-account-leak defence (primary, server-side). Mirrors
+            // iOS Billing/ReceiptVerifier.swift. The backend decodes the
+            // purchase's `obfuscatedAccountId` and compares to this userId.
+            // Decision matrix the backend MUST implement (mirrors
+            // `EntitlementOwnerFilter`):
+            //   tagged + matches userId   → grant
+            //   tagged + mismatch         → deny (cross-account leak attempt)
+            //   untagged                  → grant + claim ownership for userId
+            //                               (migration-tolerant; the claim is
+            //                                persisted so a later user-switch
+            //                                doesn't silently re-grant)
+            // TODO(backend): enforce the above on `/verify` + `/restore`
+            // once this SDK version is in the wild.
+            AppDNA.getIdentityRef()?.userId?.let { put("app_user_id", it) }
         }
 
         Log.debug("Verifying receipt for product: $productId")
@@ -95,6 +110,9 @@ internal class ReceiptVerifier(
         val body = JSONObject().apply {
             put("platform", "android")
             put("transactions", transactionsArray)
+            // Same cross-account-leak gate as `verify` above — see the
+            // comment there for the server-side decision matrix.
+            AppDNA.getIdentityRef()?.userId?.let { put("app_user_id", it) }
         }
 
         Log.debug("Restoring ${transactions.size} purchases")

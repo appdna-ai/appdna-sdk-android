@@ -116,6 +116,43 @@ class NativeBillingManager internal constructor(
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    /**
+     * Cross-account-leak filter — keeps only the purchases that belong to
+     * the currently-identified app user (per their `obfuscatedAccountId`).
+     * See [EntitlementOwnerFilter] for the full decision matrix; this helper
+     * is the BillingClient-specific glue that decodes
+     * `Purchase.getAccountIdentifiers().getObfuscatedAccountId()` into a UUID
+     * and routes through the shared filter.
+     *
+     * Called at every `queryPurchasesAsync` consumption site
+     * (`reconcileSubscriptionState`, `refreshEntitlementCache`,
+     * `restorePurchases`) so a previous user's purchases left on the device
+     * never reach the entitlement cache for the currently-identified user.
+     */
+    private fun filterOwnedPurchases(
+        purchases: List<Purchase>,
+        expectedToken: UUID?,
+        source: String,
+    ): List<Purchase> {
+        val kept = mutableListOf<Purchase>()
+        for (purchase in purchases) {
+            val rawToken = purchase.accountIdentifiers?.obfuscatedAccountId
+            val purchaseToken = EntitlementOwnerFilter.parseObfuscatedAccountId(rawToken)
+            when (EntitlementOwnerFilter.decide(purchaseToken, expectedToken)) {
+                EntitlementOwnershipDecision.Grant,
+                EntitlementOwnershipDecision.GrantAnonymousPolicy -> kept.add(purchase)
+                EntitlementOwnershipDecision.GrantUntaggedMigration -> {
+                    Log.info("$source: granting untagged historical purchase ${purchase.orderId ?: purchase.purchaseToken} to current user (migration-tolerant policy — server should claim ownership).")
+                    kept.add(purchase)
+                }
+                EntitlementOwnershipDecision.DenyOtherUser -> {
+                    Log.warning("$source: skipped purchase ${purchase.orderId ?: purchase.purchaseToken} — obfuscatedAccountId does not match the current user.")
+                }
+            }
+        }
+        return kept
+    }
+
     /** Active purchase continuation — only one purchase flow at a time. */
     private var purchaseContinuation: CancellableContinuation<PurchaseResult>? = null
 
@@ -405,8 +442,15 @@ class NativeBillingManager internal constructor(
         }
 
         // Build a snapshot of currently-active subs keyed by productId.
+        // Cross-account-leak defence — only reconcile purchases that belong
+        // to the currently-identified app user.
+        val ownedPurchases = filterOwnedPurchases(
+            result.purchasesList,
+            AppAccountTokenResolver.tokenForCurrentUser(),
+            "reconcileSubscriptionState",
+        )
         val current = mutableMapOf<String, SubSnapshot>()
-        for (purchase in result.purchasesList) {
+        for (purchase in ownedPurchases) {
             val productId = purchase.products.firstOrNull() ?: continue
             current[productId] = SubSnapshot(
                 productId = productId,
@@ -626,8 +670,17 @@ class NativeBillingManager internal constructor(
             ))
 
         // SPEC-070-A A.28 — forward host-supplied UUID as obfuscated account ID.
-        options?.appAccountToken?.let { token ->
-            flowParamsBuilder.setObfuscatedAccountId(token.toString())
+        // Cross-account-leak defence: when the host doesn't pass an explicit
+        // token, derive one from the currently-identified user. Without this
+        // fallback every purchase made through the convenience API
+        // (`AppDNA.billing.purchase(productId)` with no options) would be
+        // untagged, and a later user-switch on the device would see it in
+        // `queryPurchasesAsync` — the very leak this defence exists to close.
+        val resolvedToken = options?.appAccountToken ?: AppAccountTokenResolver.tokenForCurrentUser()
+        if (resolvedToken != null) {
+            flowParamsBuilder.setObfuscatedAccountId(resolvedToken.toString())
+        } else {
+            Log.warning("NativeBillingManager.purchase: no appAccountToken — host should call AppDNA.identify(userId:) BEFORE purchase to avoid cross-account entitlement leaks.")
         }
 
         val flowParams = flowParamsBuilder.build()
@@ -740,6 +793,14 @@ class NativeBillingManager internal constructor(
             }
             val mergedPurchases = (subsResult.purchasesList + inappResult.purchasesList)
                 .distinctBy { it.purchaseToken }
+                .let {
+                    // Cross-account-leak defence — see `EntitlementOwnerFilter`.
+                    filterOwnedPurchases(
+                        it,
+                        AppAccountTokenResolver.tokenForCurrentUser(),
+                        "refreshEntitlementCache",
+                    )
+                }
             // Empty entitlements is a valid state (user has no past
             // purchases) — short-circuit before hitting the verifier so
             // we don't make a network call for nothing.
@@ -789,6 +850,18 @@ class NativeBillingManager internal constructor(
 
         val mergedPurchases = (subsResult.purchasesList + inappResult.purchasesList)
             .distinctBy { it.purchaseToken }
+            .let {
+                // Cross-account-leak defence — see `EntitlementOwnerFilter`.
+                // Untagged historical purchases are surfaced under the
+                // migration-tolerant policy; server-side `receiptVerifier`
+                // is the primary authority and claims ownership for the
+                // currently-identified user.
+                filterOwnedPurchases(
+                    it,
+                    AppAccountTokenResolver.tokenForCurrentUser(),
+                    "restorePurchases",
+                )
+            }
 
         val transactions = mergedPurchases.map { purchase ->
             mapOf(
