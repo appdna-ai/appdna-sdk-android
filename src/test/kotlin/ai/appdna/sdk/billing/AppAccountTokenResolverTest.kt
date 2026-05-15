@@ -1,10 +1,17 @@
 package ai.appdna.sdk.billing
 
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.test.core.app.ApplicationProvider
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 import java.util.UUID
 
 /**
@@ -18,6 +25,7 @@ import java.util.UUID
  *
  * Mirrors iOS `AppAccountTokenResolverTests`.
  */
+@RunWith(RobolectricTestRunner::class)
 class AppAccountTokenResolverTest {
 
     // ─── Determinism (must hold across launches AND match iOS + server) ─────
@@ -86,5 +94,88 @@ class AppAccountTokenResolverTest {
         // with the literal UUID string once the cross-platform parity is
         // explicitly verified.
         assertEquals(token, AppAccountTokenResolver.token(forUserId = "alice@example.com"))
+    }
+
+    // ─── First-identifier persistence (v1.0.63 fix) ────────────────────────
+
+    /**
+     * Each test gets its own isolated SharedPreferences (Robolectric
+     * provides an in-memory backing) routed via
+     * `setPrefsForTesting(...)` so the anchor doesn't leak between tests
+     * OR pollute the SDK's real prefs file.
+     */
+    private lateinit var testPrefs: SharedPreferences
+
+    @Before fun setUpFirstIdentifierTests() {
+        val ctx: Context = ApplicationProvider.getApplicationContext()
+        val suiteName = "appdna_test_anchor_${UUID.randomUUID()}"
+        testPrefs = ctx.getSharedPreferences(suiteName, Context.MODE_PRIVATE)
+        // Clean slate even though the suite name is randomised — paranoid.
+        testPrefs.edit().clear().apply()
+        AppAccountTokenResolver.setPrefsForTesting(testPrefs)
+    }
+
+    @After fun tearDownFirstIdentifierTests() {
+        testPrefs.edit().clear().apply()
+        AppAccountTokenResolver.resetPrefsForTesting()
+    }
+
+    @Test fun `firstIdentifiedToken is null when nothing has been recorded`() {
+        assertNull(AppAccountTokenResolver.firstIdentifiedToken())
+    }
+
+    @Test fun `recordFirstIdentifiedUserIdIfNeeded sets the anchor`() {
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        val derived = AppAccountTokenResolver.firstIdentifiedToken()
+        assertNotNull(derived)
+        assertEquals(
+            "First-identifier token must use the same derivation as tokenForCurrentUser",
+            AppAccountTokenResolver.token(forUserId = "alice"),
+            derived,
+        )
+    }
+
+    @Test fun `recordFirstIdentifiedUserIdIfNeeded is idempotent`() {
+        // The CORE invariant of the v1.0.63 fix: only the FIRST identify
+        // sets the anchor. A later identify(B) on the same device does
+        // NOT change the anchor — otherwise B could claim A's untagged
+        // purchases just by being the most recent identify call.
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("bob")
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("carol")
+        assertEquals(
+            "First-identifier anchor MUST NOT change on subsequent identify calls",
+            AppAccountTokenResolver.token(forUserId = "alice"),
+            AppAccountTokenResolver.firstIdentifiedToken(),
+        )
+    }
+
+    @Test fun `recordFirstIdentifiedUserIdIfNeeded ignores empty string`() {
+        // Empty userId is treated as "no identified user" by token(...)
+        // — don't record it as a first-identifier either.
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("")
+        assertNull(AppAccountTokenResolver.firstIdentifiedToken())
+        // ...and a later real identify still becomes the first.
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        assertEquals(
+            AppAccountTokenResolver.token(forUserId = "alice"),
+            AppAccountTokenResolver.firstIdentifiedToken(),
+        )
+    }
+
+    @Test fun `clearFirstIdentifiedUserId resets the anchor`() {
+        // Used by `AppDNA.reset()` — the explicit "sign out + start
+        // fresh" surface. After clear, the next identify becomes the
+        // new first.
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("alice")
+        AppAccountTokenResolver.clearFirstIdentifiedUserId()
+        assertNull(AppAccountTokenResolver.firstIdentifiedToken())
+
+        AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded("bob")
+        assertEquals(
+            "After clear(), the next identify becomes the new first-identifier",
+            AppAccountTokenResolver.token(forUserId = "bob"),
+            AppAccountTokenResolver.firstIdentifiedToken(),
+        )
     }
 }

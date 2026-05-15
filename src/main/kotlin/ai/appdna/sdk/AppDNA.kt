@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.34"
+    const val sdkVersion = "1.0.35"
 
     /**
      * SPEC-070-A H.20: most recent throwable raised during configure/bootstrap
@@ -594,6 +594,17 @@ object AppDNA {
 
         identityManager?.identify(userId, traits)
 
+        // Cross-account-leak defence — anchor the device's "first
+        // identifier" the first time anyone identifies. Untagged
+        // historical purchases (e.g. SDK-driven onboarding-paywall
+        // purchases that fired BEFORE the host identified anyone) are
+        // scoped to this anchor so a later user-switch can't inherit
+        // them. Idempotent — a later identify(B) does NOT change the
+        // anchor; that user gets `DenyUntaggedOtherUser` for untagged
+        // purchases. Mirrors iOS AppDNA.swift behaviour. See
+        // EntitlementOwnerFilter for the full decision matrix.
+        ai.appdna.sdk.billing.AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded(userId)
+
         // SPEC-070-A G.3: emit local `identify` event so the existing client
         // pipeline (BigQuery alias resolution + experiment exposure ledger)
         // sees the user-id transition immediately.
@@ -667,6 +678,13 @@ object AppDNA {
         pendingMessageListener?.stopObserving()
         // SPEC-070-A A.9: clear in-session message frequency counters + queue.
         messageManager?.resetSession()
+        // Cross-account-leak defence — `reset()` is the explicit "fully
+        // sign out + start fresh" surface. Clearing the first-identifier
+        // anchor lets the NEXT `identify(...)` claim any untagged
+        // historical purchases on this device. Hosts that don't want
+        // this behaviour should call `identify(...)` directly without
+        // `reset()`. Mirrors iOS AppDNA.swift reset() behaviour.
+        ai.appdna.sdk.billing.AppAccountTokenResolver.clearFirstIdentifiedUserId()
         Log.info("Identity reset")
     }
 

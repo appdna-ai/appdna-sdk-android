@@ -134,19 +134,30 @@ class NativeBillingManager internal constructor(
         expectedToken: UUID?,
         source: String,
     ): List<Purchase> {
+        // Resolve the device-level first-identifier anchor ONCE per call
+        // so the decision matrix below sees a stable value across all
+        // purchases even if the host identifies a different user mid-
+        // iteration. See iOS `StoreKit2Bridge.restore` for the same
+        // pattern. Scopes the `GrantUntaggedMigration` carve-out to the
+        // device's first-identified user so a later user-switch can't
+        // inherit untagged history (the v1.0.62 cross-account-leak close).
+        val firstIdentifier = AppAccountTokenResolver.firstIdentifiedToken()
         val kept = mutableListOf<Purchase>()
         for (purchase in purchases) {
             val rawToken = purchase.accountIdentifiers?.obfuscatedAccountId
             val purchaseToken = EntitlementOwnerFilter.parseObfuscatedAccountId(rawToken)
-            when (EntitlementOwnerFilter.decide(purchaseToken, expectedToken)) {
+            when (EntitlementOwnerFilter.decide(purchaseToken, expectedToken, firstIdentifier)) {
                 EntitlementOwnershipDecision.Grant,
                 EntitlementOwnershipDecision.GrantAnonymousPolicy -> kept.add(purchase)
                 EntitlementOwnershipDecision.GrantUntaggedMigration -> {
-                    Log.info("$source: granting untagged historical purchase ${purchase.orderId ?: purchase.purchaseToken} to current user (migration-tolerant policy — server should claim ownership).")
+                    Log.info("$source: granting untagged historical purchase ${purchase.orderId ?: purchase.purchaseToken} to the device's first-identifier (migration-tolerant policy — server should claim ownership).")
                     kept.add(purchase)
                 }
                 EntitlementOwnershipDecision.DenyOtherUser -> {
                     Log.warning("$source: skipped purchase ${purchase.orderId ?: purchase.purchaseToken} — obfuscatedAccountId does not match the current user.")
+                }
+                EntitlementOwnershipDecision.DenyUntaggedOtherUser -> {
+                    Log.warning("$source: skipped untagged purchase ${purchase.orderId ?: purchase.purchaseToken} — the current user is not the device's first-identifier, so the untagged history is not inherited (cross-account leak guard).")
                 }
             }
         }

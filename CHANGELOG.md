@@ -4,6 +4,54 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.35] — 2026-05-15
+
+Follow-up to the 1.0.34 cross-account-entitlement-leak hotfix. The
+write-side per-user binding from 1.0.34 ships every purchase tagged
+with the current user — but in SDK-driven onboarding paywall flows the
+purchase fires BEFORE the host has called `AppDNA.identify(userId)`,
+so the resulting Play purchase is **untagged** (no
+`obfuscatedAccountId`). 1.0.34's `EntitlementOwnerFilter` granted any
+untagged purchase to whoever happened to be identified at read time
+(migration-tolerant policy intended for legacy upgrades). Bogdan
+reproduced the resulting leak on iOS: user A buys via onboarding, user
+B signs in on the same device, B taps Restore, B inherits A's purchase
+under the migration policy. Android shipped the same logic and the
+same leak.
+
+### What 1.0.35 changes
+
+The migration-tolerant grant is now **scoped to the device's first
+identified user**. Decision matrix (see `EntitlementOwnerFilter.kt`):
+
+```
+expectedToken null                                                  → GrantAnonymousPolicy   (unchanged)
+expectedToken set, purchase == match                                → Grant                  (unchanged)
+expectedToken set, purchase mismatch                                → DenyOtherUser          (unchanged)
+expectedToken set, untagged, firstIdentifier == expected            → GrantUntaggedMigration (legitimate self-claim)
+expectedToken set, untagged, firstIdentifier != expected            → DenyUntaggedOtherUser  (cross-account close — NEW)
+expectedToken set, untagged, firstIdentifier null                   → DenyUntaggedOtherUser  (no anchor — NEW)
+```
+
+`AppDNA.identify(userId)` records the userId as the first-identifier
+on this device the FIRST time it runs (idempotent — later
+`identify(B)` does NOT change the anchor). `AppDNA.reset()` clears it.
+
+Effect: the user who legitimately owns the untagged onboarding
+purchase (the device's first-identified user) keeps it on Restore; any
+other user on the same device is denied. iOS 1.0.63 ships the same
+fix.
+
+Files: `EntitlementOwnerFilter.kt` (new `DenyUntaggedOtherUser` case +
+3rd `firstIdentifiedToken` parameter), `AppAccountTokenResolver.kt`
+(SharedPreferences-backed first-identifier persistence with test
+hooks), `AppDNA.kt` (identify records anchor / reset clears it),
+`NativeBillingManager.kt` (threads firstIdentifier into the filter
+across all 3 active call sites: `reconcileSubscriptionState`,
+`refreshEntitlementCache`, `restorePurchases`).
+
+`appdnaFeatureParity` bumps to `1.0.63`. CI enforces lockstep.
+
 ## [1.0.34] — 2026-05-15
 
 Cross-platform hotfix mirroring iOS 1.0.62. Closes the cross-account

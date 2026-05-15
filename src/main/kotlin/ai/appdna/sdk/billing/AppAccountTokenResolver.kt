@@ -1,6 +1,7 @@
 package ai.appdna.sdk.billing
 
 import ai.appdna.sdk.AppDNA
+import android.content.SharedPreferences
 import java.nio.ByteBuffer
 import java.security.MessageDigest
 import java.util.UUID
@@ -81,6 +82,85 @@ internal object AppAccountTokenResolver {
      */
     fun tokenForCurrentUser(): UUID? {
         val userId = AppDNA.getIdentityRef()?.userId ?: return null
+        return token(forUserId = userId)
+    }
+
+    // MARK: - First-identifier persistence (cross-account-leak defence)
+
+    /** SharedPreferences file holding the cross-account-leak anchor.
+     *  Kept separate from the SDK's main prefs so a future rename or wipe
+     *  doesn't accidentally take this key with it. */
+    private const val PREFS_NAME = "appdna_billing_entitlement_anchor"
+
+    /** SharedPreferences key that stores the userId string of the FIRST
+     *  user ever identified on this device. Persisted across app launches —
+     *  reinstalling the app clears it (prefs are app-scoped). Cleared
+     *  explicitly by `AppDNA.reset()`. Mirrors iOS
+     *  `AppAccountTokenResolver.firstIdentifiedUserIdKey`.
+     *
+     *  This anchor scopes the "grant untagged historical purchases"
+     *  migration policy to a single device-level identity: only the first
+     *  user to identify on the device may inherit untagged purchases
+     *  (which in SDK-driven onboarding flows includes the install-time
+     *  paywall purchase made before the host called `identify(...)`). */
+    private const val FIRST_IDENTIFIED_USER_ID_KEY = "firstIdentifiedUserId"
+
+    /** Optional test-only override — replaces the SharedPreferences-backed
+     *  lookup with an in-memory holder. Production code never sets this. */
+    private var prefsOverride: SharedPreferences? = null
+
+    /** Test-only hook to redirect first-identifier reads/writes at an
+     *  isolated SharedPreferences (typically backed by an in-memory mock
+     *  in unit tests, or `context.getSharedPreferences("test_..."...)` in
+     *  instrumentation). Production code never calls this. */
+    fun setPrefsForTesting(prefs: SharedPreferences?) {
+        prefsOverride = prefs
+    }
+
+    /** Test-only hook to drop any override and resume reading from real
+     *  app-scoped SharedPreferences. Production code never calls this. */
+    fun resetPrefsForTesting() {
+        prefsOverride = null
+    }
+
+    /** Resolve the SharedPreferences instance to use for the anchor.
+     *  Test override wins; otherwise read from the SDK-initialized
+     *  application context. Returns null when neither is available
+     *  (callers treat that as "no anchor yet" — safe denial path). */
+    private fun prefs(): SharedPreferences? {
+        prefsOverride?.let { return it }
+        val ctx = AppDNA.getApplicationContext() ?: return null
+        return ctx.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE)
+    }
+
+    /** Idempotently record [userId] as the first-identifier for this
+     *  device. If already set, this is a no-op — a subsequent identify
+     *  of a different user does NOT change the anchor (that user is
+     *  scoped to `DenyUntaggedOtherUser`, not `GrantUntaggedMigration`).
+     *  Empty [userId] is ignored. */
+    fun recordFirstIdentifiedUserIdIfNeeded(userId: String) {
+        if (userId.isEmpty()) return
+        val p = prefs() ?: return
+        if (p.getString(FIRST_IDENTIFIED_USER_ID_KEY, null) == null) {
+            p.edit().putString(FIRST_IDENTIFIED_USER_ID_KEY, userId).apply()
+        }
+    }
+
+    /** Clear the first-identifier anchor. Called from `AppDNA.reset()`
+     *  (the explicit "fully sign out + start fresh" surface). After this,
+     *  the next `identify(...)` becomes the new first-identifier for the
+     *  device. */
+    fun clearFirstIdentifiedUserId() {
+        prefs()?.edit()?.remove(FIRST_IDENTIFIED_USER_ID_KEY)?.apply()
+    }
+
+    /** Resolve the persisted first-identifier userId into a UUID token
+     *  using the same derivation as `token(forUserId:)`. Returns null if
+     *  the host has not yet identified any user on this device OR the
+     *  application context isn't initialized yet. */
+    fun firstIdentifiedToken(): UUID? {
+        val userId = prefs()?.getString(FIRST_IDENTIFIED_USER_ID_KEY, null) ?: return null
+        if (userId.isEmpty()) return null
         return token(forUserId = userId)
     }
 }
