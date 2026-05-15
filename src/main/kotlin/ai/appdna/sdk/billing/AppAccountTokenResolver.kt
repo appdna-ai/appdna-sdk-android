@@ -94,8 +94,11 @@ internal object AppAccountTokenResolver {
 
     /** SharedPreferences key that stores the userId string of the FIRST
      *  user ever identified on this device. Persisted across app launches —
-     *  reinstalling the app clears it (prefs are app-scoped). Cleared
-     *  explicitly by `AppDNA.reset()`. Mirrors iOS
+     *  uninstalling the app or Settings → Apps → Clear data is the only
+     *  invalidation event. **NOT** cleared by `AppDNA.reset()` — see the
+     *  `clearFirstIdentifiedUserId` kdoc and the `AppDNA.reset()` kdoc
+     *  for why (clearing on sign-out would re-open the cross-account
+     *  leak this anchor is meant to close). Mirrors iOS
      *  `AppAccountTokenResolver.firstIdentifiedUserIdKey`.
      *
      *  This anchor scopes the "grant untagged historical purchases"
