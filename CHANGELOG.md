@@ -50,10 +50,13 @@ fix.
 Files: `EntitlementOwnerFilter.kt` (new `DenyUntaggedOtherUser` case +
 3rd `firstIdentifiedToken` parameter), `AppAccountTokenResolver.kt`
 (SharedPreferences-backed first-identifier persistence with test
-hooks), `AppDNA.kt` (identify records anchor / reset clears it),
-`NativeBillingManager.kt` (threads firstIdentifier into the filter
-across all 3 active call sites: `reconcileSubscriptionState`,
-`refreshEntitlementCache`, `restorePurchases`).
+hooks), `AppDNA.kt` (identify records anchor; reset deliberately
+leaves it intact — the anchor's natural lifecycle is the app
+installation, so uninstall/clear-data is the correct invalidation
+event, not sign-out), `NativeBillingManager.kt` (threads
+firstIdentifier into the filter across all 3 active call sites:
+`reconcileSubscriptionState`, `refreshEntitlementCache`,
+`restorePurchases`).
 
 `appdnaFeatureParity` bumps to `1.0.63`. CI enforces lockstep.
 
