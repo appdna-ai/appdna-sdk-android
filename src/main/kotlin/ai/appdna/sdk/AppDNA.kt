@@ -882,7 +882,7 @@ object AppDNA {
         // backend-locked mode. A purchase here would be wasted UX (the
         // receipt-validate route would 401 and no entitlement would land).
         if (runtimeLock != null) {
-            Log.warn("AppDNA.presentPaywall(id=$id) skipped — SDK in runtime-locked mode")
+            Log.warning("AppDNA.presentPaywall(id=$id) skipped — SDK in runtime-locked mode")
             return
         }
         paywallManager?.present(
@@ -912,7 +912,7 @@ object AppDNA {
     ) {
         // SPEC-404 — same lock check as the id-based variant above.
         if (runtimeLock != null) {
-            Log.warn("AppDNA.presentPaywallByPlacement(placement=$placement) skipped — SDK in runtime-locked mode")
+            Log.warning("AppDNA.presentPaywallByPlacement(placement=$placement) skipped — SDK in runtime-locked mode")
             return
         }
         paywallManager?.presentByPlacement(
@@ -1518,7 +1518,7 @@ object AppDNA {
                 val previousLock = runtimeLock
                 runtimeLock = newLock
                 if (previousLock == null && newLock != null) {
-                    Log.warn("AppDNA runtime locked by backend (reason=${newLock.first}, locked_at=${newLock.second}) — pausing paywall/message/survey presentation")
+                    Log.warning("AppDNA runtime locked by backend (reason=${newLock.first}, locked_at=${newLock.second}) — pausing paywall/message/survey presentation")
                     lifecycleDelegate?.onSdkRuntimeLocked(newLock.first, newLock.second)
                 } else if (previousLock != null && newLock == null) {
                     Log.info("AppDNA runtime lock cleared — restoring normal SDK behaviour")
