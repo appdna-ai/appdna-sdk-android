@@ -4,6 +4,22 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.36] — 2026-05-18
+
+SPEC-404 — hard SDK suspension. When the backend signals the SDK is in
+locked mode (per-key suspended at day 20+ via the SPEC-322 sweep, OR org
+cancelled), the SDK enters runtime-locked mode and pauses paywall /
+message / survey presentation. The lock is delivered via the
+`/sdk/bootstrap` response's new optional `runtime_lock` field; SDK
+exposes it as `AppDNA.runtimeLock` and fires the new generated
+`AppDNALifecycleDelegate` callbacks (`onSdkRuntimeLocked` /
+`onSdkRuntimeUnlocked`) on state transitions. Event uploads continue
+attempting and cleanly stop after the first 401 via the existing
+`eventUploadPermanentlyFailed` path. Identify continues to work
+locally so `EntitlementOwnerFilter` keeps gating per-user correctly.
+
+Feature parity marker: `appdnaFeatureParity=1.0.64`.
+
 ## [1.0.35] — 2026-05-15
 
 Follow-up to the 1.0.34 cross-account-entitlement-leak hotfix. The

@@ -107,6 +107,13 @@ internal class SurveyManager(
     }
 
     private fun presentSurvey(surveyId: String, config: SurveyConfig, triggerEvent: String) {
+        // SPEC-404 — pause new survey presentation while the SDK is
+        // backend-locked (per-key suspended day 20+ OR org cancelled). No
+        // analytics event, no delegate fire. Check BEFORE isPresenting flip.
+        if (ai.appdna.sdk.AppDNA.runtimeLock != null) {
+            ai.appdna.sdk.Log.debug("[Surveys] $surveyId suppressed — SDK in runtime-locked mode")
+            return
+        }
         if (!isPresenting.compareAndSet(false, true)) return
         currentSurveyId = surveyId
 

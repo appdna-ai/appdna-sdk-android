@@ -185,6 +185,15 @@ class MessageManager(
     // MARK: - Presentation
 
     private fun present(messageId: String, config: MessageConfig, triggerEvent: String) {
+        // SPEC-404 — pause new in-app message presentation while the SDK is
+        // backend-locked (per-key suspended day 20+ OR org cancelled).
+        // Messages already shown stay visible. No analytics event emitted.
+        // Check BEFORE the isPresenting flip so the slot stays available.
+        if (ai.appdna.sdk.AppDNA.runtimeLock != null) {
+            Log.debug("[Messages] $messageId suppressed — SDK in runtime-locked mode")
+            return
+        }
+
         // Re-check the gate inside the main-thread runnable in case a
         // previous async dispatch flipped it.
         if (!isPresenting.compareAndSet(false, true)) {

@@ -802,6 +802,25 @@ internal fun OnboardingFlowHost(
         // is synchronous on Android (reads from `EntitlementCache`); cold
         // start with empty cache returns false, so the paywall presents
         // (acceptable defensive fallback per spec edge cases).
+        // SPEC-404 — runtime lock skip. When the backend has signalled the
+        // SDK is in locked mode (per-key suspended day 20+ OR org cancelled),
+        // every paywall_trigger auto-skips via the SPEC-403 resolver chain.
+        // Reuses the same routing so existing flow targets keep working.
+        // Tracker fires with reason='sdk_runtime_locked' so analytics can
+        // distinguish this from organic subscribed-skips.
+        if (AppDNA.runtimeLock != null) {
+            eventTracker?.track(
+                "onboarding_paywall_skip",
+                mapOf(
+                    "flow_id" to flow.id,
+                    "paywall_id" to paywallId,
+                    "reason" to "sdk_runtime_locked",
+                ),
+            )
+            routeOutcome(onSubscribedSkipTarget ?: onSuccessTarget, "continue", "sdk_runtime_locked")
+            return
+        }
+
         val skipIfSubscribed = (triggerData?.get("skip_if_subscribed") as? Boolean) ?: true
         if (skipIfSubscribed && AppDNA.billing.hasActiveSubscription()) {
             eventTracker?.track(

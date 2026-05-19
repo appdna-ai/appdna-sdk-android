@@ -73,6 +73,34 @@ object AppDNA {
     private var initDelegate: AppDNAInitDelegate? = null
 
     /**
+     * SPEC-404 — host-registered lifecycle delegate. Fires
+     * [ai.appdna.sdk.generated.AppDNALifecycleDelegate.onSdkRuntimeLocked] /
+     * `onSdkRuntimeUnlocked` on bootstrap-driven lock-state transitions.
+     * Hosts use this to surface a custom "service unavailable" banner and
+     * trigger an event-queue retry on unlock.
+     */
+    @Volatile
+    private var lifecycleDelegate: ai.appdna.sdk.generated.AppDNALifecycleDelegate? = null
+
+    /** Register/clear the SPEC-404 lifecycle delegate. */
+    @JvmStatic
+    fun setLifecycleDelegate(delegate: ai.appdna.sdk.generated.AppDNALifecycleDelegate?) {
+        lifecycleDelegate = delegate
+    }
+
+    /**
+     * SPEC-404 — current backend-driven SDK lock state. `null` when active;
+     * a non-null `Pair(reason, lockedAtIso)` means the SDK is in locked
+     * mode and UI render paths (paywall_trigger, messages, surveys) should
+     * pause. Set by the bootstrap success path; cleared by the next
+     * bootstrap that returns without runtime_lock.
+     */
+    @Volatile
+    var runtimeLock: Pair<String, String>? = null
+        @JvmStatic get
+        private set
+
+    /**
      * Register a delegate that receives [AppDNAInitDelegate.onInitDegraded]
      * callbacks when the SDK detects a recoverable init failure.
      */
@@ -850,6 +878,13 @@ object AppDNA {
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null
     ) {
+        // SPEC-404 — refuse to present any paywall while the SDK is in
+        // backend-locked mode. A purchase here would be wasted UX (the
+        // receipt-validate route would 401 and no entitlement would land).
+        if (runtimeLock != null) {
+            Log.warn("AppDNA.presentPaywall(id=$id) skipped — SDK in runtime-locked mode")
+            return
+        }
         paywallManager?.present(
             activity = activity,
             id = id,
@@ -875,6 +910,11 @@ object AppDNA {
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null,
     ) {
+        // SPEC-404 — same lock check as the id-based variant above.
+        if (runtimeLock != null) {
+            Log.warn("AppDNA.presentPaywallByPlacement(placement=$placement) skipped — SDK in runtime-locked mode")
+            return
+        }
         paywallManager?.presentByPlacement(
             activity = activity,
             placement = placement,
@@ -1465,6 +1505,25 @@ object AppDNA {
                 val firestorePath = result.optString("firestorePath", "").ifEmpty { throw IllegalArgumentException("Missing firestorePath") }
 
                 Log.info("Bootstrap successful: orgId=$orgId, appId=$appId")
+
+                // SPEC-404 — reconcile runtime lock state. Fire delegate
+                // callbacks ONLY on state transitions (idle <-> locked), not
+                // on every bootstrap. Repeated bootstraps in the same state
+                // are a no-op for the delegate.
+                val newLock: Pair<String, String>? = result.optJSONObject("runtime_lock")?.let { lockObj ->
+                    val reason = lockObj.optString("reason", "")
+                    val lockedAt = lockObj.optString("locked_at", "")
+                    if (reason.isNotEmpty() && lockedAt.isNotEmpty()) Pair(reason, lockedAt) else null
+                }
+                val previousLock = runtimeLock
+                runtimeLock = newLock
+                if (previousLock == null && newLock != null) {
+                    Log.warn("AppDNA runtime locked by backend (reason=${newLock.first}, locked_at=${newLock.second}) — pausing paywall/message/survey presentation")
+                    lifecycleDelegate?.onSdkRuntimeLocked(newLock.first, newLock.second)
+                } else if (previousLock != null && newLock == null) {
+                    Log.info("AppDNA runtime lock cleared — restoring normal SDK behaviour")
+                    lifecycleDelegate?.onSdkRuntimeUnlocked()
+                }
 
                 synchronized(this@AppDNA) {
                     bootstrapOrgId = orgId
