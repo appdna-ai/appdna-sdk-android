@@ -22,7 +22,10 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal class SurveyManager(
     private val context: Context,
     private val eventTracker: EventTracker,
-    internal var apiClient: ApiClient? = null
+    internal var apiClient: ApiClient? = null,
+    // SPEC-036-F §1.2 — consulted per-survey (inside the present path) for a
+    // running survey experiment targeting the survey being shown.
+    private val experimentManager: ai.appdna.sdk.config.ExperimentManager? = null,
 ) {
     private val frequencyTracker = SurveyFrequencyTracker(context)
     @Volatile private var surveyConfigs: Map<String, SurveyConfig> = emptyMap()
@@ -106,7 +109,7 @@ internal class SurveyManager(
         ))
     }
 
-    private fun presentSurvey(surveyId: String, config: SurveyConfig, triggerEvent: String) {
+    private fun presentSurvey(surveyId: String, activeConfig: SurveyConfig, triggerEvent: String) {
         // SPEC-404 — pause new survey presentation while the SDK is
         // backend-locked (per-key suspended day 20+ OR org cancelled). No
         // analytics event, no delegate fire. Check BEFORE isPresenting flip.
@@ -114,6 +117,21 @@ internal class SurveyManager(
             ai.appdna.sdk.Log.debug("[Surveys] $surveyId suppressed — SDK in runtime-locked mode")
             return
         }
+
+        // SPEC-036-F §1.2 — experiment-aware presentation, attached inside the
+        // present path (surveys are event-auto-triggered). A running survey
+        // experiment targeting this survey + a treatment bucket renders the
+        // treatment payload; control / none / old-doc → active.
+        var config = activeConfig
+        val resolution = experimentManager?.resolveSurfacePresentation("survey", surveyId)
+        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
+            val treatment = SurveyConfig.fromMap(resolution.payload)
+            if (treatment != null) {
+                ai.appdna.sdk.Log.debug("[Surveys] $surveyId rendering experiment treatment variant")
+                config = treatment
+            }
+        }
+
         if (!isPresenting.compareAndSet(false, true)) return
         currentSurveyId = surveyId
 

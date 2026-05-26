@@ -69,6 +69,83 @@ internal class ExperimentManager(
         return variant.config[key]
     }
 
+    // MARK: - SPEC-036-F §1.2 — experiment-aware surface presentation
+
+    /**
+     * The outcome of resolving whether a running experiment governs how a given
+     * surface entity should be presented. Mirrors iOS
+     * `ExperimentManager.SurfaceResolution`.
+     */
+    sealed class SurfaceResolution {
+        /** No running experiment targets this surface+entity, the user wasn't
+         * bucketed, or the SDK fell to the control bucket → render the live
+         * active entity through the normal path. */
+        object RenderActive : SurfaceResolution()
+
+        /** The user is bucketed into the treatment variant → render the inlined
+         * [payload] config instead of the active entity. The map is the raw
+         * Firestore-shaped config (same shape the live-config parsers consume). */
+        data class RenderTreatment(
+            val experimentId: String,
+            val variantId: String,
+            val payload: Map<String, Any>,
+        ) : SurfaceResolution()
+    }
+
+    /**
+     * SPEC-036-F §1.2 — decide whether a `running` experiment governs the
+     * presentation of [entityId] for the given surface [surfaceType]. Matches
+     * an experiment whose served `type` == [surfaceType] AND whose control
+     * variant's `configRef` == [entityId]. On a match the user is bucketed via
+     * the SAME [assignVariant] path (+ exposure tracked):
+     *   - control bucket / no payload → [SurfaceResolution.RenderActive]
+     *   - treatment bucket with payload → [SurfaceResolution.RenderTreatment]
+     *
+     * Cohort isolation (§1.3): the treatment config lives ONLY in the
+     * experiment doc payload, so non-bucketed / control / old-SDK users can
+     * never resolve to it. Mirrors iOS `resolveSurfacePresentation`.
+     */
+    fun resolveSurfacePresentation(surfaceType: String, entityId: String): SurfaceResolution {
+        val allExperiments = remoteConfigManager.getAllExperiments()
+
+        for ((experimentId, config) in allExperiments) {
+            if (config.status != "running") continue
+            if (config.type != surfaceType) continue
+            if (!config.platforms.contains("android")) continue
+
+            // The control variant's configRef names the live active entity.
+            val controlMatches = config.variants.any { (it.isControl == true) && it.configRef == entityId }
+            if (!controlMatches) continue
+
+            val identity = identityManager.currentIdentity
+            val userId = identity.userId ?: identity.anonId
+            val effectiveSalt = config.salt.ifBlank { experimentId }
+            val variant = assignVariant(
+                experimentId = experimentId,
+                userId = userId,
+                salt = effectiveSalt,
+                variants = config.variants,
+            ) ?: continue
+
+            // Track exposure once per session regardless of bucket — the user
+            // WAS exposed by seeing the surface.
+            trackExposure(experimentId, variant.id)
+
+            // Control bucket → render the live active entity. Treatment WITHOUT
+            // a payload → safe fallback to active. Only a treatment WITH a
+            // payload renders the variant config.
+            if (variant.isControl == true) return SurfaceResolution.RenderActive
+            if (variant.config.isEmpty()) return SurfaceResolution.RenderActive
+            return SurfaceResolution.RenderTreatment(
+                experimentId = experimentId,
+                variantId = variant.id,
+                payload = variant.config,
+            )
+        }
+
+        return SurfaceResolution.RenderActive
+    }
+
     /**
      * Reset exposure tracking (called on identity reset or new session).
      */

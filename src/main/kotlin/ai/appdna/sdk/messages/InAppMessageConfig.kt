@@ -198,6 +198,20 @@ internal object MessageConfigParser {
         return parsed
     }
 
+    /**
+     * SPEC-036-F §1.2 — parse a single in-app-message config map (e.g. an
+     * experiment treatment `payload`) into a typed [MessageConfig], using the
+     * SAME parser the live config path uses. Returns null on failure → caller
+     * falls back to the active entity.
+     */
+    fun parseSingleMessage(data: Map<String, Any>): MessageConfig? {
+        return try {
+            parseMessage(data)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun parseMessage(map: Map<String, Any>): MessageConfig {
         val contentMap = map["content"] as? Map<String, Any> ?: emptyMap()

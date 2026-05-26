@@ -304,7 +304,10 @@ internal class RemoteConfigManager(
                             ExperimentVariant(
                                 id = vm["id"] as? String ?: return@mapNotNull null,
                                 weight = (vm["weight"] as? Number)?.toDouble() ?: return@mapNotNull null,
-                                config = variantData
+                                config = variantData,
+                                // SPEC-036-F §1.2 — served per-variant fields.
+                                configRef = vm["config_ref"] as? String,
+                                isControl = vm["is_control"] as? Boolean,
                             )
                         } else null
                     } ?: emptyList()
@@ -316,6 +319,8 @@ internal class RemoteConfigManager(
                         id = map["id"] as? String ?: key,
                         name = map["name"] as? String ?: "",
                         status = map["status"] as? String ?: "paused",
+                        // SPEC-036-F §1.2 — served surface type for experiment matching.
+                        type = map["type"] as? String,
                         salt = map["salt"] as? String ?: "",
                         platforms = (map["platforms"] as? List<*>)?.filterIsInstance<String>() ?: listOf("android"),
                         variants = variants,
@@ -626,6 +631,14 @@ data class ExperimentConfig(
     val id: String,
     val name: String,
     val status: String,
+    /**
+     * SPEC-036-F §1.2 — the served `type` (surface kind this experiment targets,
+     * e.g. "paywall" / "onboarding_flow" / "in_app_message" / "survey"). Used by
+     * the experiment-aware presentation resolver to match a running experiment
+     * against the surface+entity being presented. Nullable for docs predating
+     * the field-map fix.
+     */
+    val type: String? = null,
     val salt: String,
     val platforms: List<String>,
     val variants: List<ExperimentVariant>,
@@ -641,9 +654,18 @@ data class ExperimentConfig(
  * The parser in [RemoteConfigManager.parseExperiments] accepts BOTH keys,
  * preferring `payload` when set. The Kotlin field stays named `config` so
  * all existing callers (e.g. [ExperimentManager.getValue]) keep working.
+ *
+ * SPEC-036-F §1.2 — `configRef` is the entity id this variant maps to: for the
+ * control it's the live active entity id (rendered via the surface index, no
+ * payload); for the treatment it's the materialized draft entity whose
+ * renderable config the server inlined into `config`/`payload`. `isControl`
+ * distinguishes the two. Both nullable for backward-compat. Decoded from the
+ * served `config_ref` / `is_control` keys.
  */
 data class ExperimentVariant(
     val id: String,
     val weight: Double,
-    val config: Map<String, Any> = emptyMap()
+    val config: Map<String, Any> = emptyMap(),
+    val configRef: String? = null,
+    val isControl: Boolean? = null,
 )

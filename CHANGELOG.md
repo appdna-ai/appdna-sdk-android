@@ -4,6 +4,22 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.37] — 2026-05-26
+
+SPEC-036-F Phase 1 — experiment-aware presentation. The four served surface
+managers (`PaywallManager`, `OnboardingFlowManager`, `MessageManager`,
+`SurveyManager`) now consult `ExperimentManager` at present-time: when a
+`running` experiment's served `type` matches the surface and its control
+variant's `config_ref` equals the entity being presented, the user is
+bucketed via the existing deterministic `ExperimentBucketer`. A treatment
+bucket renders the variant's inlined `payload` config (decoded through the
+same typed-config parser the live config uses); control, non-bucketed, and
+old-SDK users render the current active entity, so the treatment config never
+leaks outside its bucket (cohort isolation). `ExperimentConfig` gains the
+served `type`; `ExperimentVariant` gains `config_ref` + `is_control`.
+
+Feature parity marker: `appdnaFeatureParity=1.0.65`.
+
 ## [1.0.36] — 2026-05-18
 
 SPEC-404 — hard SDK suspension. When the backend signals the SDK is in

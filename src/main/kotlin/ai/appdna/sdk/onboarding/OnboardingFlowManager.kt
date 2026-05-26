@@ -15,7 +15,10 @@ import ai.appdna.sdk.events.EventTracker
  */
 internal class OnboardingFlowManager(
     private val remoteConfigManager: RemoteConfigManager,
-    private val eventTracker: EventTracker
+    private val eventTracker: EventTracker,
+    // SPEC-036-F §1.2 — consulted at present-time for a running onboarding
+    // experiment targeting the resolved flow.
+    private val experimentManager: ai.appdna.sdk.config.ExperimentManager? = null,
 ) {
 
     /**
@@ -30,10 +33,23 @@ internal class OnboardingFlowManager(
         // flow's audience_rules against current userTraits and pick the
         // highest-priority match. Falls back to the active flow when nothing
         // matches. Mirrors iOS OnboardingFlowManager.swift:121-137.
-        val flow = resolveFlow(flowId)
-        if (flow == null) {
+        val activeFlow = resolveFlow(flowId)
+        if (activeFlow == null) {
             Log.warning("Onboarding flow not found -- flowId: ${flowId ?: "active"}")
             return false
+        }
+
+        // SPEC-036-F §1.2 — experiment-aware presentation. A running onboarding
+        // experiment targeting this flow + a treatment bucket renders the
+        // treatment payload flow; otherwise the active flow (cohort isolation).
+        var flow = activeFlow
+        val resolution = experimentManager?.resolveSurfacePresentation("onboarding_flow", activeFlow.id)
+        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
+            val treatment = OnboardingConfigParser.parseSingleFlow(activeFlow.id, resolution.payload)
+            if (treatment != null) {
+                Log.info("Onboarding flow ${activeFlow.id} rendering experiment treatment variant")
+                flow = treatment
+            }
         }
 
         // Track flow started

@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.35"
+    const val sdkVersion = "1.0.37"
 
     /**
      * SPEC-070-A H.20: most recent throwable raised during configure/bootstrap
@@ -517,19 +517,25 @@ object AppDNA {
                 }
             }
 
-            // Paywall & onboarding managers
+            // Paywall & onboarding managers.
+            // SPEC-036-F §1.2 — surface managers receive the ExperimentManager so
+            // they can consult it for a running experiment targeting the surface+
+            // entity being presented (treatment → render variant payload; control/
+            // none → render the active entity through the normal path).
             this.paywallManager = PaywallManager(
                 remoteConfigManager = remoteCfg,
-                eventTracker = tracker
+                eventTracker = tracker,
+                experimentManager = expManager
             )
 
             this.onboardingFlowManager = OnboardingFlowManager(
                 remoteConfigManager = remoteCfg,
-                eventTracker = tracker
+                eventTracker = tracker,
+                experimentManager = expManager
             )
 
             // v0.3 managers
-            this.surveyManager = SurveyManager(appContext, tracker, client)
+            this.surveyManager = SurveyManager(appContext, tracker, client, expManager)
             this.webEntitlementManager = WebEntitlementManager(tracker, appContext)
             // SPEC-203: per-user journey message listener.
             this.pendingMessageListener = ai.appdna.sdk.messages.PendingMessageListener(tracker, appContext)
@@ -564,6 +570,8 @@ object AppDNA {
                     // remoteConfigManager.getActiveMessages() each call
                     // (also picks up updates after Firestore re-fetch).
                     configProvider = { remoteConfigManager?.getActiveMessages() ?: activeMessages },
+                    // SPEC-036-F §1.2 — experiment-aware presentation.
+                    experimentManager = expManager,
                 )
             }
 

@@ -90,6 +90,7 @@ class SharedFixtureTest(
             "track_event" -> runTrackEvent(action, spy)
             "identify" -> runIdentify(action, spy)
             "evaluate_audience" -> runEvaluateAudience(spy)
+            "present_surface_under_experiment" -> runPresentSurfaceUnderExperiment(action, spy)
             else -> spy.skipReasons.add(
                 "Phase 0.5+ assertion not yet implemented for action.kind=$kind"
             )
@@ -229,6 +230,112 @@ class SharedFixtureTest(
         val match = if (matchMode == "all") results.all { it } else results.any { it }
         spy.state["audience_match"] = match
     }
+
+    // ---- SPEC-036-F experiment-aware presentation driver ----------------
+
+    /**
+     * Drives `present_surface_under_experiment`. Reads the served experiment
+     * doc with the SAME field names the production parser
+     * (`RemoteConfigManager.parseExperiments`) reads — `type`, per-variant
+     * `config_ref` / `is_control` / `payload`(or legacy `config`) — then runs
+     * the SAME resolution logic as `ExperimentManager.resolveSurfacePresentation`.
+     * Bucketing is forced via `setup.experiment_assignments` so the assertion
+     * doesn't depend on the hash (the bucketer has its own tests). `mode:
+     * decode_only` asserts the decoded served fields.
+     */
+    private fun runPresentSurfaceUnderExperiment(action: JSONObject, spy: Spy) {
+        val config = fixtureJson.getJSONObject("setup").optJSONObject("config")
+        val expObj = config?.optJSONObject("experiment")
+        if (expObj == null) {
+            spy.skipReasons.add("experiment config missing")
+            return
+        }
+
+        // Field-map reads — identical key names to the production parser.
+        val expId = expObj.optStringOrNull("id")
+        val expType = expObj.optStringOrNull("type")
+        val expStatus = expObj.optStringOrNull("status")
+        val expSalt = expObj.optStringOrNull("salt")
+        val platforms = expObj.optJSONArray("platforms")?.let { arr ->
+            (0 until arr.length()).mapNotNull { arr.optString(it, null) }
+        } ?: emptyList()
+        val variantsArr = expObj.optJSONArray("variants") ?: JSONArray()
+
+        data class V(
+            val id: String?,
+            val configRef: String?,
+            val isControl: Boolean?,
+            val payload: JSONObject?,
+        )
+        val variants = (0 until variantsArr.length()).map { i ->
+            val vm = variantsArr.getJSONObject(i)
+            V(
+                id = vm.optStringOrNull("id"),
+                configRef = vm.optStringOrNull("config_ref"),
+                isControl = if (vm.has("is_control") && !vm.isNull("is_control")) vm.optBoolean("is_control") else null,
+                // SPEC-070-A F.10 — prefer `payload`, fall back to legacy `config`.
+                payload = vm.optJSONObject("payload") ?: vm.optJSONObject("config"),
+            )
+        }
+
+        val mode = action.optString("mode", "present")
+        if (mode == "decode_only") {
+            val control = variants.firstOrNull { it.isControl == true }
+            val treatment = variants.firstOrNull { it.isControl == false }
+            spy.state["decoded_type"] = expType ?: "null"
+            spy.state["decoded_status"] = expStatus ?: "null"
+            spy.state["decoded_salt"] = expSalt ?: "null"
+            spy.state["decoded_variant_count"] = variants.size
+            spy.state["control_config_ref"] = control?.configRef ?: "null"
+            spy.state["control_is_control"] = control?.isControl ?: false
+            spy.state["treatment_config_ref"] = treatment?.configRef ?: "null"
+            spy.state["treatment_is_control"] = treatment?.isControl ?: true
+            // payload present AND non-empty (legacy `config` round-trip aside).
+            spy.state["treatment_has_payload"] = (treatment?.payload != null && treatment.payload.length() > 0)
+            return
+        }
+
+        val surfaceType = action.optString("surface_type", "")
+        val entityId = action.optString("entity_id", "")
+        val activeEntityId = config.optString("active_entity_id", entityId)
+
+        val assignments = fixtureJson.getJSONObject("setup").optJSONObject("experiment_assignments")
+        val forcedVariantId = assignments?.optStringOrNull(expId ?: "")
+
+        val controlMatches = variants.any { (it.isControl == true) && it.configRef == entityId }
+        val isRunningMatch = expStatus == "running" &&
+            expType == surfaceType &&
+            platforms.contains("android") &&
+            controlMatches
+
+        val variant = variants.firstOrNull { it.id == forcedVariantId }
+        if (!isRunningMatch || forcedVariantId == null || variant == null) {
+            spy.state["resolution"] = "active"
+            spy.state["presented_config_id"] = activeEntityId
+            return
+        }
+
+        spy.events.add(
+            "experiment_exposure" to mapOf(
+                "experiment_id" to (expId ?: ""),
+                "variant" to forcedVariantId,
+                "source" to "sdk",
+            )
+        )
+
+        // Control bucket, or treatment without a usable payload → render active.
+        if (variant.isControl == true || variant.payload == null || variant.payload.length() == 0) {
+            spy.state["resolution"] = "control"
+            spy.state["presented_config_id"] = activeEntityId
+            return
+        }
+        val payloadId = variant.payload.optString("id", activeEntityId)
+        spy.state["resolution"] = "treatment"
+        spy.state["presented_config_id"] = payloadId
+    }
+
+    private fun JSONObject.optStringOrNull(key: String): String? =
+        if (has(key) && !isNull(key)) optString(key, null) else null
 
     // ---- Assertions -----------------------------------------------------
 

@@ -57,10 +57,17 @@ import java.util.concurrent.atomic.AtomicBoolean
  * only exists so a sample app or test can subclass / replace the
  * presentation pipeline.
  */
-class MessageManager(
+class MessageManager internal constructor(
     private val context: Context,
     private val configProvider: () -> Map<String, MessageConfig>,
     @Suppress("unused") private val renderer: InAppMessageRenderer = InAppMessageRenderer.shared,
+    // SPEC-036-F §1.2 — consulted per-candidate (inside the present hook) for a
+    // running in-app-message experiment targeting the message being shown.
+    // The constructor is `internal` because it takes the internal
+    // ExperimentManager; MessageManager is only ever built by the SDK
+    // (AppDNA.configure), never by a host. The class + its public methods stay
+    // public for the `AppDNA.inAppMessages` namespace.
+    private val experimentManager: ai.appdna.sdk.config.ExperimentManager? = null,
 ) {
 
     /**
@@ -184,7 +191,7 @@ class MessageManager(
 
     // MARK: - Presentation
 
-    private fun present(messageId: String, config: MessageConfig, triggerEvent: String) {
+    private fun present(messageId: String, activeConfig: MessageConfig, triggerEvent: String) {
         // SPEC-404 — pause new in-app message presentation while the SDK is
         // backend-locked (per-key suspended day 20+ OR org cancelled).
         // Messages already shown stay visible. No analytics event emitted.
@@ -192,6 +199,20 @@ class MessageManager(
         if (ai.appdna.sdk.AppDNA.runtimeLock != null) {
             Log.debug("[Messages] $messageId suppressed — SDK in runtime-locked mode")
             return
+        }
+
+        // SPEC-036-F §1.2 — experiment-aware presentation, attached inside the
+        // candidate/present path (not a host present() call). A running in-app-
+        // message experiment targeting this message + a treatment bucket renders
+        // the treatment payload; control / non-bucketed / old-doc → active.
+        var config = activeConfig
+        val resolution = experimentManager?.resolveSurfacePresentation("in_app_message", messageId)
+        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
+            val treatment = MessageConfigParser.parseSingleMessage(resolution.payload)
+            if (treatment != null) {
+                Log.info("[Messages] $messageId rendering experiment treatment variant")
+                config = treatment
+            }
         }
 
         // Re-check the gate inside the main-thread runnable in case a

@@ -32,6 +32,9 @@ import kotlinx.coroutines.launch
 internal class PaywallManager(
     private val remoteConfigManager: RemoteConfigManager,
     private val eventTracker: EventTracker,
+    // SPEC-036-F §1.2 — consulted at present-time for a running paywall
+    // experiment targeting the entity being shown.
+    private val experimentManager: ai.appdna.sdk.config.ExperimentManager? = null,
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
@@ -103,14 +106,29 @@ internal class PaywallManager(
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null,
     ) {
-        val config = remoteConfigManager.getPaywallConfig(id)
-        if (config == null) {
+        val activeConfig = remoteConfigManager.getPaywallConfig(id)
+        if (activeConfig == null) {
             Log.error("Paywall config not found for id: $id")
             listener?.onPaywallPurchaseFailed(
                 paywallId = id,
                 error = IllegalStateException("Paywall config not found"),
             )
             return
+        }
+
+        // SPEC-036-F §1.2 — experiment-aware presentation. If a `running`
+        // paywall experiment targets this entity and the user buckets into the
+        // treatment, render the treatment `payload` config instead of the
+        // active one. Control / non-bucketed / old-doc → active (cohort
+        // isolation §1.3).
+        var config = activeConfig
+        val resolution = experimentManager?.resolveSurfacePresentation("paywall", id)
+        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
+            val treatment = PaywallConfigParser.parseSinglePaywall(id, resolution.payload)
+            if (treatment != null) {
+                Log.info("Paywall $id rendering experiment treatment variant")
+                config = treatment
+            }
         }
 
         // Track view event
