@@ -50,7 +50,10 @@ internal class RemoteConfigManager(
     private val fetchCompletionCounter = AtomicInteger(0)
     private val fetchSuccessCounter = AtomicInteger(0)
     private val fetchExpectedTotal = AtomicInteger(0)
-    private var flags: Map<String, Any> = emptyMap()
+    // @Volatile: written on the Firestore listener thread (per-item + mega-doc parse), read cross-thread
+    // by getConfig/isEnabled from the host present-time thread — publish writes (parity w/ experiments,
+    // variantDocs). Same for `messages` below (read by getActiveMessages).
+    @Volatile private var flags: Map<String, Any> = emptyMap()
     // @Volatile: read by resolveSurfacePresentation from the host present-time thread, written on the
     // Firestore listener thread — publish writes so the resolver never sees a stale/empty map (audit R1).
     @Volatile private var experiments: Map<String, ExperimentConfig> = emptyMap()
@@ -70,7 +73,7 @@ internal class RemoteConfigManager(
      * AppDNA.configure() so push-delivered AND Firestore-broadcast
      * messages both reach the renderer.
      */
-    private var messages: Map<String, ai.appdna.sdk.messages.MessageConfig> = emptyMap()
+    @Volatile private var messages: Map<String, ai.appdna.sdk.messages.MessageConfig> = emptyMap()
 
     /** Callback when survey configs are updated from Firestore. */
     var surveyUpdateHandler: ((Map<String, Map<String, Any>>) -> Unit)? = null
@@ -174,11 +177,12 @@ internal class RemoteConfigManager(
                 @Suppress("UNCHECKED_CAST")
                 val unwrapped = (data["flags"] as? Map<String, Any>) ?: data
                 // Normalize each entry to its RAW value (FeatureFlagManager/getConfig expect Bool/Number/
-                // String, not the served {value,type,...} wrapper).
-                flags = unwrapped.mapValues { flagRawValue(it.value) }
+                // String, not the served {value,type,...} wrapper); omit null-valued (unset) flags.
+                flags = unwrapped.entries.mapNotNull { e -> flagRawValue(e.value)?.let { e.key to it } }.toMap()
                 cacheData("flags", JSONObject(flags as Map<*, *>).toString())
                 notifyChangeListeners()
             },
+            pruneToKeys = { keys -> flags = flags.filterKeys { it in keys } },
             onComplete = { ok -> markFetchComplete(ok) }
         )
 
@@ -260,6 +264,10 @@ internal class RemoteConfigManager(
                 messages = ai.appdna.sdk.messages.MessageConfigParser.parseMessages(data as Map<String, Any>)
                 cacheData("messages", JSONObject(data).toString())
                 notifyChangeListeners()
+            },
+            pruneToKeys = { keys ->
+                messages = messages.filterKeys { it in keys }
+                rawMessageData.keys.retainAll(keys)
             },
             onComplete = { ok -> markFetchComplete(ok) }
         )
@@ -446,6 +454,11 @@ internal class RemoteConfigManager(
         parseItem: (String, Map<String, Any>) -> Unit,
         parseMegaDoc: (Map<String, Any>) -> Unit,
         extraIndexParse: ((Map<String, Any>) -> Unit)? = null,
+        // SPEC-036-H — when provided, the index is AUTHORITATIVE: in-memory entries whose key is not in
+        // the current index are pruned (removed item stops serving), and an EMPTY index takes the index
+        // branch (prune-to-empty) instead of the mega-doc. Flags + messages pass this to keep the
+        // full-replace removal semantics they had via the mega-doc.
+        pruneToKeys: ((Set<String>) -> Unit)? = null,
         // SPEC-070-A G.4: invoked once when this index/mega-doc fetch path
         // resolves — used by the parent fetchConfigs() to count down toward
         // the single `config_fetched` event.
@@ -455,22 +468,24 @@ internal class RemoteConfigManager(
             .addOnSuccessListener { snapshot ->
                 val indexData = snapshot.data
                 val itemsMap = indexData?.get(indexKey) as? Map<String, Any>
-                if (indexData != null && !itemsMap.isNullOrEmpty()) {
-                    // Index exists — fetch individual docs
+                if (indexData != null && (!itemsMap.isNullOrEmpty() || (itemsMap != null && pruneToKeys != null))) {
+                    // Index exists — prune stale in-memory entries, then fetch individual docs. onComplete
+                    // fires only AFTER every item resolves (Tasks.whenAllComplete) so `config_fetched`
+                    // doesn't fire prematurely; an empty index → 0 tasks → completes immediately.
                     Log.debug("[$indexPath] Found index with ${itemsMap.size} items, fetching individually")
                     extraIndexParse?.invoke(indexData)
-                    for (itemId in itemsMap.keys) {
+                    pruneToKeys?.invoke(itemsMap.keys.toSet())
+                    val itemTasks = itemsMap.keys.map { itemId ->
                         db.document("$basePath/$itemCollection/$itemId").get()
                             .addOnSuccessListener { itemSnapshot ->
-                                itemSnapshot.data?.let { itemData ->
-                                    parseItem(itemId, itemData)
-                                }
+                                itemSnapshot.data?.let { itemData -> parseItem(itemId, itemData) }
                             }
                             .addOnFailureListener { e ->
                                 Log.warning("[$indexPath] Failed to fetch item $itemId: ${e.message}")
                             }
                     }
-                    onComplete?.invoke(true)
+                    com.google.android.gms.tasks.Tasks.whenAllComplete(itemTasks)
+                        .addOnCompleteListener { onComplete?.invoke(true) }
                 } else {
                     // No index — fall back to legacy mega-doc
                     Log.debug("[$indexPath] No index found, falling back to mega-doc $megaDocPath")
@@ -514,14 +529,17 @@ internal class RemoteConfigManager(
     // Unwrap a served flag entry to its RAW value. The server serves `{value,type,description,updated_at}`;
     // FeatureFlagManager/getConfig expect the raw value. Defensive: a non-wrapper entry is kept as-is.
     @Suppress("UNCHECKED_CAST")
-    private fun flagRawValue(entry: Any): Any {
+    private fun flagRawValue(entry: Any): Any? {
         val dict = entry as? Map<String, Any>
-        return if (dict != null && dict.containsKey("value")) (dict["value"] ?: entry) else entry
+        // key-present (even if value is null) ⇒ raw value; not a wrapper ⇒ keep as-is. A null value must
+        // resolve to null (absent flag), NOT fall back to the wrapper dict.
+        return if (dict != null && dict.containsKey("value")) dict["value"] else entry
     }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseSingleFlag(key: String, data: Map<String, Any>) {
-        flags = flags + (key to flagRawValue(data))
+        val v = flagRawValue(data)
+        flags = if (v != null) flags + (key to v) else flags - key  // null value ⇒ unset (omit)
         try { cacheData("flags", JSONObject(flags as Map<*, *>).toString()) } catch (_: Exception) {}
         notifyChangeListeners()
     }
