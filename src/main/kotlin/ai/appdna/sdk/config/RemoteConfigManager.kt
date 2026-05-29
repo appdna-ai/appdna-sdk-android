@@ -51,7 +51,9 @@ internal class RemoteConfigManager(
     private val fetchSuccessCounter = AtomicInteger(0)
     private val fetchExpectedTotal = AtomicInteger(0)
     private var flags: Map<String, Any> = emptyMap()
-    private var experiments: Map<String, ExperimentConfig> = emptyMap()
+    // @Volatile: read by resolveSurfacePresentation from the host present-time thread, written on the
+    // Firestore listener thread — publish writes so the resolver never sees a stale/empty map (audit R1).
+    @Volatile private var experiments: Map<String, ExperimentConfig> = emptyMap()
     // SPEC-036-H — prefetched per-item experiment variant configs, keyed by the variant's `variantDoc`
     // path; populated after the experiments doc parses so resolveSurfacePresentation reads synchronously.
     @Volatile private var variantDocs: Map<String, Map<String, Any>> = emptyMap()
@@ -361,6 +363,9 @@ internal class RemoteConfigManager(
             .flatMap { it.variants }
             .mapNotNull { it.variantDoc }
             .toSet()
+        // Prune cached variant docs no longer referenced by any current experiment so the cache can't
+        // grow unbounded across TTL refetches; new/changed paths are fetched below.
+        variantDocs = variantDocs.filterKeys { it in paths }
         for (path in paths) {
             db.document(path).get().addOnSuccessListener { snap ->
                 @Suppress("UNCHECKED_CAST")
