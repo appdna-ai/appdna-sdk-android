@@ -173,8 +173,10 @@ internal class RemoteConfigManager(
             parseMegaDoc = { data ->
                 @Suppress("UNCHECKED_CAST")
                 val unwrapped = (data["flags"] as? Map<String, Any>) ?: data
-                flags = unwrapped
-                cacheData("flags", JSONObject(unwrapped).toString())
+                // Normalize each entry to its RAW value (FeatureFlagManager/getConfig expect Bool/Number/
+                // String, not the served {value,type,...} wrapper).
+                flags = unwrapped.mapValues { flagRawValue(it.value) }
+                cacheData("flags", JSONObject(flags as Map<*, *>).toString())
                 notifyChangeListeners()
             },
             onComplete = { ok -> markFetchComplete(ok) }
@@ -509,9 +511,17 @@ internal class RemoteConfigManager(
     // SPEC-036-H — per-item flag doc config/flag_index/flags/{key} = {key,value,type,description,updated_at}.
     // Stored under flags[key] with the SAME shape the mega-doc produced; disk cache rebuilt as the bare
     // flags map (loadCachedConfigs reads it as {key:{...}}). Mirrors parseSingleSurvey.
+    // Unwrap a served flag entry to its RAW value. The server serves `{value,type,description,updated_at}`;
+    // FeatureFlagManager/getConfig expect the raw value. Defensive: a non-wrapper entry is kept as-is.
+    @Suppress("UNCHECKED_CAST")
+    private fun flagRawValue(entry: Any): Any {
+        val dict = entry as? Map<String, Any>
+        return if (dict != null && dict.containsKey("value")) (dict["value"] ?: entry) else entry
+    }
+
     @Suppress("UNCHECKED_CAST")
     private fun parseSingleFlag(key: String, data: Map<String, Any>) {
-        flags = flags + (key to data)
+        flags = flags + (key to flagRawValue(data))
         try { cacheData("flags", JSONObject(flags as Map<*, *>).toString()) } catch (_: Exception) {}
         notifyChangeListeners()
     }
