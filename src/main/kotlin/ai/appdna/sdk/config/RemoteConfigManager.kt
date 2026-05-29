@@ -187,6 +187,7 @@ internal class RemoteConfigManager(
                 // Rewrite the disk cache to match (clears it when keys is empty — else a cold start
                 // resurrects removed flags). Per-item adds re-cache the full set afterward.
                 try { cacheData("flags", JSONObject(flags as Map<*, *>).toString()) } catch (_: Exception) {}
+                notifyChangeListeners()  // fire on full-clear too (no per-item parse runs when empty)
             },
             onComplete = { ok -> markFetchComplete(ok) }
         )
@@ -280,6 +281,7 @@ internal class RemoteConfigManager(
                     combined.put("messages", msgObj)
                     cacheData("messages", combined.toString())
                 } catch (_: Exception) {}
+                notifyChangeListeners()  // fire on full-clear too (no per-item parse runs when empty)
             },
             onComplete = { ok -> markFetchComplete(ok) }
         )
