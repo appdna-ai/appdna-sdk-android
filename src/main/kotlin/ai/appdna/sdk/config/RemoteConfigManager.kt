@@ -410,6 +410,13 @@ internal class RemoteConfigManager(
         variantDocs = variantDocs + (path to config)
     }
 
+    /** SPEC-036-H test seams — drive the real per-item flag/message parsers + prune. */
+    internal fun parseFlagDocForTesting(key: String, data: Map<String, Any>) = parseSingleFlag(key, data)
+    internal fun parseMessageDocForTesting(id: String, data: Map<String, Any>) = parseSingleMessage(id, data)
+    internal fun pruneFlagsForTesting(keys: Set<String>) { flags = flags.filterKeys { it in keys } }
+    internal fun pruneMessagesForTesting(keys: Set<String>) { messages = messages.filterKeys { it in keys } }
+    internal fun messagesForTesting(): Map<String, ai.appdna.sdk.messages.MessageConfig> = messages
+
     @Suppress("UNCHECKED_CAST")
     private fun parseSurveys(data: Map<String, Any>) {
         val surveysMap = data["surveys"] as? Map<String, Any> ?: data
