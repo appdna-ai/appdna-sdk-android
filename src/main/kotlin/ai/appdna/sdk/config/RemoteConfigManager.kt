@@ -182,7 +182,12 @@ internal class RemoteConfigManager(
                 cacheData("flags", JSONObject(flags as Map<*, *>).toString())
                 notifyChangeListeners()
             },
-            pruneToKeys = { keys -> flags = flags.filterKeys { it in keys } },
+            pruneToKeys = { keys ->
+                flags = flags.filterKeys { it in keys }
+                // Rewrite the disk cache to match (clears it when keys is empty — else a cold start
+                // resurrects removed flags). Per-item adds re-cache the full set afterward.
+                try { cacheData("flags", JSONObject(flags as Map<*, *>).toString()) } catch (_: Exception) {}
+            },
             onComplete = { ok -> markFetchComplete(ok) }
         )
 
@@ -268,6 +273,13 @@ internal class RemoteConfigManager(
             pruneToKeys = { keys ->
                 messages = messages.filterKeys { it in keys }
                 rawMessageData.keys.retainAll(keys)
+                // Rewrite the disk cache (clears to {messages:{}} when empty — else cold start resurrects).
+                try {
+                    val combined = JSONObject(); val msgObj = JSONObject()
+                    for ((mid, mdata) in rawMessageData) { msgObj.put(mid, JSONObject(mdata)) }
+                    combined.put("messages", msgObj)
+                    cacheData("messages", combined.toString())
+                } catch (_: Exception) {}
             },
             onComplete = { ok -> markFetchComplete(ok) }
         )

@@ -185,7 +185,12 @@ data class TriggerCondition(
 internal object MessageConfigParser {
 
     @Suppress("UNCHECKED_CAST")
-    fun parseMessages(data: Map<String, Any>): Map<String, MessageConfig> {
+    fun parseMessages(rawData: Map<String, Any>): Map<String, MessageConfig> {
+        // Unwrap the `{messages:{id:cfg}}` / `{version,updated_at,messages:{...}}` wrapper if present
+        // (mega-doc + disk-cache shape), else treat the map as a flat {id:cfg} (iOS parity — its
+        // parseMessages does `data["messages"] ?? data`). Without this, cold-start / mega-doc restore
+        // parsed the wrapper as a single bogus message and lost the real ones.
+        val data = (rawData["messages"] as? Map<String, Any>) ?: rawData
         val parsed = mutableMapOf<String, MessageConfig>()
         for ((key, value) in data) {
             if (value is Map<*, *>) {
