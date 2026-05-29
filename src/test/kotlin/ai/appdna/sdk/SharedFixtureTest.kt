@@ -266,6 +266,7 @@ class SharedFixtureTest(
             val configRef: String?,
             val isControl: Boolean?,
             val payload: JSONObject?,
+            val variantDoc: String?,
         )
         val variants = (0 until variantsArr.length()).map { i ->
             val vm = variantsArr.getJSONObject(i)
@@ -275,6 +276,8 @@ class SharedFixtureTest(
                 isControl = if (vm.has("is_control") && !vm.isNull("is_control")) vm.optBoolean("is_control") else null,
                 // SPEC-070-A F.10 — prefer `payload`, fall back to legacy `config`.
                 payload = vm.optJSONObject("payload") ?: vm.optJSONObject("config"),
+                // SPEC-036-H — per_item variant-doc pointer.
+                variantDoc = vm.optStringOrNull("variant_doc"),
             )
         }
 
@@ -323,8 +326,31 @@ class SharedFixtureTest(
             )
         )
 
-        // Control bucket, or treatment without a usable payload → render active.
-        if (variant.isControl == true || variant.payload == null || variant.payload.length() == 0) {
+        if (variant.isControl == true) {
+            spy.state["resolution"] = "control"
+            spy.state["presented_config_id"] = activeEntityId
+            return
+        }
+        // SPEC-036-H — per_item serving: a treatment with a `variant_doc` pointer renders the config
+        // from the prefetched variant doc (the fixture's `setup.config.variant_docs[path].config` stands
+        // in for the RemoteConfigManager prefetch cache). A missing entry = a not-yet-fetched / failed
+        // variant doc → render active (failure degradation).
+        if (variant.variantDoc != null) {
+            val docConfig = config.optJSONObject("variant_docs")
+                ?.optJSONObject(variant.variantDoc)
+                ?.optJSONObject("config")
+            val docId = docConfig?.optStringOrNull("id")
+            if (docId != null) {
+                spy.state["resolution"] = "treatment"
+                spy.state["presented_config_id"] = docId
+            } else {
+                spy.state["resolution"] = "control"
+                spy.state["presented_config_id"] = activeEntityId
+            }
+            return
+        }
+        // Treatment without a usable payload → render active.
+        if (variant.payload == null || variant.payload.length() == 0) {
             spy.state["resolution"] = "control"
             spy.state["presented_config_id"] = activeEntityId
             return

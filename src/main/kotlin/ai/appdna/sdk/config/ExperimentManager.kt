@@ -135,6 +135,20 @@ internal class ExperimentManager(
             // a payload → safe fallback to active. Only a treatment WITH a
             // payload renders the variant config.
             if (variant.isControl == true) return SurfaceResolution.RenderActive
+            // SPEC-036-H — per_item serving: the treatment config lives in an isolated variant doc
+            // pointed to by `variantDoc` (prefetched into the cache). Prefer it; fall back to the inline
+            // 036-F `config`. A not-yet-fetched / failed variant doc → RenderActive (failure
+            // degradation — never broken, never cross-cohort).
+            val docPath = variant.variantDoc
+            if (docPath != null) {
+                val docConfig = remoteConfigManager.getVariantDoc(docPath)
+                    ?: return SurfaceResolution.RenderActive
+                return SurfaceResolution.RenderTreatment(
+                    experimentId = experimentId,
+                    variantId = variant.id,
+                    payload = docConfig,
+                )
+            }
             if (variant.config.isEmpty()) return SurfaceResolution.RenderActive
             return SurfaceResolution.RenderTreatment(
                 experimentId = experimentId,

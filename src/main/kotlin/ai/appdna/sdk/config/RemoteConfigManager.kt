@@ -52,6 +52,9 @@ internal class RemoteConfigManager(
     private val fetchExpectedTotal = AtomicInteger(0)
     private var flags: Map<String, Any> = emptyMap()
     private var experiments: Map<String, ExperimentConfig> = emptyMap()
+    // SPEC-036-H — prefetched per-item experiment variant configs, keyed by the variant's `variantDoc`
+    // path; populated after the experiments doc parses so resolveSurfacePresentation reads synchronously.
+    @Volatile private var variantDocs: Map<String, Map<String, Any>> = emptyMap()
     private var surveys: Map<String, Map<String, Any>> = emptyMap()
     private var paywalls: Map<String, PaywallConfig> = emptyMap()
     private var onboardingFlows: Map<String, OnboardingFlowConfig> = emptyMap()
@@ -85,6 +88,13 @@ internal class RemoteConfigManager(
     }
 
     fun getExperimentConfig(id: String): ExperimentConfig? = experiments[id]
+
+    /**
+     * SPEC-036-H — the prefetched `config` of a per-item experiment variant doc, by its `variantDoc`
+     * pointer path. `null` if not yet fetched / fetch failed → caller renders the active item (never
+     * cross-cohort, never broken). Test-injectable via [injectVariantDocForTesting].
+     */
+    fun getVariantDoc(path: String): Map<String, Any>? = variantDocs[path]
 
     fun getAllExperiments(): Map<String, ExperimentConfig> = experiments
 
@@ -167,11 +177,15 @@ internal class RemoteConfigManager(
             markFetchComplete(success = false)
         }
 
-        // Fetch experiments
+        // Fetch experiments. SPEC-036-H: after parsing, prefetch any per-item variant docs referenced
+        // via `variant_doc` so synchronous presentation resolution can read the treatment config. The
+        // prefetch is fire-and-forget (NOT tied to the fixed-count fetch barrier); a not-yet-fetched
+        // variant doc degrades to RenderActive, matching the failure-degradation contract.
         db.document("$basePath/experiments").get().addOnSuccessListener { snapshot ->
             snapshot.data?.let { data ->
                 parseExperiments(data)
                 cacheData("experiments", JSONObject(data).toString())
+                prefetchVariantDocs(db)
             }
             markFetchComplete(success = true)
         }.addOnFailureListener { e ->
@@ -308,6 +322,8 @@ internal class RemoteConfigManager(
                                 // SPEC-036-F §1.2 — served per-variant fields.
                                 configRef = vm["config_ref"] as? String,
                                 isControl = vm["is_control"] as? Boolean,
+                                // SPEC-036-H — per_item variant-doc pointer.
+                                variantDoc = vm["variant_doc"] as? String,
                             )
                         } else null
                     } ?: emptyList()
@@ -332,6 +348,35 @@ internal class RemoteConfigManager(
             }
         }
         experiments = parsed
+    }
+
+    /**
+     * SPEC-036-H — fetch each `variantDoc`-referenced per-item variant doc by its EXACT path (never via
+     * an index — that is the cohort-isolation guarantee) and cache its `config`. Fire-and-forget: a doc
+     * still in flight resolves to RenderActive (failure degradation). Only runs for `per_item`-mode docs;
+     * `inline`-mode experiments carry no `variantDoc`.
+     */
+    private fun prefetchVariantDocs(db: com.google.firebase.firestore.FirebaseFirestore) {
+        val paths = experiments.values
+            .flatMap { it.variants }
+            .mapNotNull { it.variantDoc }
+            .toSet()
+        for (path in paths) {
+            db.document(path).get().addOnSuccessListener { snap ->
+                @Suppress("UNCHECKED_CAST")
+                val config = snap.data?.get("config") as? Map<String, Any>
+                if (config != null) {
+                    variantDocs = variantDocs + (path to config)
+                }
+            }.addOnFailureListener { e ->
+                Log.error("Failed to fetch variant doc '$path': ${e.message}")
+            }
+        }
+    }
+
+    /** SPEC-036-H test seam — inject a prefetched variant doc config by its pointer path. */
+    internal fun injectVariantDocForTesting(path: String, config: Map<String, Any>) {
+        variantDocs = variantDocs + (path to config)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -668,4 +713,8 @@ data class ExperimentVariant(
     val config: Map<String, Any> = emptyMap(),
     val configRef: String? = null,
     val isControl: Boolean? = null,
+    // SPEC-036-H — `per_item` serving: a POINTER (Firestore doc path) to this treatment's isolated,
+    // index-less variant doc instead of an inline `config`/`payload`. The SDK prefetches the doc by this
+    // exact path (never via an index) and renders its `config`. Absent in `inline` mode (036-F).
+    val variantDoc: String? = null,
 )
