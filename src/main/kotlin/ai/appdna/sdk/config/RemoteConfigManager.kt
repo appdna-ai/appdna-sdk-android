@@ -164,20 +164,21 @@ internal class RemoteConfigManager(
         fetchSuccessCounter.set(0)
         fetchExpectedTotal.set(expected)
 
-        // Fetch flags — unwrap "flags" wrapper from Firestore doc
-        db.document("$basePath/flags").get().addOnSuccessListener { snapshot ->
-            snapshot.data?.let { data ->
+        // Flags — SPEC-036-H: index → per-item docs (config/flag_index/flags/{key}), fallback → mega-doc.
+        fetchViaIndex(
+            db = db, basePath = basePath,
+            indexPath = "flag_index", indexKey = "flags",
+            itemCollection = "flag_index/flags", megaDocPath = "flags",
+            parseItem = { key, data -> parseSingleFlag(key, data) },
+            parseMegaDoc = { data ->
                 @Suppress("UNCHECKED_CAST")
                 val unwrapped = (data["flags"] as? Map<String, Any>) ?: data
                 flags = unwrapped
                 cacheData("flags", JSONObject(unwrapped).toString())
                 notifyChangeListeners()
-            }
-            markFetchComplete(success = true)
-        }.addOnFailureListener { e ->
-            Log.error("Failed to fetch flags: ${e.message}")
-            markFetchComplete(success = false)
-        }
+            },
+            onComplete = { ok -> markFetchComplete(ok) }
+        )
 
         // Fetch experiments. SPEC-036-H: after parsing, prefetch any per-item variant docs referenced
         // via `variant_doc` so synchronous presentation resolution can read the treatment config. The
@@ -245,18 +246,21 @@ internal class RemoteConfigManager(
         // map exposed via `getActiveMessages()`. Without this fetch the
         // Android `activeMessages` map stayed empty and Firestore-published
         // in-app messages never displayed (only push-delivered ones did).
-        db.document("$basePath/messages").get().addOnSuccessListener { snapshot ->
-            snapshot.data?.let { data ->
+        // In-app messages — SPEC-036-H: index → per-item docs (config/message_index/messages/{id}),
+        // fallback → mega-doc.
+        fetchViaIndex(
+            db = db, basePath = basePath,
+            indexPath = "message_index", indexKey = "messages",
+            itemCollection = "message_index/messages", megaDocPath = "messages",
+            parseItem = { id, data -> parseSingleMessage(id, data) },
+            parseMegaDoc = { data ->
                 @Suppress("UNCHECKED_CAST")
                 messages = ai.appdna.sdk.messages.MessageConfigParser.parseMessages(data as Map<String, Any>)
                 cacheData("messages", JSONObject(data).toString())
                 notifyChangeListeners()
-            }
-            markFetchComplete(success = true)
-        }.addOnFailureListener { e ->
-            Log.debug("No messages config: ${e.message}")
-            markFetchComplete(success = false)
-        }
+            },
+            onComplete = { ok -> markFetchComplete(ok) }
+        )
 
         Log.info("Fetching remote configs from Firestore")
     }
@@ -500,6 +504,37 @@ internal class RemoteConfigManager(
     // rebuild the cache after each item is fetched.
     private val rawPaywallData = mutableMapOf<String, Map<String, Any>>()
     private val rawOnboardingData = mutableMapOf<String, Map<String, Any>>()
+    private val rawMessageData = mutableMapOf<String, Map<String, Any>>()
+
+    // SPEC-036-H — per-item flag doc config/flag_index/flags/{key} = {key,value,type,description,updated_at}.
+    // Stored under flags[key] with the SAME shape the mega-doc produced; disk cache rebuilt as the bare
+    // flags map (loadCachedConfigs reads it as {key:{...}}). Mirrors parseSingleSurvey.
+    @Suppress("UNCHECKED_CAST")
+    private fun parseSingleFlag(key: String, data: Map<String, Any>) {
+        flags = flags + (key to data)
+        try { cacheData("flags", JSONObject(flags as Map<*, *>).toString()) } catch (_: Exception) {}
+        notifyChangeListeners()
+    }
+
+    // SPEC-036-H — per-item message doc config/message_index/messages/{id}; disk cache rebuilt in the
+    // mega-doc {messages:{id:data}} shape (loadCachedConfigs → MessageConfigParser.parseMessages).
+    private fun parseSingleMessage(id: String, data: Map<String, Any>) {
+        try {
+            val config = ai.appdna.sdk.messages.MessageConfigParser.parseSingleMessage(data)
+            if (config != null) messages = messages + (id to config)
+        } catch (e: Exception) {
+            Log.error("Failed to parse individual message '$id': ${e.message}")
+        }
+        rawMessageData[id] = data
+        try {
+            val combined = JSONObject()
+            val msgObj = JSONObject()
+            for ((mid, mdata) in rawMessageData) { msgObj.put(mid, JSONObject(mdata)) }
+            combined.put("messages", msgObj)
+            cacheData("messages", combined.toString())
+        } catch (_: Exception) {}
+        notifyChangeListeners()
+    }
 
     @Suppress("UNCHECKED_CAST")
     private fun parseSinglePaywall(id: String, data: Map<String, Any>) {
