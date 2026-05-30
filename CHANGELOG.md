@@ -4,6 +4,21 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.38] — 2026-05-30
+
+SPEC-036-H — per-item remote-config serving (read side). Feature flags and
+in-app messages are now read via their per-item index (`config/flag_index`,
+`config/message_index`) with per-item documents fetched on demand, falling
+back to the legacy mega-doc when no index is present. The index is
+authoritative: an item dropped from the index stops serving, and an empty
+index clears both the in-memory and on-disk cache (prune-to-empty also fires
+change listeners). Flag values resolve through the `{value, type, …}` wrapper
+the backend serves (raw value, with explicit `null` treated as unset). This
+removes the single app-wide flag/message documents as a scaling ceiling while
+staying backward compatible with apps still on the mega-doc.
+
+Feature parity marker: `appdnaFeatureParity=1.0.66`.
+
 ## [1.0.37] — 2026-05-26
 
 SPEC-036-F Phase 1 — experiment-aware presentation. The four served surface
