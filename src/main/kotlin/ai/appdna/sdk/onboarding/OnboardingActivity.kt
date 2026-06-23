@@ -1161,15 +1161,34 @@ internal fun OnboardingFlowHost(
         }
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            // SPEC-070-A I.16 — edge-to-edge IME + system-bar insets so the
-            // keyboard pushes content up + status/nav bars don't overlap.
-            .imePadding()
-            .safeDrawingPadding()
-            .background(MaterialTheme.colorScheme.background)
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        // QA-R1 — full-bleed step background painted UNDER the
+        // status/nav bars. Mirrors iOS `OnboardingRenderer.swift:112-116`
+        // `.background(stepFullScreenBackground.ignoresSafeArea())`.
+        //
+        // Old version painted `MaterialTheme.colorScheme.background` AFTER
+        // `safeDrawingPadding()`, confining the paint to the safe-area
+        // rectangle. On hosts whose Activity theme used `lightColorScheme()`
+        // (most apps — the default) the status-bar inset region showed the
+        // host's `#FFFBFE` surface tint as a white/pink strip above the
+        // step's authored dark gradient. The back-arrow IconButton inside
+        // that band rendered `#6B7280` grey on white → "invisible back
+        // button" QA report (R2). With the background now full-bleed, the
+        // step's gradient extends edge-to-edge and the grey back glyph
+        // contrasts against it as it does on iOS.
+        StepFullScreenBackground(currentStep = currentStep)
+
+        // Safe-area content layer — sits on top of the full-bleed
+        // background. `imePadding()` keeps keyboards from cropping inputs;
+        // `safeDrawingPadding()` insets for status + nav bars so chrome
+        // (progress, back/close, step body) avoids the system gutters
+        // while the background underneath stays full-bleed.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .imePadding()
+                .safeDrawingPadding()
+        ) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Progress bar (Gap 9: custom progress_color/progress_track_color)
             // hide_progress per-step: hidden on this step but still counts in total
@@ -1758,6 +1777,7 @@ internal fun OnboardingFlowHost(
                 }
             }
         }
+        } // QA-R1 — close inner safe-area Box (paired with line ~1186)
     }
 }
 
@@ -1915,6 +1935,120 @@ private fun fromJsonAny(value: Any?): Any? = when (value) {
         (0 until value.length()).map { i -> fromJsonAny(value.opt(i)) }
     }
     else -> value
+}
+
+/**
+ * QA-R1 — full-bleed background painted behind the system status +
+ * navigation bars. Mirrors iOS `OnboardingRenderer.swift:142-164`
+ * (`stepFullScreenBackground`) which `.background(...)` modifier is
+ * `.ignoresSafeArea()`'d to extend under the safe area.
+ *
+ * Resolution order matches iOS:
+ *   1. step.config.background (BackgroundStyleConfig: color/gradient/image/lottie/rive)
+ *   2. step.config.chat_config.style.background_color (chat step convention)
+ *   3. interactive_chat fallback: #0F172A (dark navy, iOS canonical)
+ *   4. MaterialTheme.colorScheme.background (host-theme-aware fallback)
+ *
+ * NOTE: the rendering branches mirror the existing background painter in
+ * `BlockBasedStepView` (~line 2761) — extracted here so it paints at the
+ * Activity root, full-bleed under the status bar. The duplicate painter in
+ * BlockBasedStepView remains but is now defensive (no-op since the root
+ * already painted) and only fires for legacy non-block steps where the
+ * root resolver doesn't catch the authored background.
+ */
+@Composable
+private fun StepFullScreenBackground(currentStep: OnboardingStep?) {
+    val bg = currentStep?.config?.background
+    val chatBg = currentStep?.config?.chat_config?.style?.background_color
+    when {
+        bg != null -> {
+            when (bg.type) {
+                "color" -> bg.color?.let {
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(ai.appdna.sdk.core.StyleEngine.parseColor(it))
+                    )
+                }
+                "gradient" -> bg.gradient?.stops?.let { stops ->
+                    if (stops.size >= 2) {
+                        val colors = stops.map { ai.appdna.sdk.core.StyleEngine.parseColor(it.color) }
+                        val brush = when (bg.gradient.type) {
+                            "radial" -> Brush.radialGradient(colors)
+                            else -> {
+                                val angle = bg.gradient.angle ?: 180.0
+                                val rads = Math.toRadians(angle)
+                                val dx = sin(rads).toFloat()
+                                val dy = -cos(rads).toFloat()
+                                Brush.linearGradient(
+                                    colors = colors,
+                                    start = Offset(
+                                        (0.5f - dx / 2f) * 1000f,
+                                        (0.5f - dy / 2f) * 1000f,
+                                    ),
+                                    end = Offset(
+                                        (0.5f + dx / 2f) * 1000f,
+                                        (0.5f + dy / 2f) * 1000f,
+                                    ),
+                                )
+                            }
+                        }
+                        Box(Modifier.fillMaxSize().background(brush))
+                    }
+                }
+                "image" -> {
+                    Box(Modifier.fillMaxSize()) {
+                        val imageScale = when (bg.image_fit?.lowercase()) {
+                            "fit", "contain" -> androidx.compose.ui.layout.ContentScale.Fit
+                            else -> androidx.compose.ui.layout.ContentScale.Crop
+                        }
+                        ai.appdna.sdk.core.NetworkImage(
+                            url = bg.image_url,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = imageScale,
+                        )
+                        bg.overlay?.takeIf { it.isNotEmpty() && it.lowercase() != "transparent" }?.let { overlay ->
+                            val op = bg.overlay_opacity ?: run {
+                                val l = overlay.lowercase()
+                                if (l == "#000000" || l == "#ffffff" || l == "000000" || l == "ffffff") 0.4 else null
+                            }
+                            val color = ai.appdna.sdk.core.StyleEngine.parseColor(overlay)
+                            val tinted = if (op != null) color.copy(alpha = op.toFloat()) else color
+                            Box(Modifier.fillMaxSize().background(tinted))
+                        }
+                    }
+                }
+                else -> {
+                    // lottie/rive backgrounds keep painting inside the
+                    // step renderer (BlockBasedStepView) for now — they
+                    // need lifecycle-bound players that the root layer
+                    // can't manage cleanly. Fall through to a neutral
+                    // base color so the status bar doesn't show host
+                    // theme through transparent.
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                    )
+                }
+            }
+        }
+        chatBg != null -> Box(
+            Modifier
+                .fillMaxSize()
+                .background(ai.appdna.sdk.core.StyleEngine.parseColor(chatBg))
+        )
+        currentStep?.type == OnboardingStep.StepType.INTERACTIVE_CHAT -> Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color(0xFF0F172A))
+        )
+        else -> Box(
+            Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+        )
+    }
 }
 
 @Composable
@@ -2603,14 +2737,25 @@ private fun BlockBasedStepView(
             if (block.field_required != true) continue
             val fieldId = block.field_id ?: block.id
             val v = inputValues[fieldId]
-            // SPEC-401-A R51 (Lens B #2 P2 + #3 P3) — match iOS canAdvance
-            // semantics at OnboardingRenderer.swift:1501-1502:
-            //   isBlank() → isEmpty()  (whitespace-only strings advance on iOS)
-            //   drop Collection branch  (iOS only checks `[String: Any]` Map)
+            // QA-R19 — add `is List<*>` branch so an empty multi-select
+            // (which the renderer stores as `inputValues[fieldId] = emptyList()`,
+            // see ContentBlockRenderer.kt:5299 `toggleMulti`) fails the required
+            // gate. Previously `List<*>` fell through to `else -> false` (i.e.
+            // "not empty"), so a `multi_select` block with `field_required: true`
+            // and zero options ticked advanced the user past the step with a
+            // `null`/empty `answer` payload — Mrozu's "pass-through with no
+            // selection" QA report.
+            //
+            // R51-era comment said iOS dropped the Collection branch; iOS does
+            // gate multi-select via a separate validator that runs at the
+            // multi-select renderer scope. Android's flat `canAdvance` is the
+            // only validator we run pre-advance, so adding the List branch
+            // closes the gap without changing iOS semantics.
             val empty = when (v) {
                 null -> true
                 is String -> v.isEmpty()
                 is Map<*, *> -> v.isEmpty()
+                is List<*> -> v.isEmpty()
                 else -> false
             }
             if (empty) {

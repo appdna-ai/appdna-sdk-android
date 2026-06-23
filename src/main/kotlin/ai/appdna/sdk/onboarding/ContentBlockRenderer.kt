@@ -60,6 +60,9 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Edit
+// QA-R16 — Material icons for password show/hide toggle (replaces literal emoji).
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.foundation.selection.selectable
@@ -691,7 +694,7 @@ data class ContentBlock(
     val pulse_speed: Double? = null,
     val border_width: Double? = null,
     val border_color: String? = null,
-    // SPEC-089d Nurrai: pricing_card fields
+    // SPEC-089d: pricing_card fields
     // SPEC-070-A J.22 — ImmutableList for Compose stability.
     val pricing_plans: kotlinx.collections.immutable.ImmutableList<PricingPlan>? = null,
     val pricing_layout: String? = null,
@@ -1308,7 +1311,7 @@ private fun RenderBlockContent(
         "date_wheel_picker" -> DateWheelPickerBlock(block, inputValues)
         "circular_gauge" -> CircularGaugeBlock(block)
         "row" -> RowBlock(block, onAction, toggleValues, inputValues, loc)
-        // SPEC-089d Nurrai: Pricing card
+        // SPEC-089d: Pricing card
         "pricing_card" -> PricingCardBlock(block, onAction, inputValues)
         // SPEC-089d Phase 3: Form input block renderers (22 types)
         "input_text" -> FormInputTextBlock(block, inputValues, keyboardType = android.text.InputType.TYPE_CLASS_TEXT)
@@ -4442,25 +4445,31 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                 val badgeHPadding = (6f * badgeScale).dp
                 val badgeVPadding = (2f * badgeScale).dp
                 val badgeRadius = (block.badge_corner_radius ?: 999.0).dp
-                val badgeAlignment = when (block.badge_position) {
-                    "top_leading" -> Alignment.TopStart
-                    "bottom_trailing" -> Alignment.BottomEnd
-                    "bottom_leading" -> Alignment.BottomStart
-                    else -> Alignment.TopEnd   // top_trailing is the default
-                }
-                // SPEC-401-A R19 — match iOS lines 1716-1733 which use
-                // `.offset(x: ±avatarSize * 0.35, y: ±avatarSize * 0.35)`
-                // to OVERLAP the badge into the avatar's NE corner. Android's
-                // `.align(badgeAlignment)` alone pinned to inner Box edge with
-                // no overlap, leaving the badge sitting outside the avatar
-                // visually. Direction signs derived from corner alignment.
+                // QA-R15 — badge offset MUST be relative to the
+                // ZStack centre, not to a `.align(corner)` anchor. iOS
+                // `ContentBlockStandaloneViews.swift:1707-1733` builds the
+                // ZStack with no explicit alignment on the badge — it
+                // inherits the default centre — then `.offset(x, y)` shifts
+                // it from the centre INTO the avatar's corner.
+                //
+                // The old Android code combined `.align(Alignment.TopEnd)`
+                // (anchor at the FRAME's top-right corner) with the same
+                // outward offset signs iOS uses. Net effect: badge anchored
+                // to frame corner THEN pushed FURTHER outward, ending up
+                // far above-right of the avatar instead of overlapping into
+                // its NE corner. Mrozu's "LIVE badge clipped in half"
+                // screenshot is exactly this: the badge drew above the
+                // frame top edge and got cropped by the parent column.
+                //
+                // Fix: omit `.align(...)` (inheriting parent Box
+                // `contentAlignment = Center`), and use the same offset
+                // signs iOS uses (which are now centre-relative).
                 val overlapPx = (avatarSize.value * 0.35f).dp
-                val (offsetX, offsetY) = when (badgeAlignment) {
-                    Alignment.TopEnd -> overlapPx to -overlapPx
-                    Alignment.TopStart -> -overlapPx to -overlapPx
-                    Alignment.BottomEnd -> overlapPx to overlapPx
-                    Alignment.BottomStart -> -overlapPx to overlapPx
-                    else -> 0.dp to 0.dp
+                val (offsetX, offsetY) = when (block.badge_position) {
+                    "top_leading" -> -overlapPx to -overlapPx
+                    "bottom_trailing" -> overlapPx to overlapPx
+                    "bottom_leading" -> -overlapPx to overlapPx
+                    else -> overlapPx to -overlapPx  // top_trailing default
                 }
                 Text(
                     text = block.badge_text,
@@ -4468,7 +4477,6 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     fontWeight = FontWeight.SemiBold,
                     color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
                     modifier = Modifier
-                        .align(badgeAlignment)
                         .offset(x = offsetX, y = offsetY)
                         .background(
                             StyleEngine.parseColor(block.badge_bg_color ?: "#EF4444"),
@@ -4481,7 +4489,7 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
     }
 }
 
-// MARK: - Pricing Card Block (SPEC-089d Nurrai)
+// MARK: - Pricing Card Block (SPEC-089d)
 
 @Composable
 private fun PricingCardBlock(
@@ -4921,27 +4929,26 @@ private fun FormInputPasswordBlock(
     ) {
         FormFieldLabel(block)
 
+        // QA-R16 \u2014 explicit `OutlinedTextFieldDefaults.colors(...)` so
+        // the password field stops falling through to Material3's purple
+        // `colorScheme.primary` for `focusedBorderColor`, `focusedLabelColor`,
+        // `cursorColor`, `focusedPlaceholderColor` defaults. Reads any
+        // console-authored colors first; otherwise defaults to white-on-
+        // transparent that matches onboarding gradient backgrounds.
+        val focusedBorder = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+        val unfocusedBorder = block.field_style?.border_color?.let { StyleEngine.parseColor(it) } ?: Color.White.copy(alpha = 0.3f)
+        val textCol = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.White
+        val placeholderCol = block.field_style?.placeholder_color?.let { StyleEngine.parseColor(it) } ?: Color.White.copy(alpha = 0.5f)
+        val cursorCol = focusedBorder
         androidx.compose.material3.OutlinedTextField(
             value = text,
             onValueChange = {
                 text = it
                 inputValues[fieldId] = it
             },
-            placeholder = { Text(block.field_placeholder ?: "Password") },
+            placeholder = { Text(block.field_placeholder ?: "Password", color = placeholderCol) },
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
-            // SPEC-401-A R11 \u2014 match iOS Password Autofill at
-            // FormInputBlockViews.swift:174 (`textContentType: .password`)
-            // and provide imeAction=Done for keyboard return-key parity
-            // with FormInputBlockViews.swift:177 `returnKeyType: .done`.
-            // `Modifier.semantics { contentType = ContentType.Password }`
-            // would be the proper Compose 1.6+ ContentType API but
-            // requires consumers on Compose 1.6+; `autofillHints` via
-            // the legacy AndroidView Autofill bridge would also work
-            // but requires a wrapper. The `keyboardType = Password`
-            // option below at least signals AutofillManager that this
-            // is a password field on Android 12+ for limited autofill
-            // support. A bundled vector icon for show/hide eye is a
-            // separate follow-up \u2014 current emoji works on every device.
+            // SPEC-401-A R11 \u2014 Password Autofill keyboard + Done return key.
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
@@ -4953,10 +4960,32 @@ private fun FormInputPasswordBlock(
             else
                 androidx.compose.ui.text.input.PasswordVisualTransformation(),
             trailingIcon = {
+                // QA-R16 \u2014 replace literal `\uD83D\uDE48`/`\uD83D\uDC41` emoji with
+                // proper Material icons so the eye toggle scales correctly
+                // with system font size and renders consistently across
+                // OEM emoji fonts.
                 androidx.compose.material3.IconButton(onClick = { passwordVisible = !passwordVisible }) {
-                    Text(if (passwordVisible) "\uD83D\uDE48" else "\uD83D\uDC41", fontSize = 18.sp)
+                    androidx.compose.material3.Icon(
+                        imageVector = if (passwordVisible)
+                            androidx.compose.material.icons.Icons.Filled.VisibilityOff
+                        else
+                            androidx.compose.material.icons.Icons.Filled.Visibility,
+                        contentDescription = if (passwordVisible) "Hide password" else "Show password",
+                        tint = textCol.copy(alpha = 0.7f),
+                    )
                 }
             },
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = focusedBorder,
+                unfocusedBorderColor = unfocusedBorder,
+                focusedTextColor = textCol,
+                unfocusedTextColor = textCol,
+                focusedPlaceholderColor = placeholderCol,
+                unfocusedPlaceholderColor = placeholderCol,
+                focusedLabelColor = focusedBorder,
+                unfocusedLabelColor = unfocusedBorder,
+                cursorColor = cursorCol,
+            ),
         )
     }
 }
@@ -5260,9 +5289,19 @@ private fun FormInputSelectBlock(
     val cfgSelectedBg = (cfg?.get("selected_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
     val cfgSelectedText = (cfg?.get("selected_text_color") as? String)?.let { StyleEngine.parseColor(it) }
     val cfgOptText = (cfg?.get("text_color") as? String)?.let { StyleEngine.parseColor(it) }
+    // QA-R4 — match iOS FormInputBlockViews.swift:478-530 default
+    // (`Color.white.opacity(0.15)`) so unstyled options render as a thin
+    // frosted-glass card over the step gradient, NOT opaque black.
+    //
+    // ⚠ DO NOT change to `Color.Transparent` — it is a hidden footgun.
+    // Color.Transparent is `Color(0x00000000)` (alpha=0, RGB=0). Combining
+    // with the `.copy(alpha = bgOpacity)` multiplier below where bgOpacity
+    // defaults to `1.0f` produces `Color(0xFF000000)` = OPAQUE BLACK. The
+    // alpha-multiplication math at line ~5362 also now preserves the
+    // base color's alpha instead of overwriting it.
     val unselectedBg = cfgOptBg
         ?: block.field_style?.background_color?.let { StyleEngine.parseColor(it) }
-        ?: Color.Transparent
+        ?: Color.White.copy(alpha = 0.15f)
     val selectedBg = cfgSelectedBg ?: fillCol.copy(alpha = 0.15f)
     val unselectedBorder = cfgOptBorder
         ?: block.field_style?.border_color?.let { StyleEngine.parseColor(it) }
@@ -5358,7 +5397,15 @@ private fun FormInputSelectBlock(
                                 ),
                             shape = RoundedCornerShape(cornerR),
                             colors = CardDefaults.cardColors(
-                                containerColor = (if (isSelected) optSelBg else optUnselBg).copy(alpha = bgOpacity),
+                                // QA-R4 — multiply alpha (not overwrite).
+                                // Old `.copy(alpha = bgOpacity)` turned a base
+                                // alpha-0.15 white into alpha-1.0 white when
+                                // bgOpacity was 1.0 (the default), producing a
+                                // fully opaque card. Multiplying preserves the
+                                // authored translucency: base 0.15 × 1.0 = 0.15.
+                                containerColor = (if (isSelected) optSelBg else optUnselBg).let { c ->
+                                    c.copy(alpha = c.alpha * bgOpacity)
+                                },
                             ),
                             border = androidx.compose.foundation.BorderStroke(
                                 if (isSelected) selectedBorderW else unselectedBorderW,
@@ -5408,11 +5455,22 @@ private fun FormInputSelectBlock(
                                         } ?: FontWeight.Normal,
                                     )
                                     option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
+                                        // QA-R14 — subtitle default color
+                                        // = option text color × 0.65 alpha,
+                                        // mirroring iOS `FormInputBlockViews.swift:
+                                        // 518-519` `textCol.opacity(0.65)`. Was
+                                        // `MaterialTheme.colorScheme.onSurface ×
+                                        // 0.6` which on dark gradient backgrounds
+                                        // resolved to near-black-on-dark (low
+                                        // contrast) because M3 default `onSurface`
+                                        // adapts to the host's color scheme, not
+                                        // the step's authored background.
+                                        val subtitleBase = if (textCol == Color.Unspecified) Color.White else textCol
                                         Text(
                                             text = subtitle,
                                             fontSize = (option.subtitle_font_size ?: 12.0).sp,
                                             color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
-                                                ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                                ?: subtitleBase.copy(alpha = 0.65f),
                                         )
                                     }
                                 }
@@ -5456,7 +5514,10 @@ private fun FormInputSelectBlock(
                                         .clickable { pickOption(option.value) },
                                     shape = RoundedCornerShape(cornerR),
                                     colors = CardDefaults.cardColors(
-                                        containerColor = (if (isSelected) optSelBg else optUnselBg).copy(alpha = bgOpacity),
+                                        // QA-R4 — multiply alpha, same fix as stacked branch.
+                                        containerColor = (if (isSelected) optSelBg else optUnselBg).let { c ->
+                                            c.copy(alpha = c.alpha * bgOpacity)
+                                        },
                                     ),
                                     border = androidx.compose.foundation.BorderStroke(
                                         if (isSelected) selectedBorderW else unselectedBorderW,

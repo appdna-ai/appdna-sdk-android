@@ -174,14 +174,24 @@ private fun passwordTextFieldColors(field: FormField): TextFieldColors {
     val errorHex = (style.error_style?.get("color") as? String)
         ?: (style.error_style?.get("border_color") as? String)
     val errorBorder = parse(errorHex)
+    // QA-R16 (broadened) — mirror the FormStepComposable
+    // `textFieldColorsFor` change (line 803): default to white-on-
+    // translucent instead of M3 `colorScheme.primary` (purple). Same
+    // Compose Material3 footgun — Password and URL fields rendered with
+    // a purple focused border on any host using the default M3 scheme.
     return OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = focusedBorder ?: MaterialTheme.colorScheme.primary,
-        unfocusedBorderColor = border ?: MaterialTheme.colorScheme.outline,
+        focusedBorderColor = focusedBorder ?: Color.White,
+        unfocusedBorderColor = border ?: Color.White.copy(alpha = 0.3f),
         errorBorderColor = errorBorder ?: MaterialTheme.colorScheme.error,
         focusedContainerColor = container ?: Color.Transparent,
         unfocusedContainerColor = container ?: Color.Transparent,
         disabledContainerColor = container ?: Color.Transparent,
         errorContainerColor = container ?: Color.Transparent,
+        cursorColor = focusedBorder ?: Color.White,
+        focusedLabelColor = focusedBorder ?: Color.White,
+        unfocusedLabelColor = border ?: Color.White.copy(alpha = 0.7f),
+        focusedTextColor = Color.White,
+        unfocusedTextColor = Color.White,
     )
 }
 

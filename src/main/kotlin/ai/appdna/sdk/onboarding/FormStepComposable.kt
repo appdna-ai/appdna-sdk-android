@@ -799,14 +799,27 @@ private fun textFieldColorsFor(field: FormField): TextFieldColors {
         ?: (style.error_style?.get("border_color") as? String)
     val errorBorder = parse(errorHex)
 
+    // QA-R16 (broadened) — same Compose Material3 footgun as the
+    // password content-block: unset `focused_border_color` falls through to
+    // `colorScheme.primary`, which is M3 default purple on the dark scheme.
+    // Override with white-on-translucent so authored fields without an
+    // explicit colour render legibly over the step's dark gradient. Hosts
+    // running a light Compose theme also benefit — `colorScheme.primary` on
+    // the light scheme is M3's deep purple (`#6750A4`), still divergent
+    // from the iOS-canonical indigo / system tint.
     return OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = focusedBorder ?: MaterialTheme.colorScheme.primary,
-        unfocusedBorderColor = border ?: MaterialTheme.colorScheme.outline,
+        focusedBorderColor = focusedBorder ?: androidx.compose.ui.graphics.Color.White,
+        unfocusedBorderColor = border ?: androidx.compose.ui.graphics.Color.White.copy(alpha = 0.3f),
         errorBorderColor = errorBorder ?: MaterialTheme.colorScheme.error,
         focusedContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
         unfocusedContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
         disabledContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
         errorContainerColor = container ?: androidx.compose.ui.graphics.Color.Transparent,
+        cursorColor = focusedBorder ?: androidx.compose.ui.graphics.Color.White,
+        focusedLabelColor = focusedBorder ?: androidx.compose.ui.graphics.Color.White,
+        unfocusedLabelColor = border ?: androidx.compose.ui.graphics.Color.White.copy(alpha = 0.7f),
+        focusedTextColor = androidx.compose.ui.graphics.Color.White,
+        unfocusedTextColor = androidx.compose.ui.graphics.Color.White,
     )
 }
 

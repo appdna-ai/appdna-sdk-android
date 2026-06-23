@@ -566,6 +566,24 @@ fun PaywallScreen(
             }
         }
 
+        // QA-R18 — honour `config.dismiss.allowed = false` on the
+        // VISIBLE dismiss control, not just the system back button. Was
+        // setting `showDismiss = true` unconditionally regardless of the
+        // authored `allowed` flag, so a paywall configured as force-choice
+        // (Winback / hard-paywall) STILL rendered an X / Skip / swipe-down
+        // handle — defeating the whole point of `allowed: false`. The
+        // onBackPressed gate at line ~265 caught back-press attempts but
+        // the user could still tap the on-screen control to dismiss.
+        //
+        // iOS PaywallRenderer.swift gates `dismissControl` rendering on
+        // `config.dismiss?.allowed != false` at the view level; mirror
+        // that here.
+        val dismissAllowedByConfig = config.dismiss?.allowed != false
+        if (!dismissAllowedByConfig) {
+            // Force-choice paywall — never render the dismiss control.
+            showDismiss = false
+            return@LaunchedEffect
+        }
         // Handle dismiss delay
         val delay = config.dismiss?.delay_seconds ?: 0
         if (delay > 0) {
@@ -1365,7 +1383,11 @@ private fun PaywallSectionView(
                 "rounded" -> RoundedCornerShape(4.dp)
                 else -> RoundedCornerShape(999.dp) // pill
             }
-            val badgePosition = section.data?.badge_position ?: "inline"
+            // QA-R11 — default `top_right` to mirror iOS
+            // `PlanCard.swift:259` (`cardStyle.badgePosition ?? "top_right"`).
+            // Was `"inline"` which forced the badge inside the card body, on
+            // top of the plan name and price.
+            val badgePosition = section.data?.badge_position ?: "top_right"
 
             @Composable
             fun BadgeView(badgeText: String) {
@@ -1436,7 +1458,20 @@ private fun PaywallSectionView(
                     ),
                 ) {
                     Box {
-                        Column(modifier = Modifier.padding(cardPad)) {
+                        // QA-R11 — reserve top space for the straddling
+                        // badge so plan name / price don't sit underneath it.
+                        // Mirrors iOS `PlanCard.swift:237-239` `.padding(.top,
+                        // plan.badge != nil && badgePosition != "inline"
+                        //     ? max(12, ((badgeFontSize ?? 11) + 8) / 2 + 2)
+                        //     : 0)`.
+                        val badgeReservedTop = if (plan.badge != null && badgePosition != "inline") {
+                            maxOf(12f, ((section.data?.badge_font_size ?: 11f) + 8f) / 2f + 2f).dp
+                        } else 0.dp
+                        Column(
+                            modifier = Modifier
+                                .padding(cardPad)
+                                .padding(top = badgeReservedTop),
+                        ) {
                             // PW-9: optional plan icon (top of card; iOS SF
                             // Symbol rendered via IconView). Resolved from
                             // plan.icon when show_plan_icons flag is true.
@@ -1574,7 +1609,14 @@ private fun PaywallSectionView(
                                 }
                             }
                         }
-                        // Positioned badge (non-inline)
+                        // QA-R11 — badge straddles the card's top edge
+                        // (half above, half on) instead of sitting inside the
+                        // card content area. Mirrors iOS `PlanCard.swift:217-228`
+                        // `.overlay(alignment: badgeAlignment) { ... .offset(y:
+                        // -(((badgeFontSize ?? 11) + 8) / 2)) }`. The card's
+                        // top padding is also bumped (see `cardPad` adjustment
+                        // below) so the title doesn't sit underneath the
+                        // straddling badge.
                         plan.badge?.let { badge ->
                             if (badgePosition != "inline") {
                                 val alignment = when (badgePosition) {
@@ -1582,8 +1624,15 @@ private fun PaywallSectionView(
                                     "top_center" -> Alignment.TopCenter
                                     else -> Alignment.TopEnd // top_right default
                                 }
+                                // iOS uses badge_font + vertical_padding (4+4=8)
+                                // / 2 as the offset. Mirror with badge font size
+                                // + 8dp total vertical padding.
+                                val badgeOverhang = ((section.data?.badge_font_size ?: 11f) + 8f) / 2f
                                 Box(
-                                    modifier = Modifier.align(alignment).padding(8.dp),
+                                    modifier = Modifier
+                                        .align(alignment)
+                                        .offset(y = (-badgeOverhang).dp)
+                                        .padding(horizontal = 8.dp),
                                 ) {
                                     BadgeView(loc("plan.$planIdx.badge", badge))
                                 }
@@ -1618,6 +1667,19 @@ private fun PaywallSectionView(
                         val selectedIdx = plans.indexOfFirst { it.id == selectedPlanId }
                             .coerceAtLeast(0)
                         val selectedPlan = plans.getOrNull(selectedIdx)
+                        // QA-R7 — explicit SegmentedButton colors so
+                        // the active segment doesn't fall back to
+                        // `MaterialTheme.colorScheme.primary` (the M3 default
+                        // purple `#D0BCFF` / `#6750A4`). iOS uses
+                        // `Picker(.segmented)` with the iOS-canonical indigo
+                        // `#6366F1` for the active fill. Authored
+                        // `selected_bg_color` / `selected_border_color` win.
+                        val segActiveBg = customSelectedBg ?: Color(0xFF6366F1).copy(alpha = 0.2f)
+                        val segActiveBorder = customSelectedBorder ?: Color(0xFF6366F1)
+                        val segInactiveBg = unselectedBgColor ?: Color.Transparent
+                        val segInactiveBorder = unselectedBorderColor ?: Color.White.copy(alpha = 0.2f)
+                        val segActiveText = selectedTextColor ?: Color.White
+                        val segInactiveText = Color.White.copy(alpha = 0.7f)
                         SingleChoiceSegmentedButtonRow(
                             modifier = Modifier.fillMaxWidth(),
                         ) {
@@ -1628,6 +1690,14 @@ private fun PaywallSectionView(
                                     shape = SegmentedButtonDefaults.itemShape(
                                         index = planIdx,
                                         count = plans.size,
+                                    ),
+                                    colors = SegmentedButtonDefaults.colors(
+                                        activeContainerColor = segActiveBg,
+                                        activeBorderColor = segActiveBorder,
+                                        activeContentColor = segActiveText,
+                                        inactiveContainerColor = segInactiveBg,
+                                        inactiveBorderColor = segInactiveBorder,
+                                        inactiveContentColor = segInactiveText,
                                     ),
                                 ) {
                                     Text(
@@ -2080,9 +2150,31 @@ private fun PaywallSectionView(
             // gradient + cta_height + cta_font_size honored from authored
             // values. Mirrors iOS PaywallRenderer CTA branch with the
             // RestoreLinkView wrapping (PaywallRenderer.swift:146-205).
+            // QA-R8 — mirror iOS CTAButton.swift:28-45 full resolution
+            // chain. Was reading only `section.style.elements.button.background.color`
+            // and falling back to `Color(0xFF6366F1)` (indigo). Console-authored
+            // `cta.bg_color` / `cta_bg_color` (from the simpler Content-tab fields
+            // most authors use) was silently dropped, so a paywall configured
+            // with `cta: { bg_color: "#FFFFFF", text_color: "#000000" }` rendered
+            // as the indigo default → "text-only with no background" QA report.
             val buttonBgColor = section.style?.elements?.get("button")?.background?.color?.let {
                 StyleEngine.parseColor(it)
-            } ?: Color(0xFF6366F1)
+            }
+                ?: config.cta?.bg_color?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta?.bg_color?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta_bg_color?.let { StyleEngine.parseColor(it) }
+                ?: Color(0xFF6366F1)
+            // QA-R8 — same chain for the button text color. Was hardcoded
+            // `Color.White` (line 2193). iOS `CTAButton.swift:40-45` reads
+            // `buttonTextStyle.color` then `cta?.resolvedTextColor`
+            // (= `styleObj?.text_color ?? text_color ?? "#FFFFFF"`).
+            val buttonTextColor = section.style?.elements?.get("button")?.text_style?.color?.let {
+                StyleEngine.parseColor(it)
+            }
+                ?: config.cta?.text_color?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta?.text_color?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta_text_color?.let { StyleEngine.parseColor(it) }
+                ?: Color.White
             // PW-10: prefer authored cta_font_size over the 17.sp baseline.
             val ctaFontSize = (section.data?.cta_font_size ?: section.data?.cta?.font_size?.toFloat() ?: 17f).sp
             val ctaHeight = (section.data?.cta_height ?: section.data?.cta?.height?.toFloat() ?: 56f).dp
@@ -2124,11 +2216,21 @@ private fun PaywallSectionView(
             @Composable
             fun RestoreLink() {
                 val ctx = androidx.compose.ui.platform.LocalContext.current
+                // QA-R13 — Restore Purchases link is centred inside its
+                // CTA section row to match iOS `CTAButton.swift:94-126` which
+                // uses a `Button` whose label sits inside a `VStack(spacing:
+                // 8) { ... restoreButton ... }` — SwiftUI VStack centers all
+                // labels horizontally by default. Android `Column` defaults to
+                // Start; without `Alignment.CenterHorizontally` on the column
+                // OR `.fillMaxWidth() + textAlign = Center` on the text, the
+                // Restore link sticks to the left edge.
                 Text(
                     text = loc("cta.restore_text", restoreText),
                     color = restoreColor,
                     fontSize = restoreFontSize,
+                    textAlign = TextAlign.Center,
                     modifier = Modifier
+                        .fillMaxWidth()
                         .clickable { onRestore() }
                         .padding(vertical = 8.dp)
                         .semantics {
@@ -2151,6 +2253,14 @@ private fun PaywallSectionView(
                 // onCTATap() with no plan selected — purchase no-op'd or
                 // bought a default-fallback plan.
                 val ctaEnabled = !isPurchasing && selectedPlanId != null
+                // QA-R9 — disable Compose's default M3 ripple so the CTA
+                // doesn't flash `colorScheme.primary` (purple on the default
+                // M3 dark scheme) on tap. iOS `Button` has no ripple equivalent
+                // — taps just dim. Compose `clickable {}` uses LocalIndication
+                // which is a Material ripple by default; we'd otherwise need
+                // to override with a tinted ripple matching the authored CTA
+                // colour, which is more bookkeeping than this UX warrants.
+                val ctaInteraction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -2166,13 +2276,21 @@ private fun PaywallSectionView(
                             else Modifier.background(buttonBgColor)
                         )
                         .alpha(if (ctaEnabled) 1f else 0.5f)
-                        .clickable(enabled = ctaEnabled) { onCTATap() },
+                        .clickable(
+                            enabled = ctaEnabled,
+                            interactionSource = ctaInteraction,
+                            indication = null, // QA-R9 — no purple ripple
+                        ) { onCTATap() },
                     contentAlignment = Alignment.Center,
                 ) {
                     if (isPurchasing) {
+                        // QA-R9 — spinner color follows the authored CTA
+                        // text color so a white-CTA + black-text config produces
+                        // a BLACK spinner (not white-on-white), and an authored
+                        // primary-coloured CTA shows a white spinner on top.
                         CircularProgressIndicator(
                             modifier = Modifier.size(20.dp),
-                            color = Color.White,
+                            color = buttonTextColor,
                             strokeWidth = 2.dp,
                         )
                     } else {
@@ -2190,7 +2308,11 @@ private fun PaywallSectionView(
                                     ?: section.data?.text?.takeIf { it.isNotBlank() }
                                     ?: "Continue",
                             ),
-                            style = buttonTextStyle.copy(color = Color.White),
+                            // QA-R8 — apply resolved CTA text color
+                            // (was hardcoded Color.White). An authored white-bg
+                            // CTA with black text now actually renders the
+                            // authored black instead of white-on-white.
+                            style = buttonTextStyle.copy(color = buttonTextColor),
                         )
                     }
                 }
@@ -2936,63 +3058,74 @@ private fun PaywallTimelineSection(
     val isCompact = section.data.compact ?: false
     val showLine = section.data.show_line ?: true
 
-    Column(
-        verticalArrangement = Arrangement.spacedBy(if (isCompact) 12.dp else 24.dp),
+    // QA-R12 \u2014 full restructure to match iOS vertical timeline
+    // (`PaywallRenderer.swift:1267-1340`). Was rendering each item as a
+    // self-contained Row with a 24dp circle + 24dp-tall 2dp line stacked
+    // below \u2014 visually a chain of large bubbles. iOS uses:
+    //   \u2022 8dp accent dots (not 24dp bubbles)
+    //   \u2022 1dp-wide hairline connector at `itemSpacing` height (20dp normal,
+    //     12dp compact) drawn ONLY between adjacent dots
+    //   \u2022 dot color * 0.6 opacity, connector color * 0.25 opacity
+    //   \u2022 two sibling columns: left = continuous chain of dots+lines,
+    //     right = chain of (title + subtitle) labels with no inter-row gap
+    //   \u2022 5dp top inset on the left chain so the first dot aligns to text
+    //     baseline
+    // The 30/60/90 "misalignment" reported by Mrozu is the proportion
+    // mismatch \u2014 Android's 24dp circles dominated the layout, while iOS's
+    // tiny accent dots act as a subtle visual rail.
+    val connectorColor = section.data.line_color?.let { parseHexColor(it) }
+        ?: section.style?.elements?.get("connector")?.text_style?.color?.let { parseHexColor(it) }
+        ?: Color.White
+    val titleFontSize = (section.data.font_size ?: 14f).sp
+    val itemSpacing = if (isCompact) 12.dp else 20.dp
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.Top,
         modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
     ) {
-        items.forEachIndexed { index, item ->
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                // Status indicator column
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.width(24.dp),
-                ) {
-                    val baseStatusColor = when (item.status) {
-                        "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
-                        "current" -> parseHexColor(section.data.current_color ?: "#6366F1")
-                        else -> parseHexColor(section.data.upcoming_color ?: "#666666")
-                    }
-                    // SPEC-401-A R85 (Lens A F2 P1) \u2014 honor per-item color
-                    // override matching iOS PaywallRenderer.swift:1265,1288.
-                    // Was ignoring TimelineItem.color \u2192 author cannot tint a
-                    // single milestone differently.
-                    val statusColor = item.color?.let { parseHexColor(it) } ?: baseStatusColor
-                    Box(
-                        modifier = Modifier.size(24.dp).clip(CircleShape).background(statusColor),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (item.status == "completed") {
-                            Text("\u2713", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                    if (showLine && index < items.size - 1) {
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(if (isCompact) 12.dp else 24.dp)
-                                // SPEC-401-A R85 (Lens A F3) \u2014 connector
-                                // default #FFFFFF (was #333333) matches iOS
-                                // PaywallRenderer.swift:1257 default.
-                                .background(parseHexColor(section.data.line_color ?: "#FFFFFF")),
-                        )
-                    }
+        // Left column: continuous chain of dots and connector lines.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(top = 5.dp),
+        ) {
+            items.forEachIndexed { index, item ->
+                val baseStatusColor = when (item.status) {
+                    "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
+                    "current" -> parseHexColor(section.data.current_color ?: "#6366F1")
+                    else -> parseHexColor(section.data.upcoming_color ?: "#666666")
                 }
+                val statusColor = item.color?.let { parseHexColor(it) } ?: baseStatusColor
+                Box(
+                    modifier = Modifier
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(statusColor.copy(alpha = 0.6f)),
+                )
+                if (showLine && index < items.size - 1) {
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(itemSpacing)
+                            .background(connectorColor.copy(alpha = 0.25f)),
+                    )
+                }
+            }
+        }
 
-                // Content column
-                Column(modifier = Modifier.weight(1f)) {
-                    // SPEC-401-A R85 (Lens A F3) \u2014 title font size honors
-                    // section.data.font_size (default 14) matching iOS
-                    // PaywallRenderer.swift:1258. Was hardcoded 14sp.
-                    val titleFontSize = (section.data.font_size ?: 14f).sp
-                    item.title?.let {
-                        Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = titleFontSize)
-                    }
-                    item.subtitle?.let {
-                        Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                    }
+        // Right column: title + subtitle chain. Vertical rhythm comes from
+        // each item's intrinsic height (title + subtitle stacked) plus
+        // `itemSpacing` between them.
+        Column(modifier = Modifier.weight(1f)) {
+            items.forEachIndexed { index, item ->
+                item.title?.let {
+                    Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = titleFontSize)
+                }
+                item.subtitle?.let {
+                    Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                }
+                if (index < items.size - 1) {
+                    Spacer(Modifier.height(itemSpacing))
                 }
             }
         }
