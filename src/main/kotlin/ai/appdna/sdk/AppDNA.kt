@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.38"
+    const val sdkVersion = "1.0.39"
 
     /**
      * SPEC-070-A H.20: most recent throwable raised during configure/bootstrap
