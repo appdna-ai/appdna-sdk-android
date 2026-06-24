@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -910,6 +911,12 @@ data class InputOption(
     val selected_text_color: String? = null,
     /** Per-option grid cell alignment ("leading" | "center" | "trailing"). */
     val cell_alignment: String? = null,
+    /** SPEC-419 D7 / EPIC-1 — leading + trailing labels and per-option text alignment.
+     *  leading_text renders AFTER image+icon (field name, not edge position); trailing_text
+     *  renders after the title/subtitle column, before the trailing radio. */
+    val leading_text: String? = null,
+    val trailing_text: String? = null,
+    val text_alignment: String? = null,
 ) {
     /** Mirrors iOS `resolvedImageURL(isSelected:)` — selected/unselected variant first, default image_url last. */
     fun resolvedImageURL(isSelected: Boolean): String? {
@@ -5439,6 +5446,17 @@ private fun FormInputSelectBlock(
                                     Text(text = icon)
                                     Spacer(Modifier.width(8.dp))
                                 }
+                                // SPEC-419 D7 — leading_text (renders after image+icon, contract order)
+                                option.leading_text?.takeIf { it.isNotBlank() }?.let { lt ->
+                                    Text(
+                                        text = lt,
+                                        fontSize = 14.sp,
+                                        color = optTitleColor,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.testTag("option.leading_text"),
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = option.label,
@@ -5473,6 +5491,16 @@ private fun FormInputSelectBlock(
                                                 ?: subtitleBase.copy(alpha = 0.65f),
                                         )
                                     }
+                                }
+                                // SPEC-419 D7 — trailing_text (after title/subtitle column, before the radio)
+                                option.trailing_text?.takeIf { it.isNotBlank() }?.let { tt ->
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = tt,
+                                        fontSize = 12.sp,
+                                        color = (if (textCol == Color.Unspecified) Color.White else textCol).copy(alpha = 0.65f),
+                                        modifier = Modifier.testTag("option.trailing_text"),
+                                    )
                                 }
                                 if (showRadio && !radioOnLeft) {
                                     Spacer(Modifier.width(8.dp))
