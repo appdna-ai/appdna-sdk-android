@@ -127,6 +127,17 @@ internal class RemoteConfigManager(
     }
 
     /**
+     * SPEC-419 D6 — the applied (fetched + parsed) onboarding flow version, for the
+     * structural parity harness's readiness poll. Debug only — R8 elides the body in
+     * release builds (BuildConfig.DEBUG = false), so it returns null in production.
+     */
+    fun debugAppliedOnboardingVersion(flowId: String?): Int? {
+        if (!ai.appdna.sdk.BuildConfig.DEBUG) return null
+        val id = flowId ?: activeOnboardingFlowId ?: return null
+        return onboardingFlows[id]?.version
+    }
+
+    /**
      * SPEC-070-A F.13: read-only view of every parsed onboarding flow keyed by id.
      * Used by [ai.appdna.sdk.onboarding.OnboardingFlowManager.present] to evaluate
      * `audience_rules` across all flows when no explicit flowId is supplied —

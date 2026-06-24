@@ -1009,6 +1009,17 @@ object AppDNA {
     }
 
     /**
+     * SPEC-419 D6 — the applied (fetched + parsed) onboarding config version, for the
+     * structural parity harness's readiness poll. The host app surfaces this into a hidden
+     * `testTag("adn.appliedConfigVersion")` label the harness polls until it equals the
+     * just-published version. Debug only — R8 elides in release builds.
+     */
+    fun debugAppliedConfigVersion(flowId: String? = null): Int? {
+        if (!ai.appdna.sdk.BuildConfig.DEBUG) return null
+        return remoteConfigManager?.debugAppliedOnboardingVersion(flowId)
+    }
+
+    /**
      * SPEC-070-A I.11 — fetch the structured [ai.appdna.sdk.onboarding.LocationData]
      * captured by the named onboarding form field. Returns `null` if the
      * field hasn't been answered yet, was answered with a free-text value,
