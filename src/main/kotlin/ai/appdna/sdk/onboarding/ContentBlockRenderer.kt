@@ -876,6 +876,15 @@ data class FormFieldBlockStyle(
  * cell alignment / image overlays) now see those values applied on
  * Android instead of being silently dropped.
  */
+/** SPEC-419 D5 — per-option badge (e.g. RECOMMENDED). Mirrors iOS InputOption.OptionBadge. */
+@androidx.compose.runtime.Immutable
+data class OptionBadge(
+    val text: String? = null,
+    val bg_color: String? = null,
+    val text_color: String? = null,
+    val position: String? = null,
+)
+
 @androidx.compose.runtime.Immutable
 data class InputOption(
     val value: String,
@@ -917,6 +926,8 @@ data class InputOption(
     val leading_text: String? = null,
     val trailing_text: String? = null,
     val text_alignment: String? = null,
+    /** SPEC-419 D5 — per-option badge straddling the row top border. */
+    val badge: OptionBadge? = null,
 ) {
     /** Mirrors iOS `resolvedImageURL(isSelected:)` — selected/unselected variant first, default image_url last. */
     fun resolvedImageURL(isSelected: Boolean): String? {
@@ -5369,7 +5380,7 @@ private fun FormInputSelectBlock(
                     verticalArrangement = Arrangement.spacedBy(optionSpacingDp),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    options.forEach { option ->
+                    options.forEachIndexed { oi, option ->   // SPEC-419 — per-index parity node key
                         val isSelected = isOptionSelected(option.value)
                         // Per-option color overrides — each option can carry its own
                         // bg / border / selected colors that override the field_config
@@ -5384,9 +5395,13 @@ private fun FormInputSelectBlock(
                         // SPEC-401-A R64 — single click target so TalkBack treats
                         // Card+Checkbox/RadioButton as ONE element. Card owns the
                         // click + a11y; inner RadioButton/Checkbox uses null handler.
+                        // SPEC-419 D5 — Box wrap so the badge can straddle the card top border
+                        // (render half above the top edge, un-clipped by the Card).
+                        androidx.compose.foundation.layout.Box {
                         Card(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .testTag("option.$oi.row.bg")
                                 .then(
                                     if (isMulti) {
                                         Modifier.toggleable(
@@ -5453,13 +5468,14 @@ private fun FormInputSelectBlock(
                                         fontSize = 14.sp,
                                         color = optTitleColor,
                                         fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.testTag("option.leading_text"),
+                                        modifier = Modifier.testTag("option.$oi.leading_text"),
                                     )
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = option.label,
+                                        modifier = Modifier.testTag("option.$oi.title"),
                                         fontSize = (option.title_font_size ?: 14.0).sp,
                                         color = optTitleColor,
                                         fontWeight = option.title_font_weight?.let { wStr ->
@@ -5486,6 +5502,7 @@ private fun FormInputSelectBlock(
                                         val subtitleBase = if (textCol == Color.Unspecified) Color.White else textCol
                                         Text(
                                             text = subtitle,
+                                            modifier = Modifier.testTag("option.$oi.subtitle"),
                                             fontSize = (option.subtitle_font_size ?: 12.0).sp,
                                             color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
                                                 ?: subtitleBase.copy(alpha = 0.65f),
@@ -5499,7 +5516,7 @@ private fun FormInputSelectBlock(
                                         text = tt,
                                         fontSize = 12.sp,
                                         color = (if (textCol == Color.Unspecified) Color.White else textCol).copy(alpha = 0.65f),
-                                        modifier = Modifier.testTag("option.trailing_text"),
+                                        modifier = Modifier.testTag("option.$oi.trailing_text"),
                                     )
                                 }
                                 if (showRadio && !radioOnLeft) {
@@ -5513,6 +5530,30 @@ private fun FormInputSelectBlock(
                                     }
                                 }
                             }
+                        }
+                        // SPEC-419 D5 — per-option badge straddling the card top border (BoxScope child,
+                        // half above the top edge; inset 12dp from the trailing/leading edge).
+                        option.badge?.text?.takeIf { it.isNotBlank() }?.let { bt ->
+                            val leadingBadge = (option.badge?.position ?: "").contains("leading")
+                            Box(
+                                modifier = Modifier
+                                    .align(if (leadingBadge) Alignment.TopStart else Alignment.TopEnd)
+                                    .offset(x = if (leadingBadge) 12.dp else (-12).dp, y = (-9).dp)
+                                    .testTag("option.$oi.badge")
+                                    .background(
+                                        option.badge?.bg_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF22C55E),
+                                        RoundedCornerShape(999.dp),
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = bt,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = option.badge?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.White,
+                                )
+                            }
+                        }
                         }
                     }
                 }

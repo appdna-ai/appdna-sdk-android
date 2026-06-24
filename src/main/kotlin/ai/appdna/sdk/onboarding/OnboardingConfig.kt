@@ -1398,6 +1398,18 @@ internal object OnboardingConfigParser {
                         selected_bg_color = fm["selected_bg_color"] as? String,
                         selected_text_color = fm["selected_text_color"] as? String,
                         cell_alignment = fm["cell_alignment"] as? String,
+                        // SPEC-419 D7/D5 — leading/trailing labels + per-option badge (were unparsed).
+                        leading_text = fm["leading_text"] as? String,
+                        trailing_text = fm["trailing_text"] as? String,
+                        text_alignment = fm["text_alignment"] as? String,
+                        badge = (fm["badge"] as? Map<*, *>)?.let { bdg ->
+                            ai.appdna.sdk.onboarding.OptionBadge(
+                                text = bdg["text"] as? String,
+                                bg_color = bdg["bg_color"] as? String,
+                                text_color = bdg["text_color"] as? String,
+                                position = bdg["position"] as? String,
+                            )
+                        },
                     )
                 } else null
             }?.toImmutableList(),
