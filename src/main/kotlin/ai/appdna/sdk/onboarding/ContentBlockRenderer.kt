@@ -1476,13 +1476,19 @@ private fun ImageBlock(block: ContentBlock) {
     // `.height(...)` so portrait/landscape assets with `image_fit="contain"`
     // were forced to that exact pixel height instead of shrinking to
     // intrinsic size. `heightIn(max=)` matches iOS behaviour.
+    // SPEC-419 — honour an explicit px element_width (e.g. a 15px leading-icon image inside a
+    // synthesis-card row) instead of ALWAYS fillMaxWidth. A small icon nested in a row was filling
+    // the row's allocated width (~half the card) and ballooning, then the card clipped it. With a
+    // fixed px width set, size the image to it (+ Fit so the icon isn't cropped); else fill width.
+    val explicitW = block.element_width?.takeIf { it.endsWith("px") }?.dropLast(2)?.toFloatOrNull()
+    val imgWidthMod = if (explicitW != null) Modifier.width(explicitW.dp) else Modifier.fillMaxWidth()
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
-            .fillMaxWidth()
+            .then(imgWidthMod)
             .heightIn(max = (block.height ?: 200.0).dp)
             .then(shapeModifier),
-        contentScale = contentScale,
+        contentScale = if (explicitW != null) androidx.compose.ui.layout.ContentScale.Fit else contentScale,
         // SPEC-401-A R57 (Lens A R57 #15, P3) — fall back to "Image" when
         // alt unset, matching iOS accessibilityLabel(block.alt ?? "Image")
         // at ContentBlockRendererView.swift:340. Was passing null — TalkBack
