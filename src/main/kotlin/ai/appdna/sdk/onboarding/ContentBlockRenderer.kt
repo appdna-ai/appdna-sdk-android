@@ -4231,19 +4231,19 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                 modifier = Modifier.fillMaxWidth().height(80.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                // Center-anchored highlight chip
-                Box(
-                    modifier = Modifier
-                        .width(80.dp)
-                        .height(60.dp)
-                        .background(highlightColor.copy(alpha = 0.1f), RoundedCornerShape(8.dp)),
-                )
-
-                // SPEC-401-A R50 (Lens C #1, P0) — half-screen-minus-half-item
-                // contentPadding so the first/last items can scroll under the
-                // center highlight chip. iOS uses `.contentMargins(.horizontal,
-                // sidePad, for: .scrollContent)` at line 1547.
-                val sidePad = (LocalConfiguration.current.screenWidthDp.dp - 80.dp) / 2
+                // SPEC-419 — iOS modernHorizontalWheel has NO highlight chip/box; the
+                // selection is conveyed purely by the centred number being bold + the
+                // highlight colour, neighbours faded (s04 iOS shows "6" bold-white, "7 8"
+                // faded, no box). The old faint-white chip was an Android-only element that
+                // read as a "stepper box". Removed for parity.
+                //
+                // SPEC-419 — itemWidth is the SINGLE source of truth for both the item slot
+                // AND the side contentPadding, so the centred item lands exactly at the
+                // viewport midpoint. The old code used width(80)+padding(8) = 96dp items but
+                // sized sidePad off 80dp, so the centred value (esp. the min, which has no
+                // left neighbour) sat right-of-centre.
+                val itemWidth = 72.dp
+                val sidePad = (LocalConfiguration.current.screenWidthDp.dp - itemWidth) / 2
                 LazyRow(
                     state = listState,
                     modifier = Modifier.fillMaxSize(),
@@ -4279,8 +4279,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             // changes to VoiceOver; Compose has no equivalent so
                             // explicit `liveRegion = Polite` is required.
                             modifier = Modifier
-                                .width(80.dp)
-                                .padding(horizontal = 8.dp)
+                                .width(itemWidth) // SPEC-419 — same width as sidePad uses → centred item hits viewport midpoint
                                 .then(
                                     if (isCenter) Modifier.semantics {
                                         liveRegion = LiveRegionMode.Polite
