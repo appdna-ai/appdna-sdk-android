@@ -2638,7 +2638,10 @@ private fun ThreeZoneBlockLayout(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = horizontalPadding)
-                    .padding(bottom = 8.dp)
+                    // SPEC-419 — no extra bottom pad: the CTA sits right above the nav/gesture
+                    // safe-area inset (the parent's safeDrawingPadding already insets it), matching
+                    // iOS where the CTA sits right above the home indicator. The old 8dp pushed the
+                    // button ~8dp higher → a visible dark gap below it vs iOS (user-reported).
                     .imePadding(),
             ) {
                 ContentBlockRendererView(
