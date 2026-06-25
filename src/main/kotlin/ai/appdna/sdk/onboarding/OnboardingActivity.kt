@@ -3080,6 +3080,11 @@ private fun BlockBasedStepView(
                     // with infinite max-height and crashes at measure time.
                     // Mirrors iOS where the variant Container does not scroll;
                     // only the inner zone ScrollView does.
+                    // SPEC-419 KNOWN GAP: this Arrangement.Bottom + 200dp Spacer shoves a
+                    // TOP-zone block (e.g. an injected select) ~200dp down vs iOS (which has
+                    // no such wrapper). Naively removing it ANRs/crashes (the wrapper also
+                    // bounds TZBL's inner verticalScroll), so the proper fix must first give
+                    // TZBL a bounded height another way. Left as-is to keep onboarding stable.
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
