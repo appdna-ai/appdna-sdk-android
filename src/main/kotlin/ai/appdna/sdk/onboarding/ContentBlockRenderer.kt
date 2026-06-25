@@ -1139,7 +1139,7 @@ private fun applyBindingProperty(block: ContentBlock, property: String, value: A
 /**
  * Parses relative size strings (SPEC-089d §6.7).
  */
-fun Modifier.applyRelativeSizing(width: String?, height: String?): Modifier {
+fun Modifier.applyRelativeSizing(width: String?, height: String?, useMinHeight: Boolean = false): Modifier {
     var mod = this
     when {
         width == "fill" -> mod = mod.then(Modifier.fillMaxWidth())
@@ -1162,7 +1162,14 @@ fun Modifier.applyRelativeSizing(width: String?, height: String?): Modifier {
         }
         height?.endsWith("px") == true -> {
             val px = height.dropLast(2).toFloatOrNull()
-            if (px != null) mod = mod.then(Modifier.height(px.dp))
+            // SPEC-419 — useMinHeight → heightIn(min) so content TALLER than the authored height
+            // (e.g. a 3-line heading inside element_height:100px) grows instead of being clipped.
+            // iOS applies the same height via SwiftUI .frame(height:), which never clips overflow;
+            // Compose .height() DOES clip → the therapist heading lost its last line ("relief?").
+            // Fixed height kept for non-text blocks (images/spacers) that want an exact box.
+            if (px != null) mod = mod.then(
+                if (useMinHeight) Modifier.heightIn(min = px.dp) else Modifier.height(px.dp),
+            )
         }
     }
     return mod
@@ -1215,8 +1222,11 @@ fun ContentBlockRendererView(
             // dropdown can grow; Compose's relative sizing equivalent
             // already lets dropdowns expand, so we only need the skip.
             val isInputBlock = block.type.startsWith("input_")
+            // SPEC-419 — text blocks treat element_height as a MINIMUM (grow, never clip) since a
+            // wrapped heading/body can exceed the authored height; matches iOS .frame non-clipping.
+            val isTextBlock = block.type in setOf("heading", "text", "subheading", "subtitle", "body", "paragraph", "rich_text")
             val effectiveHeight = if (isInputBlock) null else block.element_height
-            val sizingModifier = Modifier.applyRelativeSizing(block.element_width, effectiveHeight)
+            val sizingModifier = Modifier.applyRelativeSizing(block.element_width, effectiveHeight, useMinHeight = isTextBlock)
 
             if (shouldAnimate) {
                 block.entrance_animation?.let { anim ->
@@ -3985,7 +3995,13 @@ private fun RowBlock(
                     }
                 } else {
                     childBlocks.forEach { child ->
-                        val childMod = if (childFill) Modifier.weight(1f) else Modifier
+                        // SPEC-419 — a child with an explicit fixed px width (e.g. a 15px leading
+                        // icon image) must use THAT width, not weight(1f): equal weighting ballooned
+                        // a tiny icon to ~half the row width, then ImageBlock.fillMaxWidth + Crop blew
+                        // it up and the card height clipped it (user-reported s16 oversized icon).
+                        val cw = child.element_width
+                        val childMod = if (cw != null && cw.endsWith("px")) Modifier.applyRelativeSizing(cw, null)
+                            else if (childFill) Modifier.weight(1f) else Modifier
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
                         Box(modifier = overflowMod) {
                             RenderBlock(
