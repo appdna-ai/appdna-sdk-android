@@ -3119,23 +3119,32 @@ private fun BlockBasedStepView(
         when (variant) {
             "image_fullscreen" -> {
                 Box(Modifier.fillMaxSize()) {
-                    // Image background with gradient overlay
-                    ai.appdna.sdk.core.NetworkImage(
-                        url = effectiveConfig.image_url,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
-                    )
-                    // Gradient overlay
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
-                                    startY = 300f,
+                    // SPEC-419 — only render the variant image + its darkening overlay when an image
+                    // is ACTUALLY authored. The nurrai steps all use layout_variant=image_fullscreen
+                    // but have NO image_url (the bg is a gradient painted full-bleed by
+                    // StepFullScreenBackground). The Transparent→Black0.7 overlay was firing anyway,
+                    // darkening the BOTTOM of the CONTENT area (it's bounded to the safe-area content)
+                    // → a banded dark "gap" below the CTA vs the uniform navy in the nav region (the
+                    // user-reported bottom band). iOS only darkens over a real image; no image → no
+                    // overlay → the gradient stays uniform top-to-bottom.
+                    if (effectiveConfig.image_url != null) {
+                        ai.appdna.sdk.core.NetworkImage(
+                            url = effectiveConfig.image_url,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        )
+                        // Gradient overlay (legibility scrim over the image)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(Color.Transparent, Color.Black.copy(alpha = 0.7f)),
+                                        startY = 300f,
+                                    )
                                 )
-                            )
-                    )
+                        )
+                    }
                     // SPEC-419 — let ThreeZoneBlockLayout own ALL vertical positioning
                     // (top/center/bottom zones), matching iOS which renders the bg full-screen
                     // and positions the zone layout normally. The old `Arrangement.Bottom` +
