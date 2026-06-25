@@ -92,6 +92,11 @@ class OnboardingActivity : ComponentActivity() {
         // crop content. The manifest declares `windowSoftInputMode="adjustResize"`
         // so Compose receives IME inset changes.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        // SPEC-419 — transparent system bars so the full-bleed step background paints
+        // UNDER the status/nav bars (matches iOS `.ignoresSafeArea()`). Without this the
+        // host theme's opaque statusBarColor draws a black band above the content.
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
 
         // SPEC-070-A J.21 — first-launch path: drain the next-launch payload
         // into the VM. On a config-change recreate the VM is already bound,
