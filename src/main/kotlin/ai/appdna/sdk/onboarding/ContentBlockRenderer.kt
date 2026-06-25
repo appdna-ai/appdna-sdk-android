@@ -1481,12 +1481,22 @@ private fun ImageBlock(block: ContentBlock) {
     // the row's allocated width (~half the card) and ballooning, then the card clipped it. With a
     // fixed px width set, size the image to it (+ Fit so the icon isn't cropped); else fill width.
     val explicitW = block.element_width?.takeIf { it.endsWith("px") }?.dropLast(2)?.toFloatOrNull()
-    val imgWidthMod = if (explicitW != null) Modifier.width(explicitW.dp) else Modifier.fillMaxWidth()
+    // SPEC-419 — a small authored width (≤40px) is a leading/card icon. The authored 15px renders too
+    // tiny to read; the old unconstrained path rendered it ~half the card wide then CLIPPED it. Render
+    // it at a legible SQUARE (floor 32dp, never above the authored size for genuinely-larger images)
+    // with Fit so it's prominent yet never cropped or clipped. Larger fixed widths use the value as-is.
+    val iconSize = explicitW?.let { if (it <= 40f) maxOf(it, block.height?.toFloat() ?: it, 32f) else null }
+    val imgWidthMod = when {
+        iconSize != null -> Modifier.width(iconSize.dp)
+        explicitW != null -> Modifier.width(explicitW.dp)
+        else -> Modifier.fillMaxWidth()
+    }
+    val imgHeightMax = if (iconSize != null) iconSize.dp else (block.height ?: 200.0).dp
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
             .then(imgWidthMod)
-            .heightIn(max = (block.height ?: 200.0).dp)
+            .heightIn(max = imgHeightMax)
             .then(shapeModifier),
         contentScale = if (explicitW != null) androidx.compose.ui.layout.ContentScale.Fit else contentScale,
         // SPEC-401-A R57 (Lens A R57 #15, P3) — fall back to "Image" when
