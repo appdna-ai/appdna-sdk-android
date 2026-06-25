@@ -1670,6 +1670,15 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                     modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
                     shape = shape,
                     colors = ButtonDefaults.buttonColors(containerColor = bgColor),
+                    // SPEC-419 — flat like iOS/SwiftUI buttons. Material's default ~1dp elevation
+                    // casts a drop shadow that, on dark gradient steps, reads as a dark band below
+                    // the CTA ("gap below the button" vs iOS where the gradient flows flat under it).
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 0.dp,
+                        pressedElevation = 0.dp,
+                        focusedElevation = 0.dp,
+                        hoveredElevation = 0.dp,
+                    ),
                     interactionSource = interactionSource,
                 ) {
                     ButtonContent(textColor = txtColor)
@@ -2248,6 +2257,13 @@ private fun SocialLoginBlock(
                         colors = ButtonDefaults.buttonColors(
                             containerColor = bgColor,
                             contentColor = textColor,
+                        ),
+                        // SPEC-419 — flat like iOS (no Material default-elevation shadow band).
+                        elevation = ButtonDefaults.buttonElevation(
+                            defaultElevation = 0.dp,
+                            pressedElevation = 0.dp,
+                            focusedElevation = 0.dp,
+                            hoveredElevation = 0.dp,
                         ),
                     ) {
                         Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)

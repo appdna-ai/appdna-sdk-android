@@ -98,7 +98,21 @@ class OnboardingActivity : ComponentActivity() {
         // is NOT enough — the content stays inset and the system-bar regions show black bands
         // (reported top + bottom). `enableEdgeToEdge()` (androidx.activity) lays the window out
         // edge-to-edge; clearing the contrast scrim stops the system re-tinting the bars.
-        enableEdgeToEdge()
+        // SPEC-419 — pass TRANSPARENT scrims. The no-arg enableEdgeToEdge() installs a default
+        // SystemBarStyle.auto scrim on the NAV bar (a translucent dark scrim for contrast); on dark
+        // gradient steps that scrim darkened the top of the nav region just below the CTA → a dark
+        // band the user read as a "gap below the button" (iOS has no such scrim). Transparent scrims
+        // remove it (navigationBarColor=TRANSPARENT alone did NOT — the SystemBarStyle owns the scrim).
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
         // Theme.Translucent.NoTitleBar sets FLAG_TRANSLUCENT_STATUS/NAVIGATION, which forces an
         // opaque/scrim system-bar background and makes statusBarColor=transparent a NO-OP (the bars
@@ -2958,7 +2972,15 @@ private fun BlockBasedStepView(
     Box(modifier = modifier.entryAnimation(effectiveConfig.animation?.entry_animation, effectiveConfig.animation?.entry_duration_ms)) {
         // Step-level background (color, gradient, image)
         effectiveConfig.background?.let { bg ->
-            when (bg.type) {
+            // SPEC-419 — color + gradient are painted FULL-BLEED by StepFullScreenBackground at the
+            // Activity root (under the system bars). Re-painting them HERE — inside the safe-area
+            // content, so `fillMaxSize` is bounded to the CONTENT height, not the screen — made the
+            // gradient finish at the safe-area bottom and render darker in the content area than the
+            // full-bleed copy shows in the nav region: the banded "gap"/dark area below the CTA the
+            // user reported (iOS spans full-screen → uniform). Skip the duplicate color/gradient
+            // fills here; image/lottie/rive animate and stay (root also draws them, harmless).
+            val bgType = if (bg.type == "color" || bg.type == "gradient") "__rootPaintsFullBleed__" else bg.type
+            when (bgType) {
                 "color" -> bg.color?.let {
                     Box(Modifier.fillMaxSize().background(ai.appdna.sdk.core.StyleEngine.parseColor(it)))
                 }
