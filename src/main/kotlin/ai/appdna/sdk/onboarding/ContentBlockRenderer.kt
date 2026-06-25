@@ -4011,12 +4011,14 @@ private fun RowBlock(
                     }
                 } else {
                     childBlocks.forEach { child ->
-                        // SPEC-419 — a child with an explicit fixed px width (e.g. a 15px leading
-                        // icon image) must use THAT width, not weight(1f): equal weighting ballooned
-                        // a tiny icon to ~half the row width, then ImageBlock.fillMaxWidth + Crop blew
-                        // it up and the card height clipped it (user-reported s16 oversized icon).
+                        // SPEC-419 — a fixed-px-width child (e.g. a leading icon image) WRAPS its own
+                        // content so its layout box matches what it actually renders. weight(1f) gave
+                        // it ~half the row (ballooned + clipped); forcing the authored 15px made the
+                        // box smaller than the legible icon ImageBlock now draws (32dp), shifting it
+                        // off-position ("too far left"). Wrap-content lets ImageBlock own the size and
+                        // the row position it correctly, vertically centred (align_items default).
                         val cw = child.element_width
-                        val childMod = if (cw != null && cw.endsWith("px")) Modifier.applyRelativeSizing(cw, null)
+                        val childMod = if (cw != null && cw.endsWith("px")) Modifier
                             else if (childFill) Modifier.weight(1f) else Modifier
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
                         Box(modifier = overflowMod) {
