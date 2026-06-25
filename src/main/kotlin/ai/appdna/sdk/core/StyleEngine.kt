@@ -235,21 +235,26 @@ object StyleEngine {
                         val brush = when (bg.gradient.type) {
                             "radial" -> Brush.radialGradient(colors)
                             else -> {
-                                val angle = bg.gradient.angle ?: 180.0
-                                val rads = Math.toRadians(angle)
-                                val dx = sin(rads).toFloat()
-                                val dy = -cos(rads).toFloat()
-                                Brush.linearGradient(
-                                    colors = colors,
-                                    start = androidx.compose.ui.geometry.Offset(
-                                        (0.5f - dx / 2f) * 1000f,
-                                        (0.5f - dy / 2f) * 1000f,
-                                    ),
-                                    end = androidx.compose.ui.geometry.Offset(
-                                        (0.5f + dx / 2f) * 1000f,
-                                        (0.5f + dy / 2f) * 1000f,
-                                    ),
-                                )
+                                // SPEC-419 — span the FULL bounds (the fixed *1000f offset made the
+                                // gradient finish at ~1000px and show flat end-colour below). Compose
+                                // vertical/horizontal gradients auto-span the draw bounds.
+                                val angle = ((bg.gradient.angle ?: 180.0) % 360 + 360) % 360
+                                when (angle) {
+                                    180.0 -> Brush.verticalGradient(colors)
+                                    0.0 -> Brush.verticalGradient(colors.reversed())
+                                    90.0 -> Brush.horizontalGradient(colors)
+                                    270.0 -> Brush.horizontalGradient(colors.reversed())
+                                    else -> {
+                                        val rads = Math.toRadians(angle)
+                                        val dx = sin(rads).toFloat()
+                                        val dy = -cos(rads).toFloat()
+                                        Brush.linearGradient(
+                                            colors = colors,
+                                            start = androidx.compose.ui.geometry.Offset((0.5f - dx / 2f) * 4000f, (0.5f - dy / 2f) * 4000f),
+                                            end = androidx.compose.ui.geometry.Offset((0.5f + dx / 2f) * 4000f, (0.5f + dy / 2f) * 4000f),
+                                        )
+                                    }
+                                }
                             }
                         }
                         mod.background(brush, shape)

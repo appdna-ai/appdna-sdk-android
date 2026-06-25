@@ -2018,21 +2018,30 @@ private fun StepFullScreenBackground(currentStep: OnboardingStep?) {
                         val brush = when (bg.gradient.type) {
                             "radial" -> Brush.radialGradient(colors)
                             else -> {
-                                val angle = bg.gradient.angle ?: 180.0
-                                val rads = Math.toRadians(angle)
-                                val dx = sin(rads).toFloat()
-                                val dy = -cos(rads).toFloat()
-                                Brush.linearGradient(
-                                    colors = colors,
-                                    start = Offset(
-                                        (0.5f - dx / 2f) * 1000f,
-                                        (0.5f - dy / 2f) * 1000f,
-                                    ),
-                                    end = Offset(
-                                        (0.5f + dx / 2f) * 1000f,
-                                        (0.5f + dy / 2f) * 1000f,
-                                    ),
-                                )
+                                // SPEC-419 — span the FULL bounds. The old fixed `*1000f` offset
+                                // made the gradient COMPLETE at ~1000px (≈42% of a ~2400px screen)
+                                // then show its flat end-colour below — the user-reported "gradient
+                                // ends earlier than the screen". iOS uses relative UnitPoints (0→1)
+                                // so it spans the whole height. Compose's vertical/horizontal
+                                // gradients auto-span the draw bounds; use them for cardinal angles
+                                // (the only ones authored in practice) + a large-offset fallback.
+                                val angle = ((bg.gradient.angle ?: 180.0) % 360 + 360) % 360
+                                when (angle) {
+                                    180.0 -> Brush.verticalGradient(colors)
+                                    0.0 -> Brush.verticalGradient(colors.reversed())
+                                    90.0 -> Brush.horizontalGradient(colors)
+                                    270.0 -> Brush.horizontalGradient(colors.reversed())
+                                    else -> {
+                                        val rads = Math.toRadians(angle)
+                                        val dx = sin(rads).toFloat()
+                                        val dy = -cos(rads).toFloat()
+                                        Brush.linearGradient(
+                                            colors = colors,
+                                            start = Offset((0.5f - dx / 2f) * 4000f, (0.5f - dy / 2f) * 4000f),
+                                            end = Offset((0.5f + dx / 2f) * 4000f, (0.5f + dy / 2f) * 4000f),
+                                        )
+                                    }
+                                }
                             }
                         }
                         Box(Modifier.fillMaxSize().background(brush))
@@ -2956,21 +2965,30 @@ private fun BlockBasedStepView(
                         val brush = when (bg.gradient.type) {
                             "radial" -> Brush.radialGradient(colors)
                             else -> {
-                                val angle = bg.gradient.angle ?: 180.0
-                                val rads = Math.toRadians(angle)
-                                val dx = sin(rads).toFloat()
-                                val dy = -cos(rads).toFloat()
-                                Brush.linearGradient(
-                                    colors = colors,
-                                    start = Offset(
-                                        (0.5f - dx / 2f) * 1000f,
-                                        (0.5f - dy / 2f) * 1000f,
-                                    ),
-                                    end = Offset(
-                                        (0.5f + dx / 2f) * 1000f,
-                                        (0.5f + dy / 2f) * 1000f,
-                                    ),
-                                )
+                                // SPEC-419 — span the FULL bounds. The old fixed `*1000f` offset
+                                // made the gradient COMPLETE at ~1000px (≈42% of a ~2400px screen)
+                                // then show its flat end-colour below — the user-reported "gradient
+                                // ends earlier than the screen". iOS uses relative UnitPoints (0→1)
+                                // so it spans the whole height. Compose's vertical/horizontal
+                                // gradients auto-span the draw bounds; use them for cardinal angles
+                                // (the only ones authored in practice) + a large-offset fallback.
+                                val angle = ((bg.gradient.angle ?: 180.0) % 360 + 360) % 360
+                                when (angle) {
+                                    180.0 -> Brush.verticalGradient(colors)
+                                    0.0 -> Brush.verticalGradient(colors.reversed())
+                                    90.0 -> Brush.horizontalGradient(colors)
+                                    270.0 -> Brush.horizontalGradient(colors.reversed())
+                                    else -> {
+                                        val rads = Math.toRadians(angle)
+                                        val dx = sin(rads).toFloat()
+                                        val dy = -cos(rads).toFloat()
+                                        Brush.linearGradient(
+                                            colors = colors,
+                                            start = Offset((0.5f - dx / 2f) * 4000f, (0.5f - dy / 2f) * 4000f),
+                                            end = Offset((0.5f + dx / 2f) * 4000f, (0.5f + dy / 2f) * 4000f),
+                                        )
+                                    }
+                                }
                             }
                         }
                         Box(Modifier.fillMaxSize().background(brush))
