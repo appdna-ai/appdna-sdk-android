@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.animateColorAsState
@@ -91,12 +92,20 @@ class OnboardingActivity : ComponentActivity() {
         // modifiers in the renderer roots resolve correctly and keyboards don't
         // crop content. The manifest declares `windowSoftInputMode="adjustResize"`
         // so Compose receives IME inset changes.
+        // SPEC-419 — TRUE edge-to-edge so the full-bleed step background paints UNDER the
+        // status + nav bars (matches iOS `.ignoresSafeArea()`). The Activity uses the legacy
+        // @android:style/Theme.Translucent.NoTitleBar where `statusBarColor=transparent` alone
+        // is NOT enough — the content stays inset and the system-bar regions show black bands
+        // (reported top + bottom). `enableEdgeToEdge()` (androidx.activity) lays the window out
+        // edge-to-edge; clearing the contrast scrim stops the system re-tinting the bars.
+        enableEdgeToEdge()
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-        // SPEC-419 — transparent system bars so the full-bleed step background paints
-        // UNDER the status/nav bars (matches iOS `.ignoresSafeArea()`). Without this the
-        // host theme's opaque statusBarColor draws a black band above the content.
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
+            window.isNavigationBarContrastEnforced = false
+        }
 
         // SPEC-070-A J.21 — first-launch path: drain the next-launch payload
         // into the VM. On a config-change recreate the VM is already bound,
