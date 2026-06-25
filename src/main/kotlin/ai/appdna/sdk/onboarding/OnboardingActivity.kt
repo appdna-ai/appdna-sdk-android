@@ -3074,25 +3074,22 @@ private fun BlockBasedStepView(
                                 )
                             )
                     )
-                    // Hotfix-1.0.33 — `ThreeZoneBlockLayout` already wraps its
-                    // top/center content in a verticalScroll. Wrapping it AGAIN
-                    // here in `Column(.verticalScroll)` nests two scrollables
-                    // with infinite max-height and crashes at measure time.
-                    // Mirrors iOS where the variant Container does not scroll;
-                    // only the inner zone ScrollView does.
-                    // SPEC-419 KNOWN GAP: this Arrangement.Bottom + 200dp Spacer shoves a
-                    // TOP-zone block (e.g. an injected select) ~200dp down vs iOS (which has
-                    // no such wrapper). Naively removing it ANRs/crashes (the wrapper also
-                    // bounds TZBL's inner verticalScroll), so the proper fix must first give
-                    // TZBL a bounded height another way. Left as-is to keep onboarding stable.
+                    // SPEC-419 — let ThreeZoneBlockLayout own ALL vertical positioning
+                    // (top/center/bottom zones), matching iOS which renders the bg full-screen
+                    // and positions the zone layout normally. The old `Arrangement.Bottom` +
+                    // 200dp top Spacer shoved a TOP-zone block (e.g. an injected select) ~200dp
+                    // down, so the block iOS pins to the top rendered a third of the way down.
+                    // The Box(weight = 1f) gives TZBL an explicitly BOUNDED height so its inner
+                    // verticalScroll never measures to infinity (the crash the old wrapper
+                    // guarded against) — without imposing any vertical offset.
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(20.dp),
-                        verticalArrangement = Arrangement.Bottom,
                     ) {
-                        Spacer(Modifier.height(200.dp))
-                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        }
                     }
                 }
             }

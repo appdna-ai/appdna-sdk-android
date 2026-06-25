@@ -5392,6 +5392,22 @@ private fun FormInputSelectBlock(
                         val optSelBorder = option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: selectedBorder
                         val optSelText = option.selected_text_color?.let { StyleEngine.parseColor(it) } ?: selectedTextCol
                         val optTitleColor = if (isSelected) optSelText else (option.title_color?.let { StyleEngine.parseColor(it) } ?: textCol)
+                        // SPEC-419 — SELECTED-state legibility for the secondary labels (subtitle +
+                        // trailing_text). When selected they adopt the option's selected text color so
+                        // they stay readable on a colored selected bg; otherwise the faded base. Mirrors
+                        // iOS FormInputBlockViews.swift (both use optSubtitleColor). Without this the
+                        // subtitle ("Slow and steady") AND trailing label ("Popular") went invisible on
+                        // the green selected card.
+                        val optSubtitleColor = run {
+                            val base = if (textCol == Color.Unspecified) Color.White else textCol
+                            if (isSelected) {
+                                option.selected_text_color?.let { StyleEngine.parseColor(it) }
+                                    ?: option.subtitle_color?.let { StyleEngine.parseColor(it) }
+                                    ?: base.copy(alpha = 0.65f)
+                            } else {
+                                option.subtitle_color?.let { StyleEngine.parseColor(it) } ?: base.copy(alpha = 0.65f)
+                            }
+                        }
                         // SPEC-401-A R64 — single click target so TalkBack treats
                         // Card+Checkbox/RadioButton as ONE element. Card owns the
                         // click + a11y; inner RadioButton/Checkbox uses null handler.
@@ -5499,13 +5515,11 @@ private fun FormInputSelectBlock(
                                         // contrast) because M3 default `onSurface`
                                         // adapts to the host's color scheme, not
                                         // the step's authored background.
-                                        val subtitleBase = if (textCol == Color.Unspecified) Color.White else textCol
                                         Text(
                                             text = subtitle,
                                             modifier = Modifier.testTag("option.$oi.subtitle"),
                                             fontSize = (option.subtitle_font_size ?: 12.0).sp,
-                                            color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
-                                                ?: subtitleBase.copy(alpha = 0.65f),
+                                            color = optSubtitleColor,
                                         )
                                     }
                                 }
@@ -5515,7 +5529,7 @@ private fun FormInputSelectBlock(
                                     Text(
                                         text = tt,
                                         fontSize = 12.sp,
-                                        color = (if (textCol == Color.Unspecified) Color.White else textCol).copy(alpha = 0.65f),
+                                        color = optSubtitleColor,
                                         modifier = Modifier.testTag("option.$oi.trailing_text"),
                                     )
                                 }
