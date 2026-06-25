@@ -4242,7 +4242,11 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                 // viewport midpoint. The old code used width(80)+padding(8) = 96dp items but
                 // sized sidePad off 80dp, so the centred value (esp. the min, which has no
                 // left neighbour) sat right-of-centre.
-                val itemWidth = 72.dp
+                // SPEC-419 — ~56dp spacing matches iOS modernHorizontalWheel (iOS shows the
+                // selection + ~2-3 faded neighbours each side; at 72dp only one neighbour fit
+                // before the next hit the screen edge). Same value drives item slot + sidePad so
+                // the centred value stays exactly at the viewport midpoint.
+                val itemWidth = 56.dp
                 val sidePad = (LocalConfiguration.current.screenWidthDp.dp - itemWidth) / 2
                 LazyRow(
                     state = listState,
@@ -4271,7 +4275,12 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             // theme-adaptive onSurface.alpha(0.7) instead of
                             // hardcoded Color.Gray. Matches iOS .secondary
                             // and renders correctly in dark mode.
-                            color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            // SPEC-419 — faded neighbours based on the (author-chosen, contrasting)
+                            // highlight colour, not MaterialTheme.onSurface which wasn't resolving
+                            // bright in this context → neighbours washed out so only the centre value
+                            // showed (iOS shows several faded numbers around the selection). 0.45α
+                            // keeps them clearly visible-but-secondary like iOS .secondary.
+                            color = if (isCenter) highlightColor else highlightColor.copy(alpha = 0.45f),
                             // SPEC-401-A R59 (Lens C P2 #2) — TalkBack-announce
                             // every selection change on the centered value. iOS
                             // ContentBlockStandaloneViews.swift:1462-1473 uses
@@ -4340,7 +4349,12 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                             // SPEC-401-A R48 (Lens A #4) — non-center text uses
                             // theme-adaptive onSurface.alpha(0.7) instead of
                             // hardcoded Color.Gray (vertical wheel mode).
-                            color = if (isCenter) highlightColor else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                            // SPEC-419 — faded neighbours based on the (author-chosen, contrasting)
+                            // highlight colour, not MaterialTheme.onSurface which wasn't resolving
+                            // bright in this context → neighbours washed out so only the centre value
+                            // showed (iOS shows several faded numbers around the selection). 0.45α
+                            // keeps them clearly visible-but-secondary like iOS .secondary.
+                            color = if (isCenter) highlightColor else highlightColor.copy(alpha = 0.45f),
                             // SPEC-401-A R59 (Lens C P2 #2) — vertical-wheel
                             // TalkBack live announce; mirrors horizontal branch.
                             modifier = Modifier
