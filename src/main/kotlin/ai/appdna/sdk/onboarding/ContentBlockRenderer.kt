@@ -4018,7 +4018,10 @@ private fun RowBlock(
                         // off-position ("too far left"). Wrap-content lets ImageBlock own the size and
                         // the row position it correctly, vertically centred (align_items default).
                         val cw = child.element_width
-                        val childMod = if (cw != null && cw.endsWith("px")) Modifier
+                        // SPEC-419 — a fixed-width child (leading icon) wraps content + gets a small
+                        // start inset so it isn't flush against the card's left border (user: "inset
+                        // from the left edge"); flexible children weight/fill.
+                        val childMod = if (cw != null && cw.endsWith("px")) Modifier.padding(start = 12.dp)
                             else if (childFill) Modifier.weight(1f) else Modifier
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
                         Box(modifier = overflowMod) {
