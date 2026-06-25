@@ -100,6 +100,15 @@ class OnboardingActivity : ComponentActivity() {
         // edge-to-edge; clearing the contrast scrim stops the system re-tinting the bars.
         enableEdgeToEdge()
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        // Theme.Translucent.NoTitleBar sets FLAG_TRANSLUCENT_STATUS/NAVIGATION, which forces an
+        // opaque/scrim system-bar background and makes statusBarColor=transparent a NO-OP (the bars
+        // stayed pure black top + bottom). Clear those flags + enable app-drawn bar backgrounds so
+        // the full-bleed step bg paints under the bars (matches iOS .ignoresSafeArea()).
+        window.clearFlags(
+            android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION,
+        )
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
