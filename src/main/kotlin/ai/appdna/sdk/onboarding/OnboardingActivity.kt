@@ -1201,6 +1201,25 @@ internal fun OnboardingFlowHost(
         // contrasts against it as it does on iOS.
         StepFullScreenBackground(currentStep = currentStep)
 
+        // SPEC-419 — top status-bar scrim, matching iOS. iOS darkens the status-bar region on
+        // EVERY step (pixel-sampled iOS top ≈ (15,20,30) regardless of photo/gradient bg) for
+        // legibility; without a matching scrim, Android's full-bleed bg shows a LIGHTER band at
+        // the very top (the gradient's #213359 stop, or the photo) — the user-reported "top a
+        // different colour than the centre" (dE ~65 vs iOS on every screen). A dark→transparent
+        // vertical gradient over the top ~140dp reproduces it (black@0.55 over #213359 ≈ (15,23,40)
+        // ≈ iOS). Painted OVER the bg, UNDER the safe-area content so chrome/text stay legible.
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .height(140.dp)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                    ),
+                ),
+        )
+
         // Safe-area content layer — sits on top of the full-bleed
         // background. `imePadding()` keeps keyboards from cropping inputs;
         // `safeDrawingPadding()` insets for status + nav bars so chrome
