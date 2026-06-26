@@ -4878,51 +4878,45 @@ private fun FormInputTextBlock(
         val focusedBorderWidth = (block.field_style?.border_width ?: 2.0).dp
         val interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
         val isFocused by interactionSource.collectIsFocusedAsState()
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .border(
-                    width = if (isFocused) focusedBorderWidth else borderWidth,
-                    color = if (isFocused) focusedBorderColor else borderColor,
-                    shape = RoundedCornerShape(cornerRadius),
-                ),
-        ) {
-            androidx.compose.material3.OutlinedTextField(
-                value = text,
-                onValueChange = {
-                    text = it
-                    inputValues[fieldId] = it
-                },
-                placeholder = {
-                    Text(
-                        text = block.field_placeholder ?: "",
-                        color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
-                    )
-                },
-                // SPEC-401-A R11 — match iOS UIKitTextField `returnKeyType: .done`
-                // (FormInputBlockViews.swift:93). Without `imeAction = Done` the
-                // soft keyboard's return key shows the platform default ("Enter"
-                // newline) which (a) doesn't dismiss the keyboard and (b) gives
-                // no visual cue that the form is complete.
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = kbType,
-                    imeAction = androidx.compose.ui.text.input.ImeAction.Done,
-                ),
-                shape = RoundedCornerShape(cornerRadius),
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-                interactionSource = interactionSource,
-                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = textColor,
-                    unfocusedTextColor = textColor,
-                    focusedContainerColor = focusedBgColor,
-                    unfocusedContainerColor = bgColor,
-                    // Built-in border zeroed; outer Box draws the authored width.
-                    focusedBorderColor = Color.Transparent,
-                    unfocusedBorderColor = Color.Transparent,
-                ),
-            )
-        }
+        // SPEC-419 — single border source: the OutlinedTextField draws its OWN rounded
+        // border. The previous outer .border() Box wrapping it stacked two outlines into
+        // a visible double border on the login email/text fields. Width is M3 default
+        // (1dp unfocused / 2dp focused); authored border_width is no longer honored here
+        // but a clean single border matters more than custom thickness.
+        androidx.compose.material3.OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                inputValues[fieldId] = it
+            },
+            placeholder = {
+                Text(
+                    text = block.field_placeholder ?: "",
+                    color = StyleEngine.parseColor(block.field_style?.placeholder_color ?: "#9CA3AF"),
+                )
+            },
+            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                keyboardType = kbType,
+                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+            ),
+            shape = RoundedCornerShape(cornerRadius),
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            interactionSource = interactionSource,
+            colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                focusedTextColor = textColor,
+                unfocusedTextColor = textColor,
+                focusedContainerColor = focusedBgColor,
+                unfocusedContainerColor = bgColor,
+                // SPEC-419 — if the block itself already draws a container border
+                // (applyBlockStyle, block_style.border_width > 0 — e.g. the login input
+                // blocks author a capsule outline), the field must stay border-LESS or
+                // the two outlines stack into the visible double border. Draw the field's
+                // own border only when the block has none.
+                focusedBorderColor = if ((block.block_style?.border_width ?: 0.0) > 0.0) Color.Transparent else focusedBorderColor,
+                unfocusedBorderColor = if ((block.block_style?.border_width ?: 0.0) > 0.0) Color.Transparent else borderColor,
+            ),
+        )
     }
 }
 
@@ -5075,8 +5069,10 @@ private fun FormInputPasswordBlock(
                 }
             },
             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = focusedBorder,
-                unfocusedBorderColor = unfocusedBorder,
+                // SPEC-419 — border-LESS when the block already draws a container border
+                // (block_style.border_width > 0), else the field + block outlines double up.
+                focusedBorderColor = if ((block.block_style?.border_width ?: 0.0) > 0.0) Color.Transparent else focusedBorder,
+                unfocusedBorderColor = if ((block.block_style?.border_width ?: 0.0) > 0.0) Color.Transparent else unfocusedBorder,
                 focusedTextColor = textCol,
                 unfocusedTextColor = textCol,
                 focusedPlaceholderColor = placeholderCol,
