@@ -2463,14 +2463,13 @@ private fun PaywallSectionView(
                         // R89 — CTA corner_radius default 12 matches iOS
                         // PaywallCTA.resolvedCornerRadius at PaywallConfig.swift:515
                         // `styleObj?.corner_radius ?? corner_radius ?? 12.0`. Was 14.
-                        .clip(RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 12f).dp))
-                        .then(
-                            // SPEC-419 — explicit solid bg_color (e.g. #ffffff) WINS over a
-                            // cta_gradient. The gradient brush uses fractional offsets as PIXELS
-                            // (degenerate) → clamps the whole button to the navy end-stop. Use
-                            // the gradient ONLY when no solid bg_color was authored.
-                            if (explicitCtaBg == null && ctaBrush != null) Modifier.background(ctaBrush)
-                            else Modifier.background(buttonBgColor)
+                        // SPEC-419 — apply the fill DIRECTLY with the shape (was .clip()+.then()
+                        // which rendered transparent on-device despite buttonBgColor=white per logcat).
+                        // explicit solid bg_color (#ffffff) WINS over a cta_gradient.
+                        .background(
+                            brush = if (explicitCtaBg == null && ctaBrush != null) ctaBrush
+                                else androidx.compose.ui.graphics.SolidColor(buttonBgColor),
+                            shape = RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 12f).dp),
                         )
                         .alpha(if (ctaEnabled) 1f else 0.5f)
                         .clickable(
