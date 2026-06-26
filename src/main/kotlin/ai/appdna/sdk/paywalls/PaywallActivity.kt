@@ -62,6 +62,7 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.RadioButtonUnchecked
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.material.icons.automirrored.filled.StarHalf
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -151,15 +152,36 @@ class PaywallActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // SPEC-070-A I.16 — edge-to-edge: Compose owns insets via
-        // `imePadding()`/`safeDrawingPadding()` modifiers in the renderer.
+        // SPEC-419 — edge-to-edge so the full-bleed paywall background paints UNDER
+        // the system bars like iOS .ignoresSafeArea(). IDENTICAL to OnboardingActivity:
+        // the demo app's Theme.Translucent.NoTitleBar sets FLAG_TRANSLUCENT_STATUS/
+        // NAVIGATION, which forces an opaque/scrim bar background and makes
+        // statusBarColor=transparent a NO-OP — the bars stayed PURE BLACK top + bottom
+        // (the "black gaps"). enableEdgeToEdge() lays the window out edge-to-edge with
+        // explicit TRANSPARENT SystemBarStyle scrims (the no-arg form installs a dark
+        // nav scrim); then clearing the translucent flags + DRAWS_SYSTEM_BAR_BACKGROUNDS
+        // lets the gradient paint under the bars. (Manual setDecorFitsSystemWindows +
+        // statusBarColor alone did NOT work here — same lesson as the onboarding screens.)
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+            navigationBarStyle = androidx.activity.SystemBarStyle.auto(
+                android.graphics.Color.TRANSPARENT,
+                android.graphics.Color.TRANSPARENT,
+            ),
+        )
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
-        // SPEC-419 — paint the paywall background UNDER the system bars like iOS
-        // `.ignoresSafeArea()`. Without transparent bars the theme's opaque
-        // status/nav bar colors render as black bands over the full-bleed gradient.
+        window.clearFlags(
+            android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS or
+                android.view.WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION,
+        )
+        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         window.statusBarColor = android.graphics.Color.TRANSPARENT
         window.navigationBarColor = android.graphics.Color.TRANSPARENT
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
 
