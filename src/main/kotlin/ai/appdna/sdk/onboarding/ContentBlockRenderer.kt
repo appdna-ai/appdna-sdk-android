@@ -911,6 +911,9 @@ data class InputOption(
     /** Image overlay: colored circle with opacity rendered over image. */
     val image_overlay_color: String? = null,
     val image_overlay_opacity: Double? = null,
+    /** EPIC-1 — selected-state image tint (falls back to image_overlay_* when unset). */
+    val selected_image_overlay_color: String? = null,
+    val selected_image_overlay_opacity: Double? = null,
     /** EPIC-1 — per-option image clip shape: "circle" (default) | "rounded" | "square". */
     val image_shape: String? = null,
     /** Per-option border overrides. */
@@ -5565,15 +5568,13 @@ private fun FormInputSelectBlock(
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop,
                                         )
-                                        // EPIC-1 — image_overlay_color tint (parity with iOS imageWithOverlay,
-                                        // FormInputBlockViews.swift:768; default opacity 0.3).
-                                        option.image_overlay_color?.takeIf { it.isNotBlank() }?.let { ov ->
-                                            Box(
-                                                Modifier
-                                                    .matchParentSize()
-                                                    .background(StyleEngine.parseColor(ov).copy(alpha = (option.image_overlay_opacity ?: 0.3).toFloat())),
-                                            )
-                                        }
+                                        // EPIC-1 — image overlay tint; selected uses selected_image_overlay_*
+                                        // (falls back to base). Parity with iOS imageWithOverlay (FormInputBlockViews).
+                                        (if (isSelected) (option.selected_image_overlay_color ?: option.image_overlay_color) else option.image_overlay_color)
+                                            ?.takeIf { it.isNotBlank() }?.let { ov ->
+                                                val ovA = ((if (isSelected) (option.selected_image_overlay_opacity ?: option.image_overlay_opacity) else option.image_overlay_opacity) ?: 0.3).toFloat()
+                                                Box(Modifier.matchParentSize().background(StyleEngine.parseColor(ov).copy(alpha = ovA)))
+                                            }
                                     }
                                     Spacer(Modifier.width(8.dp))
                                 }
@@ -5728,14 +5729,12 @@ private fun FormInputSelectBlock(
                                                         modifier = Modifier.fillMaxSize(),
                                                         contentScale = ContentScale.Crop,
                                                     )
-                                                    // EPIC-1 — image_overlay_color tint (parity with iOS).
-                                                    option.image_overlay_color?.takeIf { it.isNotBlank() }?.let { ov ->
-                                                        Box(
-                                                            Modifier
-                                                                .matchParentSize()
-                                                                .background(StyleEngine.parseColor(ov).copy(alpha = (option.image_overlay_opacity ?: 0.3).toFloat())),
-                                                        )
-                                                    }
+                                                    // EPIC-1 — image overlay tint; selected uses selected_image_overlay_* (falls back to base).
+                                                    (if (isSelected) (option.selected_image_overlay_color ?: option.image_overlay_color) else option.image_overlay_color)
+                                                        ?.takeIf { it.isNotBlank() }?.let { ov ->
+                                                            val ovA = ((if (isSelected) (option.selected_image_overlay_opacity ?: option.image_overlay_opacity) else option.image_overlay_opacity) ?: 0.3).toFloat()
+                                                            Box(Modifier.matchParentSize().background(StyleEngine.parseColor(ov).copy(alpha = ovA)))
+                                                        }
                                                 }
                                                 Spacer(Modifier.height(4.dp))
                                             }

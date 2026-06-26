@@ -1392,6 +1392,8 @@ internal object OnboardingConfigParser {
                         unselected_icon = fm["unselected_icon"] as? String,
                         image_overlay_color = fm["image_overlay_color"] as? String,
                         image_overlay_opacity = (fm["image_overlay_opacity"] as? Number)?.toDouble(),
+                        selected_image_overlay_color = fm["selected_image_overlay_color"] as? String,
+                        selected_image_overlay_opacity = (fm["selected_image_overlay_opacity"] as? Number)?.toDouble(),
                         image_shape = fm["image_shape"] as? String,
                         border_color = fm["border_color"] as? String,
                         selected_border_color = fm["selected_border_color"] as? String,

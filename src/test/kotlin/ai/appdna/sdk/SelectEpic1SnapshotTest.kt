@@ -208,4 +208,43 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun stackedSelect_selectedImageTint() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sel5",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "stacked"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "p", "value" to "p", "label" to "Picked", "image_url" to "https://example.com/a.png", "image_overlay_color" to "#9CA3AF", "selected_image_overlay_color" to "#22C55E", "image_overlay_opacity" to 0.85, "selected_image_overlay_opacity" to 0.85),
+                            mapOf<String, Any>("id" to "q", "value" to "q", "label" to "Other", "image_url" to "https://example.com/b.png", "image_overlay_color" to "#9CA3AF", "image_overlay_opacity" to 0.85),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_sel_imgtint.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf("sel5" to "p"),
+                    )
+                }
+            }
+        }
+    }
 }
