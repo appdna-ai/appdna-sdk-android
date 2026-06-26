@@ -98,6 +98,9 @@ class PaywallActivity : ComponentActivity() {
     private var launchToken: String? = null
     private var instanceConfig: PaywallConfig? = null
     private var instancePaywallId: String? = null
+    // SPEC-419 — when this Activity became visible, to gate delayed-dismiss
+    // (`dismiss.delay_seconds`) back-press the same way the on-screen X is gated.
+    private var presentedAtMs: Long = 0L
 
     /**
      * SPEC-401 Fix 1C — host-controlled opt-out for SDK auto-dismiss on
@@ -200,6 +203,7 @@ class PaywallActivity : ComponentActivity() {
         val config = slots.config
         instanceConfig = config
         instancePaywallId = paywallId
+        presentedAtMs = System.currentTimeMillis()
         // SPEC-401 Fix 1C — register this Activity so PaywallManager can
         // call dismissAfterRestore() on it after a successful restore.
         activePaywallInstances[paywallId] = java.lang.ref.WeakReference(this)
@@ -262,8 +266,16 @@ class PaywallActivity : ComponentActivity() {
         // wraps the paywall in `.interactiveDismissDisabled(!allowed)`.
         // SPEC-070-A finalization P0 audit-3 — read THIS Activity's
         // dismiss policy from instanceConfig, NOT a global slot.
-        val allowed = instanceConfig?.dismiss?.allowed ?: true
-        if (!allowed) {
+        // SPEC-419 — `delay_seconds` reveals dismiss after N seconds even when
+        // allowed=false (winback). Back is blocked only while the paywall is NOT
+        // yet dismissable: a true force-choice (allowed=false AND no delay) blocks
+        // forever; a delayed-dismiss blocks until its delay elapses, then allows back.
+        val dismiss = instanceConfig?.dismiss
+        val allowed = dismiss?.allowed ?: true
+        val delaySeconds = dismiss?.delay_seconds ?: 0
+        val elapsedSeconds = (System.currentTimeMillis() - presentedAtMs) / 1000
+        val dismissableNow = allowed || (delaySeconds > 0 && elapsedSeconds >= delaySeconds)
+        if (!dismissableNow) {
             return
         }
         dispatchedDismiss = true
@@ -578,20 +590,23 @@ fun PaywallScreen(
         // iOS PaywallRenderer.swift gates `dismissControl` rendering on
         // `config.dismiss?.allowed != false` at the view level; mirror
         // that here.
-        val dismissAllowedByConfig = config.dismiss?.allowed != false
-        if (!dismissAllowedByConfig) {
-            // Force-choice paywall — never render the dismiss control.
+        // A `delay_seconds > 0` means "REVEAL the dismiss control after N seconds"
+        // and MUST win even when `allowed == false` — that's the WINBACK pattern
+        // (force engagement for N seconds, THEN let the user leave). Previously
+        // `allowed == false` hid the X unconditionally and ignored delay_seconds, so a
+        // winback authored as {allowed:false, delay_seconds:10} could NEVER be dismissed.
+        // Only a paywall that is BOTH disallowed AND has no delayed reveal is a true
+        // hard force-choice. Mirrors iOS PaywallRenderer.swift dismiss gating.
+        val delay = config.dismiss?.delay_seconds ?: 0
+        val neverDismissable = config.dismiss?.allowed == false && delay <= 0
+        if (neverDismissable) {
             showDismiss = false
             return@LaunchedEffect
         }
-        // Handle dismiss delay
-        val delay = config.dismiss?.delay_seconds ?: 0
         if (delay > 0) {
             kotlinx.coroutines.delay(delay * 1000L)
-            showDismiss = true
-        } else {
-            showDismiss = true
         }
+        showDismiss = true
     }
 
     // Localization helper + SPEC-088: Template variable interpolation
@@ -1012,6 +1027,7 @@ fun PaywallScreen(
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
+                            .statusBarsPadding()
                             .padding(top = 8.dp)
                             .width(36.dp)
                             .height(5.dp)
@@ -1025,6 +1041,10 @@ fun PaywallScreen(
                         onClick = { triggerDismiss() },
                         modifier = Modifier
                             .align(Alignment.TopEnd)
+                            // SPEC-419 — sit BELOW the status bar (edge-to-edge Activity),
+                            // matching iOS which places the X inside the safe area. Without
+                            // this the X overlapped the clock/battery and was hard to tap.
+                            .statusBarsPadding()
                             .padding(16.dp)
                             .size(32.dp)
                             .clip(CircleShape)
