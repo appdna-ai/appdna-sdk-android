@@ -911,6 +911,8 @@ data class InputOption(
     /** Image overlay: colored circle with opacity rendered over image. */
     val image_overlay_color: String? = null,
     val image_overlay_opacity: Double? = null,
+    /** EPIC-1 — per-option image clip shape: "circle" (default) | "rounded" | "square". */
+    val image_shape: String? = null,
     /** Per-option border overrides. */
     val border_color: String? = null,
     val selected_border_color: String? = null,
@@ -5555,7 +5557,7 @@ private fun FormInputSelectBlock(
                                 }
                                 // Per-option image (with optional selected/unselected variants).
                                 option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
-                                    Box(modifier = Modifier.size((optImgSizeRaw ?: 32f).dp).clip(CircleShape)) {
+                                    Box(modifier = Modifier.size((optImgSizeRaw ?: 32f).dp).clip(when (option.image_shape) { "rounded" -> RoundedCornerShape(12.dp); "square" -> RoundedCornerShape(0.dp); else -> CircleShape })) {
                                         ai.appdna.sdk.core.NetworkImage(
                                             url = url,
                                             modifier = Modifier.fillMaxSize(),
@@ -5718,7 +5720,7 @@ private fun FormInputSelectBlock(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                         ) {
                                             option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
-                                                Box(modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(CircleShape)) {
+                                                Box(modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(when (option.image_shape) { "rounded" -> RoundedCornerShape(12.dp); "square" -> RoundedCornerShape(0.dp); else -> CircleShape })) {
                                                     ai.appdna.sdk.core.NetworkImage(
                                                         url = url,
                                                         modifier = Modifier.fillMaxSize(),

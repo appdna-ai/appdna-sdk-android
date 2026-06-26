@@ -139,8 +139,9 @@ class SelectEpic1SnapshotTest {
                         "type" to "input_select",
                         "field_config" to mapOf<String, Any>("display_style" to "stacked"),
                         "field_options" to listOf(
-                            mapOf<String, Any>("id" to "i1", "label" to "Sunset", "image_url" to "https://example.com/a.png", "image_overlay_color" to "#FF5722", "image_overlay_opacity" to 0.85),
-                            mapOf<String, Any>("id" to "i2", "label" to "Ocean", "image_url" to "https://example.com/b.png", "image_overlay_color" to "#2196F3", "image_overlay_opacity" to 0.85),
+                            mapOf<String, Any>("id" to "i1", "label" to "Circle", "image_url" to "https://example.com/a.png", "image_overlay_color" to "#FF5722", "image_overlay_opacity" to 0.85),
+                            mapOf<String, Any>("id" to "i2", "label" to "Rounded", "image_url" to "https://example.com/b.png", "image_shape" to "rounded", "image_overlay_color" to "#2196F3", "image_overlay_opacity" to 0.85),
+                            mapOf<String, Any>("id" to "i3", "label" to "Square", "image_url" to "https://example.com/c.png", "image_shape" to "square", "image_overlay_color" to "#22C55E", "image_overlay_opacity" to 0.85),
                         ),
                     ),
                 ),
