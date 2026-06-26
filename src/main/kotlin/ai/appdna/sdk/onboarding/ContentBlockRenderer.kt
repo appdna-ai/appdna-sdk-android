@@ -5392,6 +5392,10 @@ private fun FormInputSelectBlock(
     val cfgSelectedBg = (cfg?.get("selected_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
     val cfgSelectedText = (cfg?.get("selected_text_color") as? String)?.let { StyleEngine.parseColor(it) }
     val cfgOptText = (cfg?.get("text_color") as? String)?.let { StyleEngine.parseColor(it) }
+    // EPIC-1 Win 1 — honor authored `option_image_size` for per-option images (was hardcoded
+    // 24dp stacked / 32dp grid → flags/icons squished, and ignored the console slider that iOS
+    // already reads). Defaults match iOS: 32 stacked (FormInputBlockViews.swift:539), 40 grid (:871).
+    val optImgSizeRaw = (cfg?.get("option_image_size") as? Number)?.toFloat()
     // QA-R4 — match iOS FormInputBlockViews.swift:478-530 default
     // (`Color.white.opacity(0.15)`) so unstyled options render as a thin
     // frosted-glass card over the step gradient, NOT opaque black.
@@ -5553,7 +5557,7 @@ private fun FormInputSelectBlock(
                                 option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
                                     ai.appdna.sdk.core.NetworkImage(
                                         url = url,
-                                        modifier = Modifier.size(24.dp).clip(CircleShape),
+                                        modifier = Modifier.size((optImgSizeRaw ?: 32f).dp).clip(CircleShape),
                                         contentScale = ContentScale.Crop,
                                     )
                                     Spacer(Modifier.width(8.dp))
@@ -5700,7 +5704,7 @@ private fun FormInputSelectBlock(
                                             option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
                                                 ai.appdna.sdk.core.NetworkImage(
                                                     url = url,
-                                                    modifier = Modifier.size(32.dp).clip(CircleShape),
+                                                    modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(CircleShape),
                                                     contentScale = ContentScale.Crop,
                                                 )
                                                 Spacer(Modifier.height(4.dp))
