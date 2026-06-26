@@ -247,4 +247,46 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun imageTiles() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "tiles1",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "image_tiles", "grid_columns" to 2),
+                        "field_style" to mapOf<String, Any>("fill_color" to "#FACC15"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "run", "value" to "run", "label" to "Running", "image_url" to "https://example.com/a.png", "image_overlay_color" to "#E11D48", "image_overlay_opacity" to 0.9),
+                            mapOf<String, Any>("id" to "lift", "value" to "lift", "label" to "Lifting", "image_url" to "https://example.com/b.png", "image_overlay_color" to "#2563EB", "image_overlay_opacity" to 0.9),
+                            mapOf<String, Any>("id" to "yoga", "value" to "yoga", "label" to "Yoga", "image_url" to "https://example.com/c.png", "image_overlay_color" to "#7C3AED", "image_overlay_opacity" to 0.9),
+                            mapOf<String, Any>("id" to "swim", "value" to "swim", "label" to "Swimming", "image_url" to "https://example.com/d.png", "image_overlay_color" to "#059669", "image_overlay_opacity" to 0.9),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_tiles.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf("tiles1" to "lift"),
+                    )
+                }
+            }
+        }
+    }
 }

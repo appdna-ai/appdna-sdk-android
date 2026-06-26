@@ -5784,6 +5784,86 @@ private fun FormInputSelectBlock(
                     }
                 }
             }
+            "image_tiles" -> {
+                // EPIC-1 — tall tiles: image fills the tile, label overlaid at the bottom over a
+                // dark scrim; selected = accent border. N-column grid (grid_columns, default 2).
+                val tileCols = ((cfg?.get("grid_columns") as? Number)?.toInt() ?: 2).coerceIn(1, 4)
+                val tileHeight = ((cfg?.get("tile_height") as? Number)?.toFloat() ?: 140f).dp
+                Column(verticalArrangement = Arrangement.spacedBy(optionSpacingDp)) {
+                    options.chunked(tileCols).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(optionSpacingDp),
+                        ) {
+                            row.forEach { option ->
+                                val isSelected = isOptionSelected(option.value)
+                                val optSelBorder = option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: selectedBorder
+                                val optUnselBorder = option.border_color?.let { StyleEngine.parseColor(it) } ?: unselectedBorder
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(tileHeight)
+                                        .clip(RoundedCornerShape(cornerR))
+                                        .selectable(
+                                            selected = isSelected,
+                                            role = androidx.compose.ui.semantics.Role.RadioButton,
+                                            onClick = { pickOption(option.value) },
+                                        )
+                                        .border(
+                                            androidx.compose.foundation.BorderStroke(
+                                                if (isSelected) selectedBorderW else unselectedBorderW,
+                                                if (isSelected) optSelBorder else optUnselBorder,
+                                            ),
+                                            RoundedCornerShape(cornerR),
+                                        ),
+                                ) {
+                                    option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
+                                        ai.appdna.sdk.core.NetworkImage(
+                                            url = url,
+                                            modifier = Modifier.matchParentSize(),
+                                            contentScale = ContentScale.Crop,
+                                        )
+                                    }
+                                    (if (isSelected) (option.selected_image_overlay_color ?: option.image_overlay_color) else option.image_overlay_color)
+                                        ?.takeIf { it.isNotBlank() }?.let { ov ->
+                                            val ovA = ((if (isSelected) (option.selected_image_overlay_opacity ?: option.image_overlay_opacity) else option.image_overlay_opacity) ?: 0.3).toFloat()
+                                            Box(Modifier.matchParentSize().background(StyleEngine.parseColor(ov).copy(alpha = ovA)))
+                                        }
+                                    // Bottom scrim so the label stays legible over any image.
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .background(
+                                                Brush.verticalGradient(
+                                                    0.45f to Color.Transparent,
+                                                    1f to Color.Black.copy(alpha = 0.65f),
+                                                ),
+                                            ),
+                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .align(Alignment.BottomStart)
+                                            .fillMaxWidth()
+                                            .padding(10.dp),
+                                    ) {
+                                        Text(
+                                            text = option.label,
+                                            color = Color.White,
+                                            fontSize = (option.title_font_size ?: 15.0).sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        option.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+                                            Text(text = sub, color = Color.White.copy(alpha = 0.85f), fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+                            }
+                            // Keep tiles equal width when the last row is short.
+                            repeat(tileCols - row.size) { Box(Modifier.weight(1f)) }
+                        }
+                    }
+                }
+            }
             else -> {
                 // "dropdown" (default): Spinner/dropdown
                 var expanded by remember { mutableStateOf(false) }
