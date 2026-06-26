@@ -5414,7 +5414,9 @@ private fun FormInputSelectBlock(
     val selectedBg = cfgSelectedBg ?: fillCol.copy(alpha = 0.15f)
     val unselectedBorder = cfgOptBorder
         ?: block.field_style?.border_color?.let { StyleEngine.parseColor(it) }
-        ?: fillCol.copy(alpha = 0.3f)
+        // EPIC-1 — neutral gray default (was accent fillCol@0.3 = the "purple-border bug" that
+        // tinted every unselected option with the accent). Matches iOS field-border #D1D5DB.
+        ?: StyleEngine.parseColor("#D1D5DB")
     val selectedBorder = fillCol
     val textCol = cfgOptText
         ?: block.field_style?.text_color?.let { StyleEngine.parseColor(it) }

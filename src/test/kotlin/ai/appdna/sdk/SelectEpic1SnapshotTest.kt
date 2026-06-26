@@ -167,4 +167,45 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun stackedSelect_selectedState() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sel4",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "stacked"),
+                        "field_style" to mapOf<String, Any>("fill_color" to "#22C55E"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "a", "value" to "a", "label" to "Casual", "subtitle" to "Easy pace"),
+                            mapOf<String, Any>("id" to "b", "value" to "b", "label" to "Regular", "subtitle" to "Recommended"),
+                            mapOf<String, Any>("id" to "c", "value" to "c", "label" to "Serious", "subtitle" to "Intense"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_selected.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf("sel4" to "b"),
+                    )
+                }
+            }
+        }
+    }
 }
