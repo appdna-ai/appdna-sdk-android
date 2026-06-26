@@ -5555,11 +5555,22 @@ private fun FormInputSelectBlock(
                                 }
                                 // Per-option image (with optional selected/unselected variants).
                                 option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
-                                    ai.appdna.sdk.core.NetworkImage(
-                                        url = url,
-                                        modifier = Modifier.size((optImgSizeRaw ?: 32f).dp).clip(CircleShape),
-                                        contentScale = ContentScale.Crop,
-                                    )
+                                    Box(modifier = Modifier.size((optImgSizeRaw ?: 32f).dp).clip(CircleShape)) {
+                                        ai.appdna.sdk.core.NetworkImage(
+                                            url = url,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                        )
+                                        // EPIC-1 — image_overlay_color tint (parity with iOS imageWithOverlay,
+                                        // FormInputBlockViews.swift:768; default opacity 0.3).
+                                        option.image_overlay_color?.takeIf { it.isNotBlank() }?.let { ov ->
+                                            Box(
+                                                Modifier
+                                                    .matchParentSize()
+                                                    .background(StyleEngine.parseColor(ov).copy(alpha = (option.image_overlay_opacity ?: 0.3).toFloat())),
+                                            )
+                                        }
+                                    }
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 option.icon?.takeIf { it.isNotEmpty() }?.let { icon ->
@@ -5707,11 +5718,21 @@ private fun FormInputSelectBlock(
                                             horizontalAlignment = Alignment.CenterHorizontally,
                                         ) {
                                             option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
-                                                ai.appdna.sdk.core.NetworkImage(
-                                                    url = url,
-                                                    modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(CircleShape),
-                                                    contentScale = ContentScale.Crop,
-                                                )
+                                                Box(modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(CircleShape)) {
+                                                    ai.appdna.sdk.core.NetworkImage(
+                                                        url = url,
+                                                        modifier = Modifier.fillMaxSize(),
+                                                        contentScale = ContentScale.Crop,
+                                                    )
+                                                    // EPIC-1 — image_overlay_color tint (parity with iOS).
+                                                    option.image_overlay_color?.takeIf { it.isNotBlank() }?.let { ov ->
+                                                        Box(
+                                                            Modifier
+                                                                .matchParentSize()
+                                                                .background(StyleEngine.parseColor(ov).copy(alpha = (option.image_overlay_opacity ?: 0.3).toFloat())),
+                                                        )
+                                                    }
+                                                }
                                                 Spacer(Modifier.height(4.dp))
                                             }
                                             Text(
