@@ -1,0 +1,90 @@
+package ai.appdna.sdk
+
+import ai.appdna.sdk.onboarding.ContentBlockRendererView
+import ai.appdna.sdk.onboarding.OnboardingConfigParser
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
+
+/**
+ * SPEC-419 EPIC-1 (Select overhaul) — visual snapshot (surface #4: onboarding select).
+ *
+ * Renders a stacked input_select exercising the EPIC-1 per-option features:
+ *   - leading_text + trailing_text on one row ("5 min/day … Easy")
+ *   - a positionable badge ("RECOMMENDED")
+ *   - per-option subtitle
+ *
+ * 100%-confirmation harness: Robolectric renders the REAL Compose UI on the JVM (no device,
+ * no Firestore, no config cache); captureRoboImage writes the actual pixels. The golden is
+ * written to a bridge-readable path so it can be pulled + reviewed. Run in record mode:
+ *   ./gradlew recordRoborazziDebug
+ */
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class SelectEpic1SnapshotTest {
+
+    @Test
+    fun stackedSelect_leadingTrailingBadge() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sel1",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "stacked"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>(
+                                "id" to "o1", "label" to "Casual",
+                                "leading_text" to "5 min/day", "trailing_text" to "Easy",
+                                "badge" to mapOf<String, Any>(
+                                    "text" to "RECOMMENDED", "bg_color" to "#22C55E",
+                                    "text_color" to "#FFFFFF", "position" to "top_trailing",
+                                ),
+                            ),
+                            mapOf<String, Any>(
+                                "id" to "o2", "label" to "Regular",
+                                "leading_text" to "10 min/day", "trailing_text" to "Steady",
+                            ),
+                            mapOf<String, Any>(
+                                "id" to "o3", "label" to "Serious", "subtitle" to "Big goals",
+                                "leading_text" to "15 min/day", "trailing_text" to "Hard",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_epic1.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
+}
