@@ -2180,7 +2180,10 @@ private fun SocialLoginBlock(
                 // follow-up if HIG-strict branding is required.
                 "apple" -> "\uD83C\uDF4E"
                 "google" -> "G"
-                "email" -> "\u2709"
+                // SPEC-419 \u2014 no glyph for email: the envelope rendered white on the
+                // brand-white email button (invisible) and its reserved 8dp pushed the
+                // label off-center. "Continue with Email" is a plain CTA, no brand logo.
+                "email" -> ""
                 "facebook" -> "f"
                 "github" -> "\u2B24"
                 else -> ""
@@ -2252,7 +2255,7 @@ private fun SocialLoginBlock(
                             contentColor = textColor,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        if (providerIcon.isNotBlank()) Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -2266,7 +2269,7 @@ private fun SocialLoginBlock(
                         shape = RoundedCornerShape(providerCorner),
                         colors = ButtonDefaults.textButtonColors(contentColor = textColor),
                     ) {
-                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        if (providerIcon.isNotBlank()) Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -2296,7 +2299,7 @@ private fun SocialLoginBlock(
                             hoveredElevation = 0.dp,
                         ),
                     ) {
-                        Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
+                        if (providerIcon.isNotBlank()) Text(providerIcon, fontSize = providerIconFontSize, fontWeight = providerIconFontWeight, modifier = Modifier.padding(end = 8.dp), color = providerIconColor)
                         // SPEC-401-A R56 (Lens A R56 #2, P1) — explicit 17sp matches
                         // iOS .body.weight(.semibold) (ContentBlockRendererView.swift:759).
                         // Material Button content defaults to labelLarge=14sp.
@@ -4856,7 +4859,11 @@ private fun FormInputTextBlock(
         // borders were silently invisible. Same payload rendered styled
         // on iOS and Material-default on Android.
         val textColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
-        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        // SPEC-419 — default the field CONTAINER to TRANSPARENT (was Color.Unspecified →
+        // M3's default surface fill, which drew a filled rounded-rect INSIDE the custom
+        // .border() = the "double border" the user saw). Transparent → only the authored
+        // .border() shows; the page gradient reads through cleanly like iOS.
+        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent
         val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
         val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
         // SPEC-401-A R55 (Lens C R54 #3, P2) — honor field_style.border_width
@@ -4943,7 +4950,11 @@ private fun FormInputTextAreaBlock(
         // FormInputTextBlock above; was ignoring all field_style except
         // corner_radius.
         val textColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
-        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+        // SPEC-419 — default the field CONTAINER to TRANSPARENT (was Color.Unspecified →
+        // M3's default surface fill, which drew a filled rounded-rect INSIDE the custom
+        // .border() = the "double border" the user saw). Transparent → only the authored
+        // .border() shows; the page gradient reads through cleanly like iOS.
+        val bgColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent
         val focusedBgColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) } ?: bgColor
         val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
         val focusedBorderColor = block.field_style?.focused_border_color?.let { StyleEngine.parseColor(it) } ?: borderColor
@@ -5073,6 +5084,10 @@ private fun FormInputPasswordBlock(
                 focusedLabelColor = focusedBorder,
                 unfocusedLabelColor = unfocusedBorder,
                 cursorColor = cursorCol,
+                // SPEC-419 — Transparent container so the field doesn't draw M3's default
+                // surface fill inside its border (read as a "double border" vs the page bg).
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
             ),
         )
     }
