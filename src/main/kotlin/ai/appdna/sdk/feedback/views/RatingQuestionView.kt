@@ -58,7 +58,7 @@ fun RatingQuestionView(
     // star default = #FBBF24 warm gold (was #FFD700 pure gold).
     val activeColor = when (style) {
         "heart" -> Color.Red
-        "thumb" -> Color(0xFF6366F1)
+        "thumb" -> ai.appdna.sdk.AppDNA.brandAccentColor()
         else -> Color(0xFFFBBF24)
     }
 

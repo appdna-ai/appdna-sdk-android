@@ -40,6 +40,32 @@ object AppDNA {
     const val sdkVersion = "1.0.39"
 
     /**
+     * SPEC-419 brand-threading — the app's brand accent hex (from `/settings/brand`,
+     * served via Firestore `config/brand`). When set, SDK render defaults use it
+     * instead of the hardcoded #6366F1 brand indigo for accent/link/badge/selected
+     * colors. Per-element authored colors still take precedence. nil until brand loads.
+     */
+    @Volatile
+    @JvmStatic
+    var brandAccentHex: String? = null
+        internal set
+
+    /**
+     * SPEC-419 brand-threading — resolved Compose Color for the brand accent,
+     * falling back to the #6366F1 brand indigo when no brand is configured/loaded.
+     * Replaces hardcoded `Color(0xFF6366F1)` at SDK render-default sites.
+     */
+    @JvmStatic
+    fun brandAccentColor(): androidx.compose.ui.graphics.Color {
+        brandAccentHex?.let {
+            try {
+                return ai.appdna.sdk.core.StyleEngine.parseColor(it)
+            } catch (_: Throwable) {}
+        }
+        return androidx.compose.ui.graphics.Color(0xFF6366F1)
+    }
+
+    /**
      * SPEC-070-A H.20: most recent throwable raised during configure/bootstrap
      * (e.g. missing `google-services-appdna.json`, malformed bundle config).
      *

@@ -1517,7 +1517,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
     val effectiveStyle = if (block.style != null) StyleEngine.applyTextStyle(baseStyle, block.style) else baseStyle
     val context = LocalContext.current
     val btnVariant = block.variant ?: "primary"
-    val bgColor = StyleEngine.parseColor(block.bg_color ?: "#6366F1")
+    val bgColor = StyleEngine.parseColor(block.bg_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val txtColor = StyleEngine.parseColor(block.text_color ?: "#FFFFFF")
     val cornerRadius = (block.button_corner_radius ?: 12.0).dp
     val displayText = loc?.invoke("block.${block.id}.text", text) ?: text
@@ -1741,7 +1741,7 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                     "check" -> Icon(
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = null,
-                        tint = StyleEngine.parseColor("#6366F1"),
+                        tint = StyleEngine.parseColor((ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                         modifier = Modifier.size(16.dp),
                     )
                     // SPEC-401-A R44 — theme-adaptive bullet (was Color.Gray).
@@ -1804,7 +1804,7 @@ private fun BadgeBlock(block: ContentBlock, loc: ((String, String) -> String)? =
         color = StyleEngine.parseColor(block.badge_text_color ?: "#FFFFFF"),
         modifier = Modifier
             .background(
-                StyleEngine.parseColor(block.badge_bg_color ?: "#6366F1"),
+                StyleEngine.parseColor(block.badge_bg_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                 RoundedCornerShape(badgeRadius),
             )
             .padding(horizontal = 12.dp, vertical = 4.dp),
@@ -1883,7 +1883,7 @@ private fun ToggleBlock(block: ContentBlock, toggleValues: MutableMap<String, Bo
                 onCheckedChange = null,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = Color.White,
-                    checkedTrackColor = Color(0xFF6366F1),
+                    checkedTrackColor = ai.appdna.sdk.AppDNA.brandAccentColor(),
                 ),
             )
         }
@@ -2022,7 +2022,7 @@ private fun PageIndicatorBlock(block: ContentBlock, currentStepIndex: Int = 0, t
     // when the value was 0 (couldn't tell unset from 0); iOS uses
     // nil-coalesce so 0 is honoured. Use null-check to match iOS:
     val activeIndex = block.active_index ?: currentStepIndex
-    val activeColor = StyleEngine.parseColor(block.active_color ?: "#6366F1")
+    val activeColor = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val inactiveColor = StyleEngine.parseColor(block.inactive_color ?: "#D1D5DB")
     val dotSize = (block.dot_size ?: 8.0).dp
     val dotSpacing = (block.dot_spacing ?: 8.0).dp
@@ -2086,7 +2086,11 @@ private fun SocialLoginBlock(
     onAction: (String) -> Unit,
     loc: ((String, String) -> String)? = null,
 ) {
-    val providers = block.providers?.filter { it.enabled } ?: return
+    // SPEC-419 — Apple Sign-In is iOS-only; Android has no native Apple auth and the AppDNA SDK
+    // can't perform it, so never render "Continue with Apple" on Android (iOS keeps it). This also
+    // frees a button's worth of vertical space so the "Already have an account?" links below the
+    // social buttons stay on-screen.
+    val providers = block.providers?.filter { it.enabled && it.type.lowercase() != "apple" } ?: return
     val buttonStyle = block.button_style ?: "filled"
     val cornerRadius = (block.button_corner_radius ?: 12.0).dp
     // SPEC-401-A R45 (Lens A #5) — match iOS social_login default
@@ -2148,11 +2152,11 @@ private fun SocialLoginBlock(
                 "facebook" -> Triple(Color(0xFF1877F2), Color.White, Color(0xFF1877F2))
                 "github" -> Triple(Color(0xFF24292F), Color.White, Color(0xFF24292F))
                 "email" -> Triple(
-                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: "#6366F1"),
+                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                     Color.White,
-                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: "#6366F1"),
+                    StyleEngine.parseColor(block.accent_color ?: block.bg_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                 )
-                else -> Triple(Color(0xFF6366F1), Color.White, Color(0xFF6366F1))
+                else -> Triple(ai.appdna.sdk.AppDNA.brandAccentColor(), Color.White, ai.appdna.sdk.AppDNA.brandAccentColor())
             }
             val bgColor = provider.bg_color?.let { StyleEngine.parseColor(it) } ?: defaultBg
             val textColor = provider.text_color?.let { StyleEngine.parseColor(it) } ?: defaultText
@@ -2385,7 +2389,7 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
     var expired by remember { mutableStateOf(initialSeconds <= 0) }
 
     val textColor = StyleEngine.parseColor(block.text_color ?: "#000000")
-    val accentColor = StyleEngine.parseColor(block.accent_color ?: "#6366F1")
+    val accentColor = StyleEngine.parseColor(block.accent_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val bgColor = block.bg_color?.let { StyleEngine.parseColor(it) }
     // SPEC-401-A R32 — match iOS ContentBlockStandaloneViews.swift:112
     // default font_size 28 (was 24).
@@ -2658,7 +2662,7 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
     // `block.content` rendered on Android, empty on iOS. Aligning to iOS.
     val rawContent = block.markdown_content ?: block.text ?: ""
     val content = loc?.invoke("block.${block.id}.content", rawContent) ?: rawContent
-    val linkColor = StyleEngine.parseColor(block.link_color ?: "#6366F1")
+    val linkColor = StyleEngine.parseColor(block.link_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val context = LocalContext.current
 
     // SPEC-401-A — `legal` variant defaults: caption font + centred
@@ -2851,7 +2855,7 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     // advance. ContentBlockRendererView.swift:1051-1056.
     val explicitFilled = block.filled_segments ?: block.active_segments
     val activeSegments = explicitFilled ?: (currentStepIndex + 1)
-    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: "#6366F1")
+    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val barHeight = (block.bar_height ?: block.height ?: 6.0).dp
     val cornerRadius = (block.corner_radius ?: 3.0).dp
@@ -2933,7 +2937,7 @@ private fun TimelineBlock(block: ContentBlock, loc: ((String, String) -> String)
     val items = block.timeline_items ?: return
     val lineColor = StyleEngine.parseColor(block.line_color ?: "#E5E7EB")
     val completedColor = StyleEngine.parseColor(block.completed_color ?: "#22C55E")
-    val currentColor = StyleEngine.parseColor(block.current_color ?: "#6366F1")
+    val currentColor = StyleEngine.parseColor(block.current_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val upcomingColor = StyleEngine.parseColor(block.upcoming_color ?: "#D1D5DB")
     val showLine = block.show_line ?: true
     val isCompact = block.compact ?: false
@@ -3078,7 +3082,7 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
     // silently dropped. Honour both.
     val variant = block.loading_variant ?: block.variant ?: "checklist"
     val items = block.loading_items ?: emptyList()
-    val progressColor = StyleEngine.parseColor(block.progress_color ?: "#6366F1")
+    val progressColor = StyleEngine.parseColor(block.progress_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val checkColor = StyleEngine.parseColor(block.check_color ?: "#22C55E")
     val textColor = StyleEngine.parseColor(block.text_color ?: "#000000")
     val totalDurationMs = block.total_duration_ms
@@ -3354,7 +3358,7 @@ private fun CircularGaugeBlock(block: ContentBlock) {
     // active_color ?? "#6366F1"`. Android also honored `fill_color` which
     // iOS doesn't — console-published `fill_color` rendered only on
     // Android.
-    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.active_color ?: "#6366F1")
+    val fillColor = StyleEngine.parseColor(block.bar_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val labelColor = StyleEngine.parseColor(block.label_color ?: block.text_color ?: "#000000")
     val labelFontSize = (block.label_font_size ?: block.font_size ?: 24.0).sp
@@ -3631,7 +3635,7 @@ private fun CircularGaugeBlock(block: ContentBlock) {
 @Composable
 private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
     val fieldId = block.field_id ?: block.id
-    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: "#6366F1")
+    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     // SPEC-401-A R77 (Lens C P1) — `wheel_text_color` / `text_color` /
     // `field_style.text_color` author override mirrors iOS
     // ContentBlockStandaloneViews.swift:1026-1028 + 1338-1339. Was
@@ -4178,7 +4182,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
     val defaultVal = block.default_picker_value ?: minVal
     val unitStr = block.unit ?: ""
     val unitPos = block.unit_position ?: "after"
-    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: block.active_color ?: "#6366F1")
+    val highlightColor = StyleEngine.parseColor(block.highlight_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val fieldId = block.field_id ?: block.id
     // SPEC-401-A R35 — horizontal mode per iOS modernHorizontalWheel
     // (ContentBlockStandaloneViews.swift:1445,1454-1473,1521-1612).
@@ -4417,7 +4421,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
 @Composable
 private fun PulsingAvatarBlock(block: ContentBlock) {
     val avatarSize = (block.icon_size ?: block.height ?: 80.0).dp
-    val pulseColor = StyleEngine.parseColor(block.pulse_color ?: "#6366F1")
+    val pulseColor = StyleEngine.parseColor(block.pulse_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val ringCount = block.pulse_ring_count ?: 3
     val pulseDurationMs = ((block.pulse_speed ?: 1.5) * 1000).toInt()
     val borderW = (block.border_width ?: 0.0).dp
@@ -4583,7 +4587,7 @@ private fun PricingCardBlock(
 ) {
     val plans = block.pricing_plans ?: emptyList()
     val isSideBySide = block.pricing_layout == "side_by_side"
-    val accentColor = StyleEngine.parseColor(block.active_color ?: block.bg_color ?: "#6366F1")
+    val accentColor = StyleEngine.parseColor(block.active_color ?: block.bg_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
 
     var selectedPlanId by remember { mutableStateOf<String?>(null) }
 
@@ -5365,7 +5369,7 @@ private fun FormInputSelectBlock(
     val accentHex = block.field_style?.fill_color
         ?: block.field_style?.focused_border_color
         ?: block.active_color
-        ?: "#6366F1"
+        ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")
     val fillCol = StyleEngine.parseColor(accentHex)
     val cornerR = (block.field_style?.corner_radius ?: 10.0).dp
     val cfgOptBg = (cfg?.get("bg_color") as? String)?.let { StyleEngine.parseColor(it) }
@@ -5837,7 +5841,7 @@ private fun FormInputSliderBlock(
     // `stepVal > 0f`.
     val stepVal = (block.step_value ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
-    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
     // field_style.track_color (or block.track_color) per iOS
     // FormInputBlockViews.swift slider track. Was Material default purple.
@@ -5934,7 +5938,7 @@ private fun FormInputToggleBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    val onColor = StyleEngine.parseColor(block.field_style?.toggle_on_color ?: "#6366F1")
+    val onColor = StyleEngine.parseColor(block.field_style?.toggle_on_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val label = block.field_label ?: block.toggle_label ?: ""
     // OB-6 audit follow-up — restore saved value on back nav.
     var checked by remember {
@@ -6086,7 +6090,7 @@ private fun FormInputSegmentedBlock(
             (inputValues[fieldId] as? String) ?: (options.firstOrNull()?.value ?: "")
         )
     }
-    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -6222,7 +6226,7 @@ private fun FormInputRangeSliderBlock(
     // `stepVal > 0f`.
     val stepVal = (block.step_value ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
-    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
     // field_style.track_color (or block.track_color) per iOS.
     val trackCol = StyleEngine.parseColor(block.field_style?.track_color ?: block.track_color ?: "#E5E7EB")
@@ -6334,7 +6338,7 @@ private fun FormInputChipsBlock(
 ) {
     val fieldId = block.field_id ?: block.id
     val options = block.field_options ?: emptyList()
-    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: "#6366F1")
+    val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val maxSelections = (block.field_config?.get("max_selections") as? Number)?.toInt()
     // OB-6 audit follow-up — restore saved chips selection on back nav.
     var selectedValues by remember {
@@ -6415,7 +6419,7 @@ private fun FormInputColorBlock(
     val fieldId = block.field_id ?: block.id
     @Suppress("UNCHECKED_CAST")
     val presetColors: List<String> = (block.field_config?.get("preset_colors") as? List<String>)
-        ?: listOf("#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6", "#6366F1", "#A855F7", "#EC4899", "#000000", "#6B7280")
+        ?: listOf("#EF4444", "#F97316", "#EAB308", "#22C55E", "#3B82F6", (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"), "#A855F7", "#EC4899", "#000000", "#6B7280")
     // OB-6 audit follow-up — restore saved color on back nav.
     var selectedColor by remember {
         mutableStateOf((inputValues[fieldId] as? String) ?: "")
@@ -6597,7 +6601,7 @@ private fun FormInputLocationPlaceholder(
             singleLine = true,
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = StyleEngine.parseColor(block.field_style?.focused_border_color ?: "#6366F1"),
+                focusedBorderColor = StyleEngine.parseColor(block.field_style?.focused_border_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                 unfocusedBorderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
             ),
         )

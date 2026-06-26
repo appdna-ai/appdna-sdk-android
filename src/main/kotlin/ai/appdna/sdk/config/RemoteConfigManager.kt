@@ -263,6 +263,15 @@ internal class RemoteConfigManager(
             markFetchComplete(success = false)
         }
 
+        // SPEC-419 brand-threading: app brand palette → AppDNA.brandAccentColor() default.
+        // Fire-and-forget (non-critical default that just overrides #6366F1); not counted in
+        // the fetch barrier — a config-updated re-render picks up the accent if it lands late.
+        db.document("$basePath/brand").get().addOnSuccessListener { snapshot ->
+            parseBrand(snapshot.data)
+        }.addOnFailureListener { e ->
+            Log.debug("No brand config: ${e.message}")
+        }
+
         // SPEC-070-A finalization parity audit B1#6 — fetch in-app messages
         // mega-doc. Mirrors iOS RemoteConfigManager.swift:305 which fetches
         // `$basePath/messages` and parses into a `[String: MessageConfig]`
@@ -455,6 +464,19 @@ internal class RemoteConfigManager(
         onboardingFlows = flows
         activeOnboardingFlowId = activeId
         Log.debug("Parsed ${flows.size} onboarding flows, active=$activeId")
+    }
+
+    /**
+     * SPEC-419 brand-threading — capture the app's brand accent so SDK render
+     * defaults use it instead of the hardcoded #6366F1. Doc shape:
+     * `{ palette: { accent, primary, ... } }`.
+     */
+    private fun parseBrand(data: Map<String, Any>?) {
+        val palette = data?.get("palette") as? Map<*, *> ?: return
+        (palette["accent"] as? String)?.takeIf { it.isNotBlank() }?.let {
+            AppDNA.brandAccentHex = it
+            Log.debug("Loaded brand accent $it")
+        }
     }
 
     @Suppress("UNCHECKED_CAST")

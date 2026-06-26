@@ -38,7 +38,7 @@ fun YesNoView(
                 onClick = { onAnswer(SurveyAnswer(question.id, "yes")) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "yes") Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.1f),
+                    containerColor = if (selected == "yes") ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f),
                     contentColor = if (selected == "yes") Color.White else Color.Unspecified
                 )
             ) { Text("Yes") }
@@ -47,7 +47,7 @@ fun YesNoView(
                 onClick = { onAnswer(SurveyAnswer(question.id, "no")) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "no") Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.1f),
+                    containerColor = if (selected == "no") ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f),
                     contentColor = if (selected == "no") Color.White else Color.Unspecified
                 )
             ) { Text("No") }

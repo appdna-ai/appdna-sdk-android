@@ -57,7 +57,7 @@ fun NpsQuestionView(
                         // which defaults to Material3 `#6750A4` (purple),
                         // visibly different brand color from iOS at default
                         // theme.
-                        .background(if (isSelected) Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.1f))
+                        .background(if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f))
                         .clickable { onAnswer(SurveyAnswer(question.id, score)) }
                         .semantics { contentDescription = scoreCd },
                     contentAlignment = Alignment.Center

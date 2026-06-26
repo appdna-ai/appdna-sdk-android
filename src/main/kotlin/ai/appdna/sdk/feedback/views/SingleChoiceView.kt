@@ -89,7 +89,7 @@ fun SingleChoiceView(
                     // R88 — match iOS SingleChoiceView.swift:27 `Color(hex: "#6366F1")`
                     // (indigo brand color) for selected border. Was using
                     // Material3 primary which defaults to #6750A4 (purple).
-                    border = BorderStroke(1.dp, if (isSelected) Color(0xFF6366F1) else Color.Gray.copy(alpha = 0.3f))
+                    border = BorderStroke(1.dp, if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),

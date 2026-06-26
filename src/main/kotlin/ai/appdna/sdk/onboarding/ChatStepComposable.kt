@@ -127,15 +127,15 @@ fun ChatStepComposable(
     }
     val aiBubbleBg = hex(style?.ai_bubble_bg, "#1E293B")
     val aiBubbleTextColor = hex(style?.ai_bubble_text, "#E2E8F0")
-    val userBubbleBg = hex(style?.user_bubble_bg, "#6366F1")
+    val userBubbleBg = hex(style?.user_bubble_bg, (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val userBubbleTextColor = hex(style?.user_bubble_text, "#FFFFFF")
     val inputBgColor = hex(style?.input_bg, "#1E293B")
     val inputTextColor = hex(style?.input_text, "#E2E8F0")
     val inputBorderColor = hex(style?.input_border, "#334155")
-    val sendBtnColor = hex(style?.send_button_color, "#6366F1")
+    val sendBtnColor = hex(style?.send_button_color, (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val qrBgColor = hex(style?.quick_reply_bg, "#334155")
     val qrTextColor = hex(style?.quick_reply_text, "#E2E8F0")
-    val typingDotColor = hex(style?.typing_indicator_color, "#6366F1")
+    val typingDotColor = hex(style?.typing_indicator_color, (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
 
     // Auto-messages on appear — SPEC-401-A skip when we restored
     // a prior transcript so the user does not see the welcome

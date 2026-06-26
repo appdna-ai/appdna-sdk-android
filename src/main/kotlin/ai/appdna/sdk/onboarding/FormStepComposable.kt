@@ -205,7 +205,7 @@ fun FormStep(
         // brand authoring. Now reads element_style background + corner_radius.
         val ctaBgColor = config.element_style?.background?.color
             ?.let { StyleEngine.parseColor(it) }
-            ?: StyleEngine.parseColor("#6366F1")
+            ?: StyleEngine.parseColor((ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
         val ctaCornerRadius = (config.element_style?.corner_radius ?: 14.0).dp
         Button(
             onClick = {

@@ -1263,7 +1263,7 @@ internal fun OnboardingFlowHost(
                 // iOS on both light + dark mode.
                 val progressColor = (stepProgressColor ?: flow.settings.progress_color)?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
-                } ?: Color(0xFF6366F1)
+                } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
                 val progressTrackColor = flow.settings.progress_track_color?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: Color.Gray.copy(alpha = 0.2f)
@@ -3366,7 +3366,7 @@ private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit)
             // indigo `#6366F1` so the same flow renders the same CTA
             // color on both natives, regardless of host's Material theme
             // primary override.
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+            colors = ButtonDefaults.buttonColors(containerColor = ai.appdna.sdk.AppDNA.brandAccentColor())
         ) {
             Text(text = (config.cta_text ?: "Get Started").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
@@ -3424,7 +3424,7 @@ private fun QuestionStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit
             ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
             ?: config.element_style?.background?.color
                 ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
-            ?: Color(0xFF6366F1)
+            ?: ai.appdna.sdk.AppDNA.brandAccentColor()
         // SPEC-401-A R51 (Lens A #12, P2) — iOS QuestionStepView.swift:24-27
         // piggy-backs `element_style.shadow.color` as the selected_bg override
         // before falling back to accent×0.15. Authored payloads with that key
@@ -3678,7 +3678,7 @@ private fun ValuePropStep(config: StepConfig, onNext: (Map<String, Any>?) -> Uni
             // SPEC-401-A R12 — match iOS ValuePropStepView.swift:51 fixed
             // indigo `#6366F1` so flows render the same CTA color on both
             // natives regardless of host's MaterialTheme primary override.
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+            colors = ButtonDefaults.buttonColors(containerColor = ai.appdna.sdk.AppDNA.brandAccentColor())
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }
@@ -3765,7 +3765,7 @@ private fun CustomStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) 
             shape = RoundedCornerShape(14.dp),
             // SPEC-401-A R12 — match iOS CustomStepView.swift:51 fixed
             // indigo `#6366F1`. Affects custom/info/permission steps.
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+            colors = ButtonDefaults.buttonColors(containerColor = ai.appdna.sdk.AppDNA.brandAccentColor())
         ) {
             Text(text = (config.cta_text ?: "Continue").interpolated(), fontWeight = FontWeight.SemiBold, fontSize = 17.sp)
         }

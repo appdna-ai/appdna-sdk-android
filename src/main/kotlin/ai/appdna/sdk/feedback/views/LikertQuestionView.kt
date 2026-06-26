@@ -87,7 +87,7 @@ fun LikertQuestionView(
                             // brand color for selected background. Material3
                             // primary defaults to purple (#6750A4), visibly
                             // off-brand vs iOS at default theme.
-                            if (isSelected) Color(0xFF6366F1)
+                            if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor()
                             else Color.Gray.copy(alpha = 0.1f)
                         )
                         .clickable { onAnswer(SurveyAnswer(question.id, score)) }

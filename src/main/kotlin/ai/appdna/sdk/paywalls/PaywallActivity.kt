@@ -1422,9 +1422,9 @@ private fun PaywallSectionView(
                 val isSelected = selectedPlanId == plan.id
                 val elevation = cardShadowElevation
                 // PW-9: honor authored selected/unselected border + bg colors.
-                val selectedBorderColor = customSelectedBorder ?: Color(0xFF6366F1)
+                val selectedBorderColor = customSelectedBorder ?: ai.appdna.sdk.AppDNA.brandAccentColor()
                 val unselectedBorder = unselectedBorderColor
-                val selectedBg = customSelectedBg ?: Color(0xFF6366F1).copy(alpha = 0.1f)
+                val selectedBg = customSelectedBg ?: ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f)
                 val unselectedBg = unselectedBgColor ?: Color.White.copy(alpha = 0.1f)
                 // PW-9: text color flips when selected if author provided one.
                 val resolvedTextColor = if (isSelected) {
@@ -1555,7 +1555,7 @@ private fun PaywallSectionView(
                                 val featureCheckColor = if (isSelected && resolvedTextColor != Color.Unspecified) {
                                     resolvedTextColor
                                 } else {
-                                    Color(0xFF6366F1)
+                                    ai.appdna.sdk.AppDNA.brandAccentColor()
                                 }
                                 plan.features.forEachIndexed { fIdx, feature ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1598,7 +1598,7 @@ private fun PaywallSectionView(
                                     text = loc("plan.$planIdx.trial", trialText),
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = resolvedTextColor.takeIf { it != Color.Unspecified } ?: Color(0xFF6366F1),
+                                    color = resolvedTextColor.takeIf { it != Color.Unspecified } ?: ai.appdna.sdk.AppDNA.brandAccentColor(),
                                 )
                             }
 
@@ -1674,8 +1674,8 @@ private fun PaywallSectionView(
                         // `Picker(.segmented)` with the iOS-canonical indigo
                         // `#6366F1` for the active fill. Authored
                         // `selected_bg_color` / `selected_border_color` win.
-                        val segActiveBg = customSelectedBg ?: Color(0xFF6366F1).copy(alpha = 0.2f)
-                        val segActiveBorder = customSelectedBorder ?: Color(0xFF6366F1)
+                        val segActiveBg = customSelectedBg ?: ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.2f)
+                        val segActiveBorder = customSelectedBorder ?: ai.appdna.sdk.AppDNA.brandAccentColor()
                         val segInactiveBg = unselectedBgColor ?: Color.Transparent
                         val segInactiveBorder = unselectedBorderColor ?: Color.White.copy(alpha = 0.2f)
                         val segActiveText = selectedTextColor ?: Color.White
@@ -1738,7 +1738,7 @@ private fun PaywallSectionView(
                                     modifier = Modifier
                                         .clip(cardShape)
                                         .background(
-                                            if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.1f),
+                                            if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.White.copy(alpha = 0.1f),
                                             cardShape,
                                         )
                                         .border(
@@ -1782,12 +1782,12 @@ private fun PaywallSectionView(
                                     .padding(vertical = cardGap / 2)
                                     .clip(cardShape)
                                     .background(
-                                        if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.Transparent,
+                                        if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f) else Color.Transparent,
                                         cardShape,
                                     )
                                     .border(
                                         if (isSelected) 2.dp else 1.dp,
-                                        if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.2f),
+                                        if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.White.copy(alpha = 0.2f),
                                         cardShape,
                                     )
                                     .clickable { onPlanSelect(plan.id) }
@@ -1798,7 +1798,7 @@ private fun PaywallSectionView(
                                     selected = isSelected,
                                     onClick = { onPlanSelect(plan.id) },
                                     colors = androidx.compose.material3.RadioButtonDefaults.colors(
-                                        selectedColor = Color(0xFF6366F1),
+                                        selectedColor = ai.appdna.sdk.AppDNA.brandAccentColor(),
                                         unselectedColor = Color.White.copy(alpha = 0.5f),
                                     ),
                                 )
@@ -1827,12 +1827,12 @@ private fun PaywallSectionView(
                                     .padding(vertical = cardGap / 2)
                                     .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
                                     .then(
-                                        if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
+                                        if (isSelected) Modifier.border(2.dp, ai.appdna.sdk.AppDNA.brandAccentColor(), cardShape) else Modifier
                                     )
                                     .clickable { onPlanSelect(plan.id) },
                                 shape = cardShape,
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                                    containerColor = if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
                                 ),
                             ) {
                                 Column(modifier = Modifier.padding(cardPad)) {
@@ -2019,7 +2019,7 @@ private fun PaywallSectionView(
                                     .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected),
                                 shape = cardShape,
                                 colors = ButtonDefaults.buttonColors(
-                                    containerColor = if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.1f),
+                                    containerColor = if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.White.copy(alpha = 0.1f),
                                     contentColor = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
                                 ),
                                 contentPadding = PaddingValues(horizontal = cardPad, vertical = cardPad),
@@ -2073,7 +2073,7 @@ private fun PaywallSectionView(
                                         .size(12.dp)
                                         .clip(androidx.compose.foundation.shape.CircleShape)
                                         .background(
-                                            if (isSelected) Color(0xFF6366F1) else Color.White.copy(alpha = 0.4f),
+                                            if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.White.copy(alpha = 0.4f),
                                         ),
                                 )
                                 Spacer(Modifier.width(12.dp))
@@ -2091,13 +2091,13 @@ private fun PaywallSectionView(
                                     .padding(vertical = cardGap / 2)
                                     .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
                                     .then(
-                                        if (isSelected) Modifier.border(2.dp, Color(0xFF6366F1), cardShape) else Modifier
+                                        if (isSelected) Modifier.border(2.dp, ai.appdna.sdk.AppDNA.brandAccentColor(), cardShape) else Modifier
                                     )
                                     .clickable { onPlanSelect(plan.id) },
                                 shape = cardShape,
                                 elevation = CardDefaults.cardElevation(defaultElevation = if (cardShadowEnabled) 4.dp else 0.dp),
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) Color(0xFF6366F1).copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                                    containerColor = if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
                                 )
                             ) {
                                 Box {
@@ -2163,7 +2163,7 @@ private fun PaywallSectionView(
                 ?: config.cta?.bg_color?.let { StyleEngine.parseColor(it) }
                 ?: section.data?.cta?.bg_color?.let { StyleEngine.parseColor(it) }
                 ?: section.data?.cta_bg_color?.let { StyleEngine.parseColor(it) }
-                ?: Color(0xFF6366F1)
+                ?: ai.appdna.sdk.AppDNA.brandAccentColor()
             // QA-R8 — same chain for the button text color. Was hardcoded
             // `Color.White` (line 2193). iOS `CTAButton.swift:40-45` reads
             // `buttonTextStyle.color` then `cta?.resolvedTextColor`
@@ -2338,7 +2338,7 @@ private fun PaywallSectionView(
                     }
                     "trial_badge" -> {
                         val trialBadgeStyle = StyleEngine.applyTextStyle(
-                            TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Color(0xFF6366F1)),
+                            TextStyle(fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = ai.appdna.sdk.AppDNA.brandAccentColor()),
                             section.style?.elements?.get("value")?.text_style
                         )
                         Text(
@@ -2346,7 +2346,7 @@ private fun PaywallSectionView(
                             style = trialBadgeStyle,
                             modifier = Modifier
                                 .background(
-                                    Color(0xFF6366F1).copy(alpha = 0.15f),
+                                    ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.15f),
                                     RoundedCornerShape(999.dp),
                                 )
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
@@ -2579,7 +2579,7 @@ private fun PaywallSectionView(
                         text = "\u201C",
                         fontSize = 40.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF6366F1),
+                        color = ai.appdna.sdk.AppDNA.brandAccentColor(),
                     )
                 }
                 if (testimonialLayout == "minimal") {
@@ -2611,10 +2611,10 @@ private fun PaywallSectionView(
                             section.data?.author_name?.let { name ->
                                 val initials = name.split(" ").mapNotNull { it.firstOrNull()?.uppercaseChar()?.toString() }.take(2).joinToString("")
                                 Box(
-                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF6366F1).copy(alpha = 0.2f)),
+                                    modifier = Modifier.size(40.dp).clip(CircleShape).background(ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.2f)),
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(initials, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF6366F1))
+                                    Text(initials, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = ai.appdna.sdk.AppDNA.brandAccentColor())
                                 }
                             }
                         }
@@ -2780,7 +2780,7 @@ private fun PaywallLegalSection(
             ) {
                 Spacer(Modifier.weight(1f))
                 links.forEach { link ->
-                    val accentColor = section.data.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+                    val accentColor = section.data.accent_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
                     Text(
                         text = link.label,
                         color = accentColor,
@@ -2820,7 +2820,7 @@ private fun buildAnnotatedStringWithLinks(text: String): androidx.compose.ui.tex
         builder.pushStringAnnotation(tag = "URL", annotation = url)
         builder.pushStyle(
             androidx.compose.ui.text.SpanStyle(
-                color = Color(0xFF6366F1),
+                color = ai.appdna.sdk.AppDNA.brandAccentColor(),
                 textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
             )
         )
@@ -3092,7 +3092,7 @@ private fun PaywallTimelineSection(
             items.forEachIndexed { index, item ->
                 val baseStatusColor = when (item.status) {
                     "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
-                    "current" -> parseHexColor(section.data.current_color ?: "#6366F1")
+                    "current" -> parseHexColor(section.data.current_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
                     else -> parseHexColor(section.data.upcoming_color ?: "#666666")
                 }
                 val statusColor = item.color?.let { parseHexColor(it) } ?: baseStatusColor
@@ -3143,7 +3143,7 @@ private fun PaywallIconGridSection(
     val columnCount = section.data.columns ?: 3
     val gridSpacing = section.data.spacing ?: 16f
     val iconSz = section.data.icon_size ?: 32f
-    val iconClr = section.data.icon_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+    val iconClr = section.data.icon_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
 
     val titleStyle = section.style?.elements?.get("title")?.text_style
     val descStyle = section.style?.elements?.get("description")?.text_style
@@ -3217,7 +3217,7 @@ private fun PaywallComparisonTableSection(
     // 1397-1399. Cross was bright red `#EF4444`; iOS uses muted gray `#D1D5DB`.
     // Border was 20%-white (invisible on light paywall); iOS uses `#E5E7EB`.
     val crossColor = section.data.cross_color?.let { parseHexColor(it) } ?: parseHexColor("#D1D5DB")
-    val highlightClr = section.data.highlight_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+    val highlightClr = section.data.highlight_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
     val borderClr = section.data.border_color?.let { parseHexColor(it) } ?: parseHexColor("#E5E7EB")
     // SPEC-401-A R79 (Lens A P1) — theme-adaptive label colors matching iOS
     // `.foregroundColor(.primary)` / `.secondary`. Was hardcoded white,
@@ -3379,7 +3379,7 @@ private fun PaywallPromoInputSection(
                 },
                 enabled = effectivePromoState != "loading",
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = section.data?.accent_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
+                    containerColor = section.data?.accent_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor(),
                 ),
             ) {
                 Text(
@@ -3420,7 +3420,7 @@ private fun PaywallToggleSection(
 ) {
     val toggleKey = section.data?.label ?: "toggle_${section.type}"
     var isToggled by remember { mutableStateOf(toggleStates[toggleKey] ?: section.data?.default_value ?: false) }
-    val onColor = section.data?.on_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1)
+    val onColor = section.data?.on_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
 
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -3697,7 +3697,7 @@ private fun PaywallStickyFooter(
                 modifier = Modifier.fillMaxWidth().height((section.data.cta_height ?: 52f).dp),
                 shape = RoundedCornerShape((section.data.cta_corner_radius ?: 14f).dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = section.data.cta_bg_color?.let { parseHexColor(it) } ?: Color(0xFF6366F1),
+                    containerColor = section.data.cta_bg_color?.let { parseHexColor(it) } ?: ai.appdna.sdk.AppDNA.brandAccentColor(),
                 ),
             ) {
                 if (isPurchasing) {

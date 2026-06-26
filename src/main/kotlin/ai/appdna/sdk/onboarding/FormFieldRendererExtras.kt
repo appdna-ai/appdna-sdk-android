@@ -568,7 +568,7 @@ internal fun ColorPickerField(
 ) {
     val current = values[field.id]?.toString()
         ?: field.config?.default_color
-        ?: "#6366F1"
+        ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")
     val showOpacity = field.config?.show_opacity == true
     val presets = field.config?.preset_colors ?: defaultPresetColors()
     var showDialog by remember { mutableStateOf(false) }
@@ -696,7 +696,7 @@ private fun ColorPickerDialog(
 
 private fun defaultPresetColors(): List<String> = listOf(
     "#000000", "#FFFFFF", "#EF4444", "#F97316", "#F59E0B",
-    "#10B981", "#06B6D4", "#3B82F6", "#6366F1", "#8B5CF6",
+    "#10B981", "#06B6D4", "#3B82F6", (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"), "#8B5CF6",
     "#EC4899", "#6B7280",
 )
 
