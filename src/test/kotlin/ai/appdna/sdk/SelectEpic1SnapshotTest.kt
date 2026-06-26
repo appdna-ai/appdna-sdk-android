@@ -333,4 +333,46 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun listSeparators() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "list1",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "list"),
+                        "field_style" to mapOf<String, Any>("fill_color" to "#3B82F6", "text_color" to "#FFFFFF"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "free", "value" to "free", "label" to "Free", "subtitle" to "Basic features"),
+                            mapOf<String, Any>("id" to "plus", "value" to "plus", "label" to "Plus", "subtitle" to "More storage + priority support"),
+                            mapOf<String, Any>("id" to "pro", "value" to "pro", "label" to "Pro", "subtitle" to "Everything, unlimited"),
+                            mapOf<String, Any>("id" to "team", "value" to "team", "label" to "Team", "subtitle" to "For your whole organization"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_list.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf("list1" to "plus"),
+                    )
+                }
+            }
+        }
+    }
 }

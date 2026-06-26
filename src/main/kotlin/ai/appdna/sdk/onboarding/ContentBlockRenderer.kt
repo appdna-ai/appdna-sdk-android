@@ -5907,6 +5907,46 @@ private fun FormInputSelectBlock(
                     }
                 }
             }
+            "list" -> {
+                // EPIC-1 — borderless list: full-width rows + a hairline divider between items
+                // (settings-list look). Honors per-option bg + separator_color + selected tint/check.
+                val separatorColor = (cfg?.get("separator_color") as? String)?.let { StyleEngine.parseColor(it) }
+                    ?: StyleEngine.parseColor("#D1D5DB")
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    options.forEachIndexed { oi, option ->
+                        val isSelected = isOptionSelected(option.value)
+                        val rowBg = if (isSelected) (option.selected_bg_color?.let { StyleEngine.parseColor(it) } ?: selectedBg)
+                            else (option.bg_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent)
+                        val rowTitle = if (isSelected) (option.selected_text_color?.let { StyleEngine.parseColor(it) } ?: selectedTextCol)
+                            else (option.title_color?.let { StyleEngine.parseColor(it) } ?: textCol)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(rowBg)
+                                .selectable(
+                                    selected = isSelected,
+                                    role = androidx.compose.ui.semantics.Role.RadioButton,
+                                    onClick = { pickOption(option.value) },
+                                )
+                                .padding(horizontal = 4.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(text = option.label, color = rowTitle, fontSize = (option.title_font_size ?: 16.0).sp)
+                                option.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
+                                    Text(text = sub, color = rowTitle, fontSize = (option.subtitle_font_size ?: 13.0).sp)
+                                }
+                            }
+                            if (isSelected) {
+                                Text(text = "✓", color = fillCol, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (oi < options.lastIndex) {
+                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(separatorColor))
+                        }
+                    }
+                }
+            }
             else -> {
                 // "dropdown" (default): Spinner/dropdown
                 var expanded by remember { mutableStateOf(false) }
