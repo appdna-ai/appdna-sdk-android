@@ -2337,13 +2337,18 @@ private fun PaywallSectionView(
             }
             val ctaStyleMap = config.cta?.style as? Map<*, *>
             val sectionCtaStyleMap = section.data?.cta?.style as? Map<*, *>
-            val buttonBgColor = ctaColor(ctaStyleMap?.get("bg_color") as? String)
+            // SPEC-419 — capture whether an EXPLICIT solid CTA bg_color was authored
+            // (vs the brand-accent fallback). An explicit solid color WINS over a
+            // cta_gradient: the gradient path collapses to the page-navy via the
+            // degenerate pixel-offset brush below, so honoring the author's #ffffff
+            // paints the intended white button.
+            val explicitCtaBg: Color? = ctaColor(ctaStyleMap?.get("bg_color") as? String)
                 ?: ctaColor(sectionCtaStyleMap?.get("bg_color") as? String)
                 ?: ctaColor(section.style?.elements?.get("button")?.background?.color)
                 ?: ctaColor(config.cta?.bg_color)
                 ?: ctaColor(section.data?.cta?.bg_color)
                 ?: ctaColor(section.data?.cta_bg_color)
-                ?: ai.appdna.sdk.AppDNA.brandAccentColor()
+            val buttonBgColor = explicitCtaBg ?: ai.appdna.sdk.AppDNA.brandAccentColor()
             // QA-R8 — same chain for the button text color. iOS `CTAButton.swift:40-45`
             // reads `buttonTextStyle.color` then `cta?.resolvedTextColor`
             // (= `styleObj?.text_color ?? text_color ?? "#FFFFFF"`).
@@ -2373,15 +2378,24 @@ private fun PaywallSectionView(
                 }.toTypedArray()
                 if (stops.size < 2) return@let null
                 val rads = (g.angle ?: 90.0) * Math.PI / 180.0
-                val sx = (0.5 - kotlin.math.sin(rads) / 2).toFloat()
-                val sy = (0.5 + kotlin.math.cos(rads) / 2).toFloat()
-                val ex = (0.5 + kotlin.math.sin(rads) / 2).toFloat()
-                val ey = (0.5 - kotlin.math.cos(rads) / 2).toFloat()
-                Brush.linearGradient(
-                    colorStops = stops,
-                    start = androidx.compose.ui.geometry.Offset(sx, sy),
-                    end = androidx.compose.ui.geometry.Offset(ex, ey),
-                )
+                // SPEC-419 — Compose Offset is in PIXELS, not 0..1 fractions. Passing
+                // fractions collapsed the gradient into the first pixel (clamped to the
+                // navy end-stop). Map fractions to real pixels via a size-aware
+                // ShaderBrush so it renders like iOS (UnitPoint).
+                object : androidx.compose.ui.graphics.ShaderBrush() {
+                    override fun createShader(size: androidx.compose.ui.geometry.Size): android.graphics.Shader {
+                        val sx = (0.5 - kotlin.math.sin(rads) / 2).toFloat()
+                        val sy = (0.5 + kotlin.math.cos(rads) / 2).toFloat()
+                        val ex = (0.5 + kotlin.math.sin(rads) / 2).toFloat()
+                        val ey = (0.5 - kotlin.math.cos(rads) / 2).toFloat()
+                        return androidx.compose.ui.graphics.LinearGradientShader(
+                            from = androidx.compose.ui.geometry.Offset(sx * size.width, sy * size.height),
+                            to = androidx.compose.ui.geometry.Offset(ex * size.width, ey * size.height),
+                            colors = stops.map { it.second },
+                            colorStops = stops.map { it.first },
+                        )
+                    }
+                }
             }
 
             // PW-10 — restore link rendering helper.
@@ -2451,7 +2465,11 @@ private fun PaywallSectionView(
                         // `styleObj?.corner_radius ?? corner_radius ?? 12.0`. Was 14.
                         .clip(RoundedCornerShape((section.data?.cta?.corner_radius?.toFloat() ?: 12f).dp))
                         .then(
-                            if (ctaBrush != null) Modifier.background(ctaBrush)
+                            // SPEC-419 — explicit solid bg_color (e.g. #ffffff) WINS over a
+                            // cta_gradient. The gradient brush uses fractional offsets as PIXELS
+                            // (degenerate) → clamps the whole button to the navy end-stop. Use
+                            // the gradient ONLY when no solid bg_color was authored.
+                            if (explicitCtaBg == null && ctaBrush != null) Modifier.background(ctaBrush)
                             else Modifier.background(buttonBgColor)
                         )
                         .alpha(if (ctaEnabled) 1f else 0.5f)
