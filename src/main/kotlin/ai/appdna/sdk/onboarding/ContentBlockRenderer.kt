@@ -3929,7 +3929,11 @@ private fun RowBlock(
             }
             Text(
                 text = leadingIcon,
-                fontSize = (leadingIconSize.value * 0.6f).sp,
+                // SPEC-419 — render the glyph at the CONFIGURED leading_icon_size (was
+                // * 0.6f, which shrank a 24 setting to a tiny 14sp glyph). leading_icon_size
+                // now IS the glyph size so the console scales it directly. The enclosing Box
+                // is sized to bgSize (= size + 16) so the larger glyph is never clipped.
+                fontSize = leadingIconSize.value.sp,
                 color = leadingIconColor ?: Color.Unspecified,
             )
         }
