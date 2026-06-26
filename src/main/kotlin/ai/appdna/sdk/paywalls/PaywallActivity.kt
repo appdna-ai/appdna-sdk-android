@@ -2244,8 +2244,15 @@ private fun PaywallSectionView(
                                     elevation = CardDefaults.cardElevation(defaultElevation = if (cardShadowEnabled) 4.dp else 0.dp),
                                     colors = CardDefaults.cardColors(
                                         // SPEC-419 — authored selected_bg_color (nurrai #2c374c) wins;
-                                        // unselected default white-10% matches iOS PlanCard.swift:201.
-                                        containerColor = if (isSelected) (customSelectedBg ?: Color.White.copy(alpha = 0.16f)) else (unselectedBgColor ?: Color.White.copy(alpha = 0.10f))
+                                        // SPEC-419 — unselected card must be OPAQUE + uniform. A
+                                        // translucent white-10% let the navy PAGE GRADIENT bleed
+                                        // through, giving a "strange gradient inside the card". Derive
+                                        // an opaque subtle tone from the authored selected color (darker)
+                                        // so it stays theme-aware + distinct; fall back to a subtle navy.
+                                        containerColor = if (isSelected) (customSelectedBg ?: Color.White.copy(alpha = 0.16f))
+                                            else (unselectedBgColor
+                                                ?: customSelectedBg?.let { androidx.compose.ui.graphics.lerp(it, Color.Black, 0.40f) }
+                                                ?: Color(0xFF1B2540))
                                     )
                                 ) {
                                     Row(
