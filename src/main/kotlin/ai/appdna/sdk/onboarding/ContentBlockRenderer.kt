@@ -5864,6 +5864,49 @@ private fun FormInputSelectBlock(
                     }
                 }
             }
+            "bubble" -> {
+                // EPIC-1 — chips/pills that wrap (FlowRow). Selected = filled accent; unselected =
+                // bordered/transparent. Common for interests/tags multi-select.
+                androidx.compose.foundation.layout.FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(optionSpacingDp),
+                    verticalArrangement = Arrangement.spacedBy(optionSpacingDp),
+                ) {
+                    options.forEach { option ->
+                        val isSelected = isOptionSelected(option.value)
+                        val chipBg = if (isSelected) (option.selected_bg_color?.let { StyleEngine.parseColor(it) } ?: fillCol)
+                            else (option.bg_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent)
+                        val chipBorder = if (isSelected) (option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: fillCol)
+                            else (option.border_color?.let { StyleEngine.parseColor(it) } ?: unselectedBorder)
+                        val chipText = if (isSelected) selectedTextCol else textCol
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(percent = 50))
+                                .background(chipBg)
+                                .border(
+                                    androidx.compose.foundation.BorderStroke(
+                                        if (isSelected) selectedBorderW else unselectedBorderW,
+                                        chipBorder,
+                                    ),
+                                    RoundedCornerShape(percent = 50),
+                                )
+                                .selectable(
+                                    selected = isSelected,
+                                    role = androidx.compose.ui.semantics.Role.RadioButton,
+                                    onClick = { pickOption(option.value) },
+                                )
+                                .padding(horizontal = 16.dp, vertical = 9.dp),
+                        ) {
+                            Text(
+                                text = option.label,
+                                color = chipText,
+                                fontSize = (option.title_font_size ?: 14.0).sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
+                }
+            }
             else -> {
                 // "dropdown" (default): Spinner/dropdown
                 var expanded by remember { mutableStateOf(false) }

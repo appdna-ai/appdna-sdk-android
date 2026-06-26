@@ -289,4 +289,48 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun bubbleChips() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "bubble1",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "bubble"),
+                        "field_style" to mapOf<String, Any>("fill_color" to "#22C55E", "text_color" to "#FFFFFF"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "running", "value" to "running", "label" to "Running"),
+                            mapOf<String, Any>("id" to "yoga", "value" to "yoga", "label" to "Yoga"),
+                            mapOf<String, Any>("id" to "cycling", "value" to "cycling", "label" to "Cycling"),
+                            mapOf<String, Any>("id" to "swimming", "value" to "swimming", "label" to "Swimming"),
+                            mapOf<String, Any>("id" to "boxing", "value" to "boxing", "label" to "Boxing"),
+                            mapOf<String, Any>("id" to "pilates", "value" to "pilates", "label" to "Pilates"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_bubble.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf("bubble1" to "running"),
+                    )
+                }
+            }
+        }
+    }
 }
