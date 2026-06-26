@@ -60,6 +60,8 @@ import ai.appdna.sdk.core.IconReference
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.automirrored.filled.StarHalf
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -152,6 +154,14 @@ class PaywallActivity : ComponentActivity() {
         // SPEC-070-A I.16 — edge-to-edge: Compose owns insets via
         // `imePadding()`/`safeDrawingPadding()` modifiers in the renderer.
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
+        // SPEC-419 — paint the paywall background UNDER the system bars like iOS
+        // `.ignoresSafeArea()`. Without transparent bars the theme's opaque
+        // status/nav bar colors render as black bands over the full-bleed gradient.
+        window.statusBarColor = android.graphics.Color.TRANSPARENT
+        window.navigationBarColor = android.graphics.Color.TRANSPARENT
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
 
         val paywallId = intent.getStringExtra(EXTRA_PAYWALL_ID) ?: run {
             finish()
@@ -228,7 +238,7 @@ class PaywallActivity : ComponentActivity() {
             // pick `dark` overrides from paywall content blocks. Mirrors the
             // SurveyActivity pattern landed by Phase D for surveys.
             val isDark = isSystemInDarkTheme()
-            MaterialTheme {
+            MaterialTheme(colorScheme = if (isDark) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()) {
                 PaywallScreen(
                     config = config,
                     onPlanSelected = { plan, metadata ->
@@ -1088,21 +1098,27 @@ private fun PaywallBackground(background: PaywallBackground?) {
                         pos to parseHexColor(c)
                     }.toTypedArray()
                     if (colorStopList.size >= 2) {
-                        // SPEC-070-A finalization B5#P0 — match iOS PaywallRenderer.swift:394-395:
-                        //   start = (0.5 - cos·0.5, 0.5 - sin·0.5)
-                        //   end   = (0.5 + cos·0.5, 0.5 + sin·0.5)
-                        // Previous Android impl used (sin, cos) which rotated every
-                        // gradient by 90° vs iOS for the same `gradient.angle` value.
+                        // SPEC-419 — iOS uses UnitPoint (0..1 FRACTIONS). Compose
+                        // Brush.linearGradient start/end are in PIXELS, so passing
+                        // 0..1 collapsed the whole gradient into the first pixel and
+                        // clamped to a near-solid color. Use a size-aware ShaderBrush
+                        // so the fractions map to real pixels = a true full-bleed
+                        // gradient matching iOS PaywallRenderer.swift:394-412.
                         val rads = angle * Math.PI / 180.0
-                        val sx = (0.5 - kotlin.math.cos(rads) * 0.5).toFloat()
-                        val sy = (0.5 - kotlin.math.sin(rads) * 0.5).toFloat()
-                        val ex = (0.5 + kotlin.math.cos(rads) * 0.5).toFloat()
-                        val ey = (0.5 + kotlin.math.sin(rads) * 0.5).toFloat()
-                        Brush.linearGradient(
-                            colorStops = colorStopList,
-                            start = androidx.compose.ui.geometry.Offset(sx, sy),
-                            end = androidx.compose.ui.geometry.Offset(ex, ey),
-                        )
+                        object : androidx.compose.ui.graphics.ShaderBrush() {
+                            override fun createShader(size: androidx.compose.ui.geometry.Size): android.graphics.Shader {
+                                val fx = (0.5 - kotlin.math.cos(rads) * 0.5).toFloat()
+                                val fy = (0.5 - kotlin.math.sin(rads) * 0.5).toFloat()
+                                val tx = (0.5 + kotlin.math.cos(rads) * 0.5).toFloat()
+                                val ty = (0.5 + kotlin.math.sin(rads) * 0.5).toFloat()
+                                return androidx.compose.ui.graphics.LinearGradientShader(
+                                    from = androidx.compose.ui.geometry.Offset(fx * size.width, fy * size.height),
+                                    to = androidx.compose.ui.geometry.Offset(tx * size.width, ty * size.height),
+                                    colors = colorStopList.map { it.second },
+                                    colorStops = colorStopList.map { it.first },
+                                )
+                            }
+                        }
                     } else null
                 }
                 background.colors != null && background.colors.size >= 2 -> {
@@ -1334,15 +1350,25 @@ private fun PaywallSectionView(
                 TextStyle(color = Color.White, fontSize = 16.sp),
                 section.style?.elements?.get("item")?.text_style
             )
-            Column(modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } }) {
-                section.data?.features?.forEachIndexed { index, feature ->
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(vertical = 6.dp)
-                    ) {
-                        Text(text = "\u2713", color = Color(0xFF22C55E), fontSize = 18.sp)
-                        Spacer(Modifier.width(12.dp))
-                        Text(text = loc("feature.$index", feature), style = featureItemStyle)
+            // SPEC-419 \u2014 iOS FeatureList is a content-sized VStack(.leading)
+            // CENTERED in its parent (no maxWidth). Mirror that: outer column
+            // centers the block; inner wrapContentWidth keeps rows left-aligned
+            // among themselves. Checkmark uses the brand accent like iOS
+            // (FeatureList.swift:120,132), not a hardcoded green.
+            Column(
+                modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Column(modifier = Modifier.wrapContentWidth(Alignment.CenterHorizontally)) {
+                    section.data?.features?.forEachIndexed { index, feature ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(vertical = 6.dp)
+                        ) {
+                            Text(text = "\u2713", color = ai.appdna.sdk.AppDNA.brandAccentColor(), fontSize = 18.sp)
+                            Spacer(Modifier.width(12.dp))
+                            Text(text = loc("feature.$index", feature), style = featureItemStyle)
+                        }
                     }
                 }
             }
@@ -1852,7 +1878,13 @@ private fun PaywallSectionView(
                                     .clickable { onPlanSelect(plan.id) },
                                 shape = cardShape,
                                 colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
+                                    // SPEC-419 — selected card BACKGROUND must use the authored
+                                    // selected_bg_color (e.g. nurrai #2c374c) so it's visually DISTINCT
+                                    // from the unselected card. Do NOT default it to the brand accent:
+                                    // a light brand (e.g. white) collapses onto the white-10% unselected
+                                    // fill and the selection becomes invisible. Brand drives foreground
+                                    // accents (border/badge/check), not the card fill.
+                                    containerColor = if (isSelected) (customSelectedBg ?: Color.White.copy(alpha = 0.16f)) else (unselectedBgColor ?: Color.White.copy(alpha = 0.06f))
                                 ),
                             ) {
                                 Column(modifier = Modifier.padding(cardPad)) {
@@ -2102,53 +2134,94 @@ private fun PaywallSectionView(
                         }
                     }
                     else -> {
-                        // vertical_stack (default), feature_comparison, pricing_table, tiered_slider → Column layout
+                        // vertical_stack (default) — mirror iOS PlanCard.swift:
+                        // name+price in a LEADING weight(1f) column (price never
+                        // truncated; period on its own line), trailing radio circle,
+                        // and the badge STRADDLING the card's top edge (offset up +
+                        // reserved top padding) so it never lands on top of the price.
                         plans.forEachIndexed { planIdx, plan ->
                             val isSelected = selectedPlanId == plan.id
-                            Card(
+                            // iOS PlanCard.swift:39,51-56 — authored colors win.
+                            val selBorder = customSelectedBorder ?: ai.appdna.sdk.AppDNA.brandAccentColor()
+                            val unselBorder = unselectedBorderColor ?: Color.White.copy(alpha = 0.3f)
+                            val radioColor = if (isSelected) (selectedTextColor ?: selBorder) else unselBorder
+                            val planTextColor = if (isSelected) (selectedTextColor ?: Color.Unspecified) else Color.Unspecified
+                            // iOS PlanCard.swift:245-247 — reserve overhang so the
+                            // straddling badge isn't clipped and doesn't cover content.
+                            val badgeTopReserve = if (!plan.badge.isNullOrBlank() && badgePosition != "inline")
+                                maxOf(12f, ((section.data?.badge_font_size ?: 11f) + 8f) / 2f + 2f).dp else 0.dp
+                            val badgeOverhang = ((section.data?.badge_font_size ?: 11f) + 8f) / 2f
+
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = cardGap / 2)
-                                    .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
-                                    .then(
-                                        if (isSelected) Modifier.border(2.dp, ai.appdna.sdk.AppDNA.brandAccentColor(), cardShape) else Modifier
-                                    )
-                                    .clickable { onPlanSelect(plan.id) },
-                                shape = cardShape,
-                                elevation = CardDefaults.cardElevation(defaultElevation = if (cardShadowEnabled) 4.dp else 0.dp),
-                                colors = CardDefaults.cardColors(
-                                    containerColor = if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor().copy(alpha = 0.1f) else Color.White.copy(alpha = 0.1f)
-                                )
+                                    .padding(top = badgeTopReserve, bottom = cardGap)
                             ) {
-                                Box {
+                                Card(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .planSelectionAnimation(config.animation?.plan_selection_animation, isSelected)
+                                        .then(
+                                            // iOS: 2dp selected (authored color) / 1dp subtle unselected.
+                                            if (isSelected) Modifier.border(2.dp, selBorder, cardShape)
+                                            else Modifier.border(1.dp, unselBorder, cardShape)
+                                        )
+                                        .semantics(mergeDescendants = true) {
+                                            role = Role.RadioButton
+                                            selected = isSelected
+                                        }
+                                        .clickable { onPlanSelect(plan.id) },
+                                    shape = cardShape,
+                                    elevation = CardDefaults.cardElevation(defaultElevation = if (cardShadowEnabled) 4.dp else 0.dp),
+                                    colors = CardDefaults.cardColors(
+                                        // SPEC-419 — authored selected_bg_color (nurrai #2c374c) wins;
+                                        // unselected default white-10% matches iOS PlanCard.swift:201.
+                                        containerColor = if (isSelected) (customSelectedBg ?: Color.White.copy(alpha = 0.16f)) else (unselectedBgColor ?: Color.White.copy(alpha = 0.10f))
+                                    )
+                                ) {
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(cardPad),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column {
-                                            Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle)
-                                            plan.period?.let { Text(text = loc("plan.$planIdx.period", it), style = periodStyle) }
-                                        }
-                                        Column(horizontalAlignment = Alignment.End) {
-                                            Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle)
-                                            plan.badge?.let {
+                                        // iOS leading VStack — full width, no truncation.
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle, color = planTextColor)
+                                            Spacer(Modifier.height(2.dp))
+                                            Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle, color = planTextColor)
+                                            plan.period?.let {
+                                                Text(text = loc("plan.$planIdx.period", it), style = periodStyle, color = planTextColor)
+                                            }
+                                            plan.badge?.takeIf { it.isNotBlank() }?.let {
                                                 if (badgePosition == "inline") {
+                                                    Spacer(Modifier.height(8.dp))
                                                     BadgeView(loc("plan.$planIdx.badge", it))
                                                 }
                                             }
                                         }
+                                        // iOS PlanCard.swift:182-184 — trailing radio indicator.
+                                        Icon(
+                                            imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
+                                            contentDescription = null,
+                                            tint = radioColor,
+                                            modifier = Modifier.padding(start = 12.dp).size(24.dp),
+                                        )
                                     }
-                                    plan.badge?.let { badge ->
-                                        if (badgePosition != "inline") {
-                                            val alignment = when (badgePosition) {
-                                                "top_left" -> Alignment.TopStart
-                                                "top_center" -> Alignment.TopCenter
-                                                else -> Alignment.TopEnd
-                                            }
-                                            Box(modifier = Modifier.align(alignment).padding(8.dp)) {
-                                                BadgeView(loc("plan.$planIdx.badge", badge))
-                                            }
+                                }
+                                // iOS PlanCard.swift:225-238 — badge straddles the top edge.
+                                plan.badge?.takeIf { it.isNotBlank() }?.let { badge ->
+                                    if (badgePosition != "inline") {
+                                        val alignment = when (badgePosition) {
+                                            "top_left" -> Alignment.TopStart
+                                            "top_center" -> Alignment.TopCenter
+                                            else -> Alignment.TopEnd
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .align(alignment)
+                                                .offset(y = (-badgeOverhang).dp)
+                                                .padding(horizontal = 8.dp),
+                                        ) {
+                                            BadgeView(loc("plan.$planIdx.badge", badge))
                                         }
                                     }
                                 }
@@ -2177,23 +2250,28 @@ private fun PaywallSectionView(
             // most authors use) was silently dropped, so a paywall configured
             // with `cta: { bg_color: "#FFFFFF", text_color: "#000000" }` rendered
             // as the indigo default → "text-only with no background" QA report.
-            val buttonBgColor = section.style?.elements?.get("button")?.background?.color?.let {
+            // SPEC-419 — guard each step with isNotBlank(). An empty-string
+            // bg_color hit StyleEngine.parseColor("") → Color.Transparent, which
+            // is non-null and SHORT-CIRCUITED the chain (CTA went transparent =
+            // dark bg showing through = "plain black"). iOS `??` over a nil falls
+            // through to the brand accent; mirror that by treating "" as absent.
+            val buttonBgColor = section.style?.elements?.get("button")?.background?.color?.takeIf { it.isNotBlank() }?.let {
                 StyleEngine.parseColor(it)
             }
-                ?: config.cta?.bg_color?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta?.bg_color?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta_bg_color?.let { StyleEngine.parseColor(it) }
+                ?: config.cta?.bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta?.bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta_bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
                 ?: ai.appdna.sdk.AppDNA.brandAccentColor()
             // QA-R8 — same chain for the button text color. Was hardcoded
             // `Color.White` (line 2193). iOS `CTAButton.swift:40-45` reads
             // `buttonTextStyle.color` then `cta?.resolvedTextColor`
             // (= `styleObj?.text_color ?? text_color ?? "#FFFFFF"`).
-            val buttonTextColor = section.style?.elements?.get("button")?.text_style?.color?.let {
+            val buttonTextColor = section.style?.elements?.get("button")?.text_style?.color?.takeIf { it.isNotBlank() }?.let {
                 StyleEngine.parseColor(it)
             }
-                ?: config.cta?.text_color?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta?.text_color?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta_text_color?.let { StyleEngine.parseColor(it) }
+                ?: config.cta?.text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta?.text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+                ?: section.data?.cta_text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
                 ?: Color.White
             // PW-10: prefer authored cta_font_size over the 17.sp baseline.
             val ctaFontSize = (section.data?.cta_font_size ?: section.data?.cta?.font_size?.toFloat() ?: 17f).sp
@@ -2259,7 +2337,7 @@ private fun PaywallSectionView(
                 )
             }
 
-            Column(modifier = Modifier.fillMaxWidth()) {
+            Column(modifier = Modifier.fillMaxWidth().navigationBarsPadding()) {
                 if (showRestoreLink && restorePosition == "above") {
                     RestoreLink()
                     Spacer(Modifier.height(8.dp))
