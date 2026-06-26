@@ -710,8 +710,12 @@ fun PaywallScreen(
             // nullable so id-based filtering would mis-partition unidentified
             // legal sections.
             val pinnedLegalSet: Set<PaywallSection> = pinnedLegalSections.toSet()
+            // SPEC-419 Gap 7 — exclude the CTA section from the scroll body so it
+            // can be PINNED to the bottom zone (iOS safeAreaInset(.bottom),
+            // PaywallRenderer.swift:141-230) instead of floating mid-screen.
+            val ctaSection = if (ctaIndex >= 0) config.sections[ctaIndex] else null
             val scrollableSections = config.sections.filter {
-                it.type != "sticky_footer" && it !in pinnedLegalSet
+                it.type != "sticky_footer" && it.type != "cta" && it !in pinnedLegalSet
             }
             // SPEC-070-A finalization PW-11 — collapse_on_scroll wiring.
             // Mirrors iOS PaywallScrollOffsetPrefKey-driven collapse: as user
@@ -818,6 +822,45 @@ fun PaywallScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height((config.layout.spacing ?: 16f).dp))
+                }
+            }
+
+            // SPEC-419 Gap 7 — CTA pinned to the bottom zone: below the scroll
+            // body (weight(1f)), above the pinned legal + sticky footer. Same
+            // horizontal inset as the scrolled content. Mirrors iOS
+            // safeAreaInset(.bottom) ordering (PaywallRenderer.swift:141-230).
+            ctaSection?.let { cta ->
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = (config.layout.padding ?: 20f).dp)) {
+                    PaywallSectionView(
+                        section = cta,
+                        config = config,
+                        selectedPlanId = selectedPlanId,
+                        isPurchasing = isPurchasing,
+                        onPlanSelect = { planId ->
+                            selectedPlanId = planId
+                            HapticEngine.triggerIfEnabled(currentView, config.haptic?.triggers?.on_plan_select, config.haptic)
+                        },
+                        onCTATap = {
+                            val plans = effectivePlans()
+                            val plan = plans.firstOrNull { p -> p.id == selectedPlanId }
+                            if (plan != null) {
+                                isPurchasing = true
+                                HapticEngine.triggerIfEnabled(currentView, config.haptic?.triggers?.on_button_tap, config.haptic)
+                                if (config.particle_effect != null) showConfetti = true
+                                val md = toggleStates.toMutableMap<String, Any>()
+                                if (promoState == "success" && promoCode.isNotBlank()) md["promo_code"] = promoCode
+                                onPlanSelected(plan, md.toMap())
+                            }
+                        },
+                        onRestore = onRestore,
+                        loc = ::loc,
+                        toggleStates = toggleStates,
+                        onPromoCodeSubmit = onPromoCodeSubmit,
+                        promoCode = promoCode,
+                        promoState = promoState,
+                        onPromoCodeChange = { promoCode = it },
+                        onPromoStateChange = { promoState = it },
+                    )
                 }
             }
 
@@ -2255,23 +2298,39 @@ private fun PaywallSectionView(
             // is non-null and SHORT-CIRCUITED the chain (CTA went transparent =
             // dark bg showing through = "plain black"). iOS `??` over a nil falls
             // through to the brand accent; mirror that by treating "" as absent.
-            val buttonBgColor = section.style?.elements?.get("button")?.background?.color?.takeIf { it.isNotBlank() }?.let {
-                StyleEngine.parseColor(it)
+            // SPEC-419 — iOS PaywallConfig.swift:511 reads `styleObj?.bg_color` FIRST:
+            // the console writes `cta: { style: { bg_color, text_color, corner_radius } }`,
+            // a NESTED object. Android's PaywallCTA.style is a raw `Any?` that was never
+            // read, so nurrai's `cta.style.bg_color = #ffffff` (white button) was dropped
+            // and the CTA fell through to the brand accent / transparent = "plain black".
+            // SPEC-419 — resolve to null (NOT Transparent) for blank/invalid/
+            // "transparent"/shorthand values so the ?: chain CONTINUES to the
+            // next authored color instead of short-circuiting and painting the
+            // navy PAGE bg through a transparent button. StyleEngine.parseColor
+            // returns Color.Transparent (non-null) for those, which hijacked the
+            // chain. iOS `??` only falls through on nil; mirror that.
+            fun ctaColor(s: String?): Color? = s?.takeIf { it.isNotBlank() }?.let {
+                val c = StyleEngine.parseColor(it)
+                if (c == Color.Transparent) null else c
             }
-                ?: config.cta?.bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta?.bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta_bg_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+            val ctaStyleMap = config.cta?.style as? Map<*, *>
+            val sectionCtaStyleMap = section.data?.cta?.style as? Map<*, *>
+            val buttonBgColor = ctaColor(ctaStyleMap?.get("bg_color") as? String)
+                ?: ctaColor(sectionCtaStyleMap?.get("bg_color") as? String)
+                ?: ctaColor(section.style?.elements?.get("button")?.background?.color)
+                ?: ctaColor(config.cta?.bg_color)
+                ?: ctaColor(section.data?.cta?.bg_color)
+                ?: ctaColor(section.data?.cta_bg_color)
                 ?: ai.appdna.sdk.AppDNA.brandAccentColor()
-            // QA-R8 — same chain for the button text color. Was hardcoded
-            // `Color.White` (line 2193). iOS `CTAButton.swift:40-45` reads
-            // `buttonTextStyle.color` then `cta?.resolvedTextColor`
+            // QA-R8 — same chain for the button text color. iOS `CTAButton.swift:40-45`
+            // reads `buttonTextStyle.color` then `cta?.resolvedTextColor`
             // (= `styleObj?.text_color ?? text_color ?? "#FFFFFF"`).
-            val buttonTextColor = section.style?.elements?.get("button")?.text_style?.color?.takeIf { it.isNotBlank() }?.let {
-                StyleEngine.parseColor(it)
-            }
-                ?: config.cta?.text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta?.text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
-                ?: section.data?.cta_text_color?.takeIf { it.isNotBlank() }?.let { StyleEngine.parseColor(it) }
+            val buttonTextColor = ctaColor(ctaStyleMap?.get("text_color") as? String)
+                ?: ctaColor(sectionCtaStyleMap?.get("text_color") as? String)
+                ?: ctaColor(section.style?.elements?.get("button")?.text_style?.color)
+                ?: ctaColor(config.cta?.text_color)
+                ?: ctaColor(section.data?.cta?.text_color)
+                ?: ctaColor(section.data?.cta_text_color)
                 ?: Color.White
             // PW-10: prefer authored cta_font_size over the 17.sp baseline.
             val ctaFontSize = (section.data?.cta_font_size ?: section.data?.cta?.font_size?.toFloat() ?: 17f).sp
@@ -3177,16 +3236,18 @@ private fun PaywallTimelineSection(
     val titleFontSize = (section.data.font_size ?: 14f).sp
     val itemSpacing = if (isCompact) 12.dp else 20.dp
 
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.Top,
+    // SPEC-419 — iOS centers the timeline block (PaywallRenderer.swift:1267-1340).
+    // Wrap in a full-width Box and let the Row be content-sized + centered, instead
+    // of a fillMaxWidth Row whose titles were left-pinned via weight(1f).
+    Box(
         modifier = Modifier.fillMaxWidth().run { with(StyleEngine) { applyContainerStyle(section.style?.container) } },
+        contentAlignment = Alignment.Center,
     ) {
-        // Left column: continuous chain of dots and connector lines.
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(top = 5.dp),
-        ) {
+        // SPEC-419 — per-item Row at IntrinsicSize.Min so the left rail (dot +
+        // connector) is exactly as tall as THIS item's title+subtitle, keeping
+        // each dot aligned to its own title instead of two independent chains
+        // drifting (left height 8dp+itemSpacing != right title+spacer height).
+        Column(modifier = Modifier.wrapContentWidth()) {
             items.forEachIndexed { index, item ->
                 val baseStatusColor = when (item.status) {
                     "completed" -> parseHexColor(section.data.completed_color ?: "#22C55E")
@@ -3194,36 +3255,47 @@ private fun PaywallTimelineSection(
                     else -> parseHexColor(section.data.upcoming_color ?: "#666666")
                 }
                 val statusColor = item.color?.let { parseHexColor(it) } ?: baseStatusColor
-                Box(
-                    modifier = Modifier
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(statusColor.copy(alpha = 0.6f)),
-                )
-                if (showLine && index < items.size - 1) {
-                    Box(
+                val isLast = index == items.size - 1
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                ) {
+                    // Left rail: dot pinned to the title's top, connector fills
+                    // the remaining intrinsic height down toward the next dot.
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxHeight().padding(top = 3.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(statusColor.copy(alpha = 0.6f)),
+                        )
+                        if (showLine && !isLast) {
+                            Box(
+                                modifier = Modifier
+                                    .width(1.dp)
+                                    .weight(1f)
+                                    .background(connectorColor.copy(alpha = 0.25f)),
+                            )
+                        }
+                    }
+                    // Right: title + subtitle. Bottom padding = itemSpacing gives
+                    // the vertical rhythm AND drives the Row's intrinsic height,
+                    // which the connector then spans.
+                    Column(
                         modifier = Modifier
-                            .width(1.dp)
-                            .height(itemSpacing)
-                            .background(connectorColor.copy(alpha = 0.25f)),
-                    )
-                }
-            }
-        }
-
-        // Right column: title + subtitle chain. Vertical rhythm comes from
-        // each item's intrinsic height (title + subtitle stacked) plus
-        // `itemSpacing` between them.
-        Column(modifier = Modifier.weight(1f)) {
-            items.forEachIndexed { index, item ->
-                item.title?.let {
-                    Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = titleFontSize)
-                }
-                item.subtitle?.let {
-                    Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
-                }
-                if (index < items.size - 1) {
-                    Spacer(Modifier.height(itemSpacing))
+                            .wrapContentWidth()
+                            .padding(bottom = if (isLast) 0.dp else itemSpacing),
+                    ) {
+                        item.title?.let {
+                            Text(text = it, fontWeight = FontWeight.SemiBold, color = Color.White, fontSize = titleFontSize)
+                        }
+                        item.subtitle?.let {
+                            Text(text = it, color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
+                        }
+                    }
                 }
             }
         }
