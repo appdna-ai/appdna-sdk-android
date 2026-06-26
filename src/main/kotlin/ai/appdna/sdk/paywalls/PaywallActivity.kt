@@ -895,7 +895,11 @@ fun PaywallScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = (config.layout.padding ?: 20f).dp),
+                        .padding(horizontal = (config.layout.padding ?: 20f).dp)
+                        // SPEC-419 — the pinned legal (Terms & Conditions) is the BOTTOM-most
+                        // element; without the nav-bar inset it rendered under the gesture bar
+                        // and was clipped/invisible (iOS shows it under Restore). Clear the bar.
+                        .navigationBarsPadding(),
                 ) {
                     for (section in pinnedLegalSections) {
                         PaywallSectionView(

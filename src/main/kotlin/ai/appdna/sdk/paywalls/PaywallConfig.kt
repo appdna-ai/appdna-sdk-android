@@ -797,9 +797,9 @@ internal object PaywallConfigParser {
         // SPEC-070-A finalization PW-2 — parse top-level `plans` (iOS fallback
         // path when no `plans`-type section exists). Reuse `parsePlanFromMap`.
         val topLevelPlans = (map["plans"] as? List<*>)
-            ?.mapNotNull { p ->
+            ?.mapIndexedNotNull { idx, p ->
                 @Suppress("UNCHECKED_CAST")
-                (p as? Map<String, Any>)?.let { parsePlanFromMap(it) }
+                (p as? Map<String, Any>)?.let { parsePlanFromMap(it).withFallbackId(idx) }
             }
             ?.toImmutableList()
 
@@ -873,9 +873,10 @@ internal object PaywallConfigParser {
                 subtitle_style = parseDataTextStyle(d["subtitle_style"]),
                 // SPEC-070-A J.22 — wrap features/plans as ImmutableList.
                 features = (d["features"] as? List<*>)?.filterIsInstance<String>()?.toImmutableList(),
-                plans = (d["plans"] as? List<*>)?.mapNotNull { planData ->
+                plans = (d["plans"] as? List<*>)?.mapIndexedNotNull { idx, planData ->
                     if (planData is Map<*, *>) {
-                        parsePlanFromMap(planData as Map<String, Any>)
+                        @Suppress("UNCHECKED_CAST")
+                        parsePlanFromMap(planData as Map<String, Any>).withFallbackId(idx)
                     } else null
                 }?.toImmutableList(),
                 cta = (d["cta"] as? Map<String, Any>)?.let { ctaMap ->
@@ -1232,6 +1233,16 @@ internal object PaywallConfigParser {
             opacity = (it["opacity"] as? Number)?.toDouble(),
         )
     }
+
+    /**
+     * SPEC-419 — plans authored WITHOUT an `id` get `id = ""` (parsePlanFromMap fallback),
+     * which COLLIDES across plans: `selectedPlanId == ""` then matches EVERY plan, so every
+     * card renders as selected (filled check + selected bg) and the CTA can't tell them apart.
+     * Assign a unique synthetic id by index when none is authored. The real purchase target is
+     * carried by `product_id`, so a synthetic selection id is safe.
+     */
+    private fun PaywallPlan.withFallbackId(index: Int): PaywallPlan =
+        if (id.isBlank()) copy(id = "plan_$index") else this
 
     @Suppress("UNCHECKED_CAST")
     private fun parsePlanFromMap(map: Map<String, Any>): PaywallPlan {
