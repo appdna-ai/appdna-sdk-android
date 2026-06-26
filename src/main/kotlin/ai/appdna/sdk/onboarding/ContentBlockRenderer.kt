@@ -5577,7 +5577,12 @@ private fun FormInputSelectBlock(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                 }
-                                Column(modifier = Modifier.weight(1f)) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    // EPIC-1 — per-option center alignment (was always start-aligned).
+                                    // Mirrors iOS FormInputBlockViews.swift:601 (VStack .center/.leading).
+                                    horizontalAlignment = if (option.text_alignment == "center") Alignment.CenterHorizontally else Alignment.Start,
+                                ) {
                                     Text(
                                         text = option.label,
                                         modifier = Modifier.testTag("option.$oi.title"),

@@ -87,4 +87,44 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun stackedSelect_centerAligned() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sel2",
+                        "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "stacked"),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "c1", "label" to "Beginner", "subtitle" to "Just starting out", "text_alignment" to "center"),
+                            mapOf<String, Any>("id" to "c2", "label" to "Intermediate", "subtitle" to "Some experience", "text_alignment" to "center"),
+                            mapOf<String, Any>("id" to "c3", "label" to "Advanced", "subtitle" to "Very experienced", "text_alignment" to "center"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_center.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
