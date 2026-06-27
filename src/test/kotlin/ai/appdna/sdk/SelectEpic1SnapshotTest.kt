@@ -898,4 +898,45 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun selectGridMultiColumn() {
+        // EPIC-1 — multi-column grid select (display_style "grid", grid_columns 2).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "selg", "type" to "input_select",
+                        "field_config" to mapOf<String, Any>("display_style" to "grid", "grid_columns" to 2),
+                        "field_options" to listOf(
+                            mapOf<String, Any>("id" to "a", "value" to "sleep", "label" to "Sleep", "subtitle" to "Better rest"),
+                            mapOf<String, Any>("id" to "b", "value" to "focus", "label" to "Focus", "subtitle" to "Deep work"),
+                            mapOf<String, Any>("id" to "c", "value" to "calm", "label" to "Calm", "subtitle" to "Less stress"),
+                            mapOf<String, Any>("id" to "d", "value" to "energy", "label" to "Energy", "subtitle" to "More drive"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/select_grid.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
