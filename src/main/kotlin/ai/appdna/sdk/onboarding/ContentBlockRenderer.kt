@@ -3144,11 +3144,20 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
 
     // Track which items have completed
     var completedCount by remember { mutableIntStateOf(0) }
-    var overallProgress by remember { mutableStateOf(0f) }
+    // EPIC-3 — static `progress_value` override (snapshot/preview): start at the fixed value.
+    // Accept either a 0–1 fraction or a 0–100 percentage (console authors %).
+    var overallProgress by remember {
+        mutableStateOf(block.progress_value?.toFloat()?.let { if (it > 1f) it / 100f else it } ?: 0f)
+    }
     var finished by remember { mutableStateOf(false) }
 
     // Sequential item completion timer
     LaunchedEffect(Unit) {
+        // EPIC-3 — static progress_value override holds the value (no timer).
+        if (block.progress_value != null) {
+            finished = true
+            return@LaunchedEffect
+        }
         if (items.isNotEmpty()) {
             for (i in items.indices) {
                 val durationMs = items[i].duration_ms.toLong()
@@ -3268,6 +3277,24 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                             textAlign = TextAlign.Center,
                         )
                     }
+                }
+            }
+            "ring" -> {
+                // EPIC-3 — large radial % ring (Duolingo/Flo "loading N%"): big circular ring + prominent %.
+                Box(contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = overallProgress.coerceIn(0f, 1f),
+                        modifier = Modifier.size(160.dp),
+                        color = progressColor,
+                        trackColor = progressColor.copy(alpha = 0.2f),
+                        strokeWidth = 12.dp,
+                    )
+                    Text(
+                        text = "${(overallProgress * 100).toInt()}%",
+                        fontSize = 40.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = progressColor,
+                    )
                 }
             }
             "linear" -> {

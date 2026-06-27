@@ -621,4 +621,40 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun loadingRadialRing() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "ld1", "type" to "animated_loading",
+                        "loading_variant" to "ring", "progress_value" to 0.65,
+                        "show_percentage" to true, "progress_color" to "#6366F1",
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/loading_ring.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
