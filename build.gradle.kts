@@ -64,6 +64,15 @@ android {
         kotlinCompilerExtensionVersion = libs.versions.composeCompiler.get()
     }
 
+    // SPEC-419 — make merged Android resources (incl. Material3 library strings) available to the
+    // Roborazzi/Robolectric JVM unit tests, so Compose components that call getString (e.g.
+    // OutlinedTextField) render instead of throwing Resources$NotFoundException.
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+        }
+    }
+
     // SPEC-070-A J.3 — emit sources + javadoc jars for Maven Central / Sonatype.
     publishing {
         singleVariant("release") {

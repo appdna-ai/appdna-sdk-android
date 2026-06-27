@@ -416,4 +416,42 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun customFieldBorderFill() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "name", "type" to "input_text", "label" to "Full name", "field_placeholder" to "Jane Doe",
+                        "field_style" to mapOf<String, Any>("border_color" to "#22C55E", "background_color" to "#1F2937", "text_color" to "#FFFFFF", "placeholder_color" to "#9CA3AF"),
+                    ),
+                    mapOf<String, Any>(
+                        "id" to "email", "type" to "input_email", "label" to "Email", "field_placeholder" to "jane@example.com",
+                        "field_style" to mapOf<String, Any>("border_color" to "#3B82F6", "background_color" to "#1F2937", "text_color" to "#FFFFFF", "placeholder_color" to "#9CA3AF"),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/field_borderfill.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
