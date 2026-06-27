@@ -612,6 +612,11 @@ data class ContentBlock(
     // SPEC-401-A R3 — iOS canonical `loading_variant` (circular, linear,
     // checklist). Android historically only read top-level `variant`.
     val loading_variant: String? = null,
+    // EPIC-3 — configurable loading message: independent text + position (above/below) + size + color.
+    val loading_text: String? = null,
+    val loading_text_position: String? = null,  // "above" | "below" (default "below")
+    val loading_text_size: Double? = null,       // sp, default 15
+    val loading_text_color: String? = null,
     // SPEC-089d Phase F: circular_gauge fields
     val gauge_value: Double? = null,
     val max_gauge_value: Double? = null,
@@ -3142,6 +3147,11 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
     val totalDurationMs = block.total_duration_ms
     val autoAdvance = block.auto_advance ?: false
     val showPercentage = block.show_percentage ?: false
+    // EPIC-3 — configurable loading message with independent position (above/below), size, color.
+    val loadingMessage = block.loading_text
+    val loadingTextPos = block.loading_text_position ?: "below"
+    val loadingTextSize = (block.loading_text_size ?: 15.0).sp
+    val loadingMessageColor = block.loading_text_color?.let { StyleEngine.parseColor(it) } ?: textColor
 
     // Track which items have completed
     var completedCount by remember { mutableIntStateOf(0) }
@@ -3208,6 +3218,14 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
         // ported. Without this branch Android dropped through to
         // the checklist default, which made the loading state
         // inconsistent with iOS.
+        if (loadingMessage != null && loadingTextPos == "above") {
+            Text(
+                text = loadingMessage,
+                fontSize = loadingTextSize,
+                color = loadingMessageColor,
+                textAlign = TextAlign.Center,
+            )
+        }
         when (if (variant == "orbiting_icons") "circular" else variant) {
             "circular" -> {
                 // SPEC-401-A R19 — match iOS ContentBlockStandaloneViews
@@ -3471,6 +3489,14 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                     }
                 }
             }
+        }
+        if (loadingMessage != null && loadingTextPos == "below") {
+            Text(
+                text = loadingMessage,
+                fontSize = loadingTextSize,
+                color = loadingMessageColor,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }

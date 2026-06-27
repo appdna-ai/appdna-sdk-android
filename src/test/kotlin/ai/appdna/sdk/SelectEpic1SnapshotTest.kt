@@ -725,4 +725,42 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun loadingTextStyling() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "ld4", "type" to "animated_loading",
+                        "loading_variant" to "ring", "progress_value" to 0.6,
+                        "loading_text" to "Almost there", "loading_text_position" to "above",
+                        "loading_text_size" to 24, "loading_text_color" to "#A5B4FC",
+                        "progress_color" to "#6366F1",
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/loading_text.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

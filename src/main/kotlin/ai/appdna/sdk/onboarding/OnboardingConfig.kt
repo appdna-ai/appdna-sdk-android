@@ -1640,6 +1640,10 @@ internal object OnboardingConfigParser {
             // AnimatedLoading variant (R3) — block.variant alias works,
             // but loading_variant is the canonical name iOS reads.
             loading_variant = bm["loading_variant"] as? String,
+            loading_text = bm["loading_text"] as? String,
+            loading_text_position = bm["loading_text_position"] as? String,
+            loading_text_size = (bm["loading_text_size"] as? Number)?.toDouble(),
+            loading_text_color = bm["loading_text_color"] as? String,
 
             // Container/positioning (multiple R-rounds) — column_ratios
             // is a colon-encoded ratio string ("1:2") on both platforms
