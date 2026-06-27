@@ -848,4 +848,54 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun sectionBackground() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sec1", "type" to "section_background", "height" to 420,
+                        "field_config" to mapOf<String, Any>(
+                            "content_arrangement" to "space_between",
+                            "background_zones" to listOf(
+                                mapOf<String, Any>("weight" to 2, "color" to "#1E1B4B"),
+                                mapOf<String, Any>("weight" to 1, "color" to "#6366F1"),
+                            ),
+                        ),
+                        "children" to listOf(
+                            mapOf<String, Any>(
+                                "id" to "t1", "type" to "text", "text" to "Welcome to AppDNA",
+                                "style" to mapOf<String, Any>("font_size" to 26, "font_weight" to 700, "color" to "#FFFFFF"),
+                            ),
+                            mapOf<String, Any>(
+                                "id" to "b1", "type" to "button", "text" to "Get Started",
+                                "bg_color" to "#FFFFFF", "text_color" to "#1E1B4B",
+                                "button_corner_radius" to 14, "element_width" to "fill",
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/section_bg.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117)),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

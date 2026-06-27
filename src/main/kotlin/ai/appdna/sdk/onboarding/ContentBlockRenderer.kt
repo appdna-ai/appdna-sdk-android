@@ -624,6 +624,8 @@ data class ContentBlock(
     val gallery_corner_radius: Double? = null,
     val gallery_spacing: Double? = null,
     val gallery_align: String? = null,  // "start" | "center" | "end" (default "center")
+    // EPIC-4b — section_background reads background_zones + content_arrangement from field_config
+    // (ContentBlock has hit the JVM 255-constructor-arg limit; new fields go through field_config).
     // SPEC-089d Phase F: circular_gauge fields
     val gauge_value: Double? = null,
     val max_gauge_value: Double? = null,
@@ -821,6 +823,12 @@ data class LoadingItem(
     val icon_bg_color: String? = null,
     val icon_size: Float? = null,
     val icon_orbit_angle: Float? = null,
+)
+
+// EPIC-4b — a vertical background zone (proportional weight + color) for section_background.
+data class BackgroundZone(
+    val weight: Double = 1.0,
+    val color: String = "#000000",
 )
 
 /** Pricing plan config for pricing_card block (SPEC-089d §3.17). */
@@ -1332,6 +1340,7 @@ private fun RenderBlockContent(
         "text" -> TextBlock(block, loc)
         "image" -> ImageBlock(block)
         "media_gallery" -> MediaGalleryBlock(block)
+        "section_background" -> SectionBackgroundBlock(block, onAction, toggleValues, inputValues, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1455,6 +1464,65 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
         style = styleWithAlign,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun SectionBackgroundBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)?,
+) {
+    // EPIC-4b — paint vertical proportional color zones, overlay the children content on top.
+    // Zones + arrangement come through field_config (ContentBlock is at the JVM constructor-arg limit).
+    val zonesRaw = block.field_config?.get("background_zones") as? List<*> ?: return
+    val zones = zonesRaw.mapNotNull { z ->
+        (z as? Map<*, *>)?.let {
+            BackgroundZone(
+                weight = (it["weight"] as? Number)?.toDouble() ?: 1.0,
+                color = it["color"] as? String ?: "#000000",
+            )
+        }
+    }
+    if (zones.isEmpty()) return
+    val children = block.children ?: block.stack_children ?: emptyList()
+    val arrangement = when (block.field_config?.get("content_arrangement") as? String) {
+        "top" -> Arrangement.Top
+        "center" -> Arrangement.Center
+        "bottom" -> Arrangement.Bottom
+        else -> Arrangement.SpaceBetween
+    }
+    val boxMod = block.height?.let { Modifier.fillMaxWidth().height(it.dp) } ?: Modifier.fillMaxSize()
+    Box(modifier = boxMod) {
+        // Background: vertical weighted color zones.
+        Column(modifier = Modifier.fillMaxSize()) {
+            zones.forEach { zone ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(zone.weight.toFloat())
+                        .background(StyleEngine.parseColor(zone.color)),
+                )
+            }
+        }
+        // Foreground: content overlaid on the zones.
+        Column(
+            modifier = Modifier.fillMaxSize().padding(20.dp),
+            verticalArrangement = arrangement,
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            children.forEach { child ->
+                RenderBlock(
+                    block = child,
+                    onAction = onAction,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    loc = loc,
+                )
+            }
+        }
+    }
 }
 
 @Composable
