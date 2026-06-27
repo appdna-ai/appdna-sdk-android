@@ -579,6 +579,8 @@ data class ContentBlock(
     val progress_value: Double? = null,
     val progress_variant: String? = null,
     val bar_color: String? = null,
+    // EPIC-2 — multiple progress colors at once: horizontal gradient across these hex colors.
+    val bar_gradient_colors: List<String>? = null,
     val bar_height: Double? = null,
     val fill_color: String? = null,
     val track_color: String? = null,
@@ -2864,6 +2866,8 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     val explicitFilled = block.filled_segments ?: block.active_segments
     val activeSegments = explicitFilled ?: (currentStepIndex + 1)
     val fillColor = StyleEngine.parseColor(block.bar_color ?: block.fill_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    // EPIC-2 — multiple progress colors at once (horizontal gradient across the fill).
+    val gradColors = block.bar_gradient_colors?.takeIf { it.size >= 2 }?.map { StyleEngine.parseColor(it) }
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
     val barHeight = (block.bar_height ?: block.height ?: 6.0).dp
     val cornerRadius = (block.corner_radius ?: 3.0).dp
@@ -2926,7 +2930,13 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
                             .fillMaxWidth(fraction)
                             .fillMaxHeight()
                             .clip(RoundedCornerShape(cornerRadius))
-                            .background(fillColor),
+                            .then(
+                                if (gradColors != null) {
+                                    Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(gradColors))
+                                } else {
+                                    Modifier.background(fillColor)
+                                },
+                            ),
                     )
                 }
             }

@@ -1536,6 +1536,7 @@ internal object OnboardingConfigParser {
             progress_value = (bm["progress_value"] as? Number)?.toDouble(),
             progress_variant = bm["progress_variant"] as? String,
             bar_color = bm["bar_color"] as? String,
+            bar_gradient_colors = (bm["bar_gradient_colors"] as? List<*>)?.mapNotNull { it as? String },
             bar_height = (bm["bar_height"] as? Number)?.toDouble(),
 
             // WheelPicker (Phase F + R35 horizontal/haptic)

@@ -454,4 +454,40 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun progressGradient() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "pb1", "type" to "progress_bar",
+                        "progress_variant" to "continuous", "total_segments" to 5, "filled_segments" to 4,
+                        "bar_height" to 14, "corner_radius" to 7, "track_color" to "#374151",
+                        "bar_gradient_colors" to listOf("#22C55E", "#EAB308", "#EF4444"),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/progress_gradient.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
