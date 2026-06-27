@@ -1336,6 +1336,11 @@ internal fun OnboardingFlowHost(
                 val progressHeight = (flow.settings.progress_height ?: 4.0).dp
                 val gradientCols = flow.settings.progress_gradient_colors?.takeIf { it.size >= 2 }
                     ?.map { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                // EPIC-2 — optional "Skip" link beside the progress (Flo). When set the bar shrinks to make
+                // room for the Skip on the trailing side; when null the Box fills the row (no visual change).
+                val progressSkipLabel = flow.settings.progress_skip_label
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                  Box(Modifier.weight(1f)) {
                 when (flow.settings.progress_style?.lowercase()) {
                     "none" -> { /* explicit suppress */ }
                     "dots" -> {
@@ -1432,6 +1437,19 @@ internal fun OnboardingFlowHost(
                         )
                     }
                 }
+                  } // end weighted progress Box
+                  if (progressSkipLabel != null) {
+                      Text(
+                          text = progressSkipLabel,
+                          modifier = Modifier
+                              .padding(start = 12.dp, end = 16.dp)
+                              .clickable(enabled = !isProcessing) { advanceOrComplete() },
+                          color = progressColor,
+                          fontSize = 14.sp,
+                          fontWeight = FontWeight.Medium,
+                      )
+                  }
+                } // end progress+skip Row
             }
 
             // SPEC-401-A — gate entire nav-bar Row when both back +

@@ -92,6 +92,8 @@ data class OnboardingSettings(
     // EPIC-2 — thin sizing (custom height; the Material bar floored ~4dp) + multiple colors at once.
     val progress_height: Double? = null,
     val progress_gradient_colors: List<String>? = null,
+    // EPIC-2 — optional "Skip" link rendered beside the progress bar (Flo).
+    val progress_skip_label: String? = null,
     // SPEC-070-A F.1: progress style + back button + content padding (iOS parity)
     val progress_style: String? = null,  // "dots" | "segmented_bar" | "continuous_bar" | "fraction" | "none"
     val back_button_style: BackButtonStyle? = null,
@@ -600,6 +602,7 @@ internal object OnboardingConfigParser {
             progress_track_color = settingsMap["progress_track_color"] as? String,
             progress_height = (settingsMap["progress_height"] as? Number)?.toDouble(),
             progress_gradient_colors = (settingsMap["progress_gradient_colors"] as? List<*>)?.mapNotNull { it as? String },
+            progress_skip_label = settingsMap["progress_skip_label"] as? String,
             progress_style = settingsMap["progress_style"] as? String,
             back_button_style = backButtonStyle,
             dismiss_allowed = settingsMap["dismiss_allowed"] as? Boolean,

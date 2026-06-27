@@ -6,12 +6,17 @@ import ai.appdna.sdk.onboarding.NavGlyph
 import ai.appdna.sdk.onboarding.OnboardingConfigParser
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -541,6 +546,41 @@ class SelectEpic1SnapshotTest {
                     NavGlyph("‹", Color(0xFF6366F1), 28.sp) // custom chevron
                     NavGlyph("←", Color(0xFFE5E7EB), 20.sp) // default back arrow
                     NavGlyph("✕", Color(0xFFEF4444), 20.sp) // close (back⇄X switch)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun flowProgressSkipBeside() {
+        captureRoboImage("src/test/snapshots/progress_skip.png") {
+            MaterialTheme {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(vertical = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .padding(start = 16.dp),
+                    ) {
+                        ContinuousProgressBar(
+                            progress = 0.5f,
+                            color = Color(0xFF6366F1),
+                            trackColor = Color(0xFF374151),
+                            height = 6.dp,
+                        )
+                    }
+                    Text(
+                        text = "Skip",
+                        modifier = Modifier.padding(start = 12.dp, end = 16.dp),
+                        color = Color(0xFF9CA3AF),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
                 }
             }
         }
