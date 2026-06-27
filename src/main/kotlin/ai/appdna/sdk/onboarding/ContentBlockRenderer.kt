@@ -617,6 +617,13 @@ data class ContentBlock(
     val loading_text_position: String? = null,  // "above" | "below" (default "below")
     val loading_text_size: Double? = null,       // sp, default 15
     val loading_text_color: String? = null,
+    // EPIC-3 — media_gallery: horizontal row of image tiles.
+    val gallery_images: kotlinx.collections.immutable.ImmutableList<String>? = null,
+    val gallery_item_width: Double? = null,
+    val gallery_item_height: Double? = null,
+    val gallery_corner_radius: Double? = null,
+    val gallery_spacing: Double? = null,
+    val gallery_align: String? = null,  // "start" | "center" | "end" (default "center")
     // SPEC-089d Phase F: circular_gauge fields
     val gauge_value: Double? = null,
     val max_gauge_value: Double? = null,
@@ -1324,6 +1331,7 @@ private fun RenderBlockContent(
         "heading" -> HeadingBlock(block, loc)
         "text" -> TextBlock(block, loc)
         "image" -> ImageBlock(block)
+        "media_gallery" -> MediaGalleryBlock(block)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1447,6 +1455,43 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
         style = styleWithAlign,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun MediaGalleryBlock(block: ContentBlock) {
+    // EPIC-3 — horizontal scrollable gallery of image tiles (rounded, fixed size, placeholder bg).
+    val images = block.gallery_images ?: return
+    if (images.isEmpty()) return
+    val itemW = (block.gallery_item_width ?: 140.0).dp
+    val itemH = (block.gallery_item_height ?: 180.0).dp
+    val cr = (block.gallery_corner_radius ?: 12.0).dp
+    val spacing = (block.gallery_spacing ?: 10.0).dp
+    val align = when (block.gallery_align) {
+        "start" -> androidx.compose.ui.Alignment.Start
+        "end" -> androidx.compose.ui.Alignment.End
+        else -> androidx.compose.ui.Alignment.CenterHorizontally
+    }
+    LazyRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(spacing, align),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 2.dp),
+    ) {
+        items(images.size) { i ->
+            Box(
+                modifier = Modifier
+                    .width(itemW)
+                    .height(itemH)
+                    .clip(RoundedCornerShape(cr))
+                    .background(androidx.compose.ui.graphics.Color(0xFF2A2A2E)),
+            ) {
+                ai.appdna.sdk.core.NetworkImage(
+                    url = images[i],
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                )
+            }
+        }
+    }
 }
 
 @Composable

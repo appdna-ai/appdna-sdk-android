@@ -1644,6 +1644,12 @@ internal object OnboardingConfigParser {
             loading_text_position = bm["loading_text_position"] as? String,
             loading_text_size = (bm["loading_text_size"] as? Number)?.toDouble(),
             loading_text_color = bm["loading_text_color"] as? String,
+            gallery_images = (bm["gallery_images"] as? List<*>)?.mapNotNull { it as? String }?.toImmutableList(),
+            gallery_item_width = (bm["gallery_item_width"] as? Number)?.toDouble(),
+            gallery_item_height = (bm["gallery_item_height"] as? Number)?.toDouble(),
+            gallery_corner_radius = (bm["gallery_corner_radius"] as? Number)?.toDouble(),
+            gallery_spacing = (bm["gallery_spacing"] as? Number)?.toDouble(),
+            gallery_align = bm["gallery_align"] as? String,
 
             // Container/positioning (multiple R-rounds) — column_ratios
             // is a colon-encoded ratio string ("1:2") on both platforms

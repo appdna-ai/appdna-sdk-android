@@ -763,4 +763,44 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun mediaGallery() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "mg1", "type" to "media_gallery",
+                        "gallery_images" to listOf(
+                            "https://example.com/1.jpg",
+                            "https://example.com/2.jpg",
+                            "https://example.com/3.jpg",
+                        ),
+                        "gallery_item_width" to 105, "gallery_item_height" to 160,
+                        "gallery_corner_radius" to 14, "gallery_spacing" to 10,
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/media_gallery.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
