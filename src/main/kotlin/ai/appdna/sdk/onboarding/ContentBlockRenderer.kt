@@ -5427,6 +5427,8 @@ private fun FormInputSelectBlock(
     val selectedTextCol = cfgSelectedText ?: textCol
     // Selection indicator: "radio" (default), "border", "both", "none"
     val selectionIndicator = (cfg?.get("selection_indicator") as? String) ?: "radio"
+    // EPIC-1 — selection animation glow ("glow"/"pulse"/"sparkle" → accent halo on the selected option).
+    val selectionAnimation = (cfg?.get("selection_animation") as? String) ?: "none"
     val showRadio = selectionIndicator == "radio" || selectionIndicator == "both"
     val radioPosition = (cfg?.get("radio_position") as? String) ?: "right"
     val radioOnLeft = radioPosition == "left" || radioPosition == "leading"
@@ -5512,6 +5514,21 @@ private fun FormInputSelectBlock(
                         androidx.compose.foundation.layout.Box {
                         Card(
                             modifier = Modifier
+                                // EPIC-1 — selection_animation glow: accent halo on the selected option
+                                // (static glow now; pulse/sparkle motion is a future dynamic layer).
+                                .then(
+                                    if (isSelected && selectionAnimation != "none") {
+                                        Modifier.shadow(
+                                            elevation = 12.dp,
+                                            shape = RoundedCornerShape(cornerR),
+                                            clip = false,
+                                            ambientColor = fillCol,
+                                            spotColor = fillCol,
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                )
                                 .fillMaxWidth()
                                 .testTag("option.$oi.row.bg")
                                 .then(
