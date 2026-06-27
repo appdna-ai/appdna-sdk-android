@@ -85,6 +85,9 @@ data class OnboardingSettings(
     // Gap 9: Custom progress bar colors
     val progress_color: String? = null,
     val progress_track_color: String? = null,
+    // EPIC-2 — thin sizing (custom height; the Material bar floored ~4dp) + multiple colors at once.
+    val progress_height: Double? = null,
+    val progress_gradient_colors: List<String>? = null,
     // SPEC-070-A F.1: progress style + back button + content padding (iOS parity)
     val progress_style: String? = null,  // "dots" | "segmented_bar" | "continuous_bar" | "fraction" | "none"
     val back_button_style: BackButtonStyle? = null,
@@ -589,6 +592,8 @@ internal object OnboardingConfigParser {
             particle_effect = particleEffect,
             progress_color = settingsMap["progress_color"] as? String,
             progress_track_color = settingsMap["progress_track_color"] as? String,
+            progress_height = (settingsMap["progress_height"] as? Number)?.toDouble(),
+            progress_gradient_colors = (settingsMap["progress_gradient_colors"] as? List<*>)?.mapNotNull { it as? String },
             progress_style = settingsMap["progress_style"] as? String,
             back_button_style = backButtonStyle,
             dismiss_allowed = settingsMap["dismiss_allowed"] as? Boolean,

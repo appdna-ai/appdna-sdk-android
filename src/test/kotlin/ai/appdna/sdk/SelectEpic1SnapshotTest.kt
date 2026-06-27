@@ -1,8 +1,10 @@
 package ai.appdna.sdk
 
 import ai.appdna.sdk.onboarding.ContentBlockRendererView
+import ai.appdna.sdk.onboarding.ContinuousProgressBar
 import ai.appdna.sdk.onboarding.OnboardingConfigParser
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -485,6 +487,37 @@ class SelectEpic1SnapshotTest {
                         onAction = {},
                         toggleValues = mutableMapOf(),
                         inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun flowProgressThinGradient() {
+        captureRoboImage("src/test/snapshots/flow_progress.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(22.dp),
+                ) {
+                    // Thin (2dp) solid — proves the bar can go thinner than Material's ~4dp floor.
+                    ContinuousProgressBar(
+                        progress = 0.6f,
+                        color = Color(0xFF6366F1),
+                        trackColor = Color(0xFF374151),
+                        height = 2.dp,
+                    )
+                    // Thick (12dp) multi-color gradient.
+                    ContinuousProgressBar(
+                        progress = 0.8f,
+                        color = Color(0xFF22C55E),
+                        trackColor = Color(0xFF374151),
+                        height = 12.dp,
+                        gradientColors = listOf(Color(0xFF22C55E), Color(0xFFEAB308), Color(0xFFEF4444)),
                     )
                 }
             }

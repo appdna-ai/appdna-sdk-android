@@ -405,6 +405,41 @@ class OnboardingActivity : ComponentActivity() {
     }
 }
 
+// EPIC-2 — flow-level continuous progress bar. A custom Box-based bar (replaces Material
+// LinearProgressIndicator which floored ~4dp) so progress_height honours any thickness, plus an
+// optional multi-color gradient fill (progress_gradient_colors). Extracted as a top-level composable
+// so the SPEC-419 visual-snapshot harness can render it on the JVM.
+@Composable
+internal fun ContinuousProgressBar(
+    progress: Float,
+    color: Color,
+    trackColor: Color,
+    height: androidx.compose.ui.unit.Dp,
+    gradientColors: List<Color>? = null,
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(height)
+            .clip(RoundedCornerShape(height / 2))
+            .background(trackColor),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(height / 2))
+                .then(
+                    if (gradientColors != null) {
+                        Modifier.background(androidx.compose.ui.graphics.Brush.horizontalGradient(gradientColors))
+                    } else {
+                        Modifier.background(color)
+                    },
+                ),
+        )
+    }
+}
+
 @Composable
 internal fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
@@ -1285,6 +1320,10 @@ internal fun OnboardingFlowHost(
                     animationSpec = tween(durationMillis = 300),
                     label = "progressAnim",
                 )
+                // EPIC-2 — thin sizing (custom height) + multiple colors at once (gradient), flow-level progress.
+                val progressHeight = (flow.settings.progress_height ?: 4.0).dp
+                val gradientCols = flow.settings.progress_gradient_colors?.takeIf { it.size >= 2 }
+                    ?.map { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
                 when (flow.settings.progress_style?.lowercase()) {
                     "none" -> { /* explicit suppress */ }
                     "dots" -> {
@@ -1333,7 +1372,7 @@ internal fun OnboardingFlowHost(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(4.dp)
+                                        .height(progressHeight)
                                         .clip(RoundedCornerShape(2.dp))
                                         .background(animatedColor),
                                 )
@@ -1369,13 +1408,15 @@ internal fun OnboardingFlowHost(
                         // `progress: Float` overload in favor of the lambda
                         // form. Pre-emptive switch silences runtime warnings
                         // and unblocks the next BOM bump.
-                        LinearProgressIndicator(
-                            progress = { animatedProgress },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(4.dp),
+                        // EPIC-2 — custom continuous bar (honors any height; the Material
+                        // LinearProgressIndicator floored ~4dp so flows couldn't go thinner) +
+                        // optional multi-color gradient. Extracted so it's snapshot-testable.
+                        ContinuousProgressBar(
+                            progress = animatedProgress,
                             color = progressColor,
-                            trackColor = progressTrackColor
+                            trackColor = progressTrackColor,
+                            height = progressHeight,
+                            gradientColors = gradientCols,
                         )
                     }
                 }
