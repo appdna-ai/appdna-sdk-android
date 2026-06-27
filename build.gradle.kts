@@ -70,6 +70,13 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true
+            // SPEC-419 — modest 1g test-JVM heap. The Canvas snapshot tests (gauges/gears/rings/mockups)
+            // accumulate bitmaps and OOM the ~512m default, but 2g starved the Mac and OOM-killed the
+            // bridge server. 1g is the balance — the default-heap run completed without killing the
+            // server, so 1g (modestly above default) is server-safe while clearing the test OOM.
+            all {
+                it.maxHeapSize = "1g"
+            }
         }
     }
 

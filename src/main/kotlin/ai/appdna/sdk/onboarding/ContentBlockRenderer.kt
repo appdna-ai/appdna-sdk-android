@@ -3336,6 +3336,35 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                     )
                 }
             }
+            "splash_bottom" -> {
+                // EPIC-3 — splash-screen loader: a small spinner anchored to the BOTTOM of the area.
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height((block.height ?: 360.0).dp)
+                        .padding(bottom = 24.dp),
+                    contentAlignment = Alignment.BottomCenter,
+                ) {
+                    val splashTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "splash_spin")
+                    val splashAngle by splashTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                            animation = androidx.compose.animation.core.tween(durationMillis = 900, easing = androidx.compose.animation.core.LinearEasing),
+                        ),
+                        label = "splash_angle",
+                    )
+                    Canvas(modifier = Modifier.size(32.dp).graphicsLayer { rotationZ = splashAngle }) {
+                        drawArc(
+                            color = progressColor,
+                            startAngle = -90f,
+                            sweepAngle = 110f,
+                            useCenter = false,
+                            style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round),
+                        )
+                    }
+                }
+            }
             "linear" -> {
                 // SPEC-401-A R22 — Material3 1.2 lambda form (see
                 // OnboardingActivity.kt:1093 for the same pre-emptive switch).
