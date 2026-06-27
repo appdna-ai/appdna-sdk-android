@@ -71,6 +71,10 @@ data class BackButtonStyle(
     val icon_size: Double? = null,
     val icon_color: String? = null,
     val position: String? = null,  // "left" | "right"
+    // EPIC-2 — custom back glyph (any char, default "←") + back-arrow⇄X switch
+    // (close_on_first: show the dismiss "✕" in the leading slot on the first/no-history step).
+    val icon: String? = null,
+    val close_on_first: Boolean? = null,
 )
 
 @Immutable
@@ -581,6 +585,8 @@ internal object OnboardingConfigParser {
                 icon_size = (b["icon_size"] as? Number)?.toDouble(),
                 icon_color = b["icon_color"] as? String,
                 position = b["position"] as? String,
+                icon = b["icon"] as? String,
+                close_on_first = b["close_on_first"] as? Boolean,
             )
         }
 

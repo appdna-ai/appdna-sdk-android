@@ -440,6 +440,18 @@ internal fun ContinuousProgressBar(
     }
 }
 
+// EPIC-2 — a nav-bar glyph (custom back arrow / close ✕) as a single Text. Extracted so the
+// custom-glyph + back⇄X switch render is snapshot-testable.
+@Composable
+internal fun NavGlyph(glyph: String, color: Color, size: androidx.compose.ui.unit.TextUnit) {
+    Text(
+        text = glyph,
+        fontSize = size,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+    )
+}
+
 @Composable
 internal fun OnboardingFlowHost(
     flow: OnboardingFlowConfig,
@@ -1429,6 +1441,10 @@ internal fun OnboardingFlowHost(
             // so authored "no-chrome" flows had a phantom band at top.
             val navBackVisible = flow.settings.allow_back && navigationHistory.isNotEmpty()
             val navDismissAllowed = flow.settings.dismiss_allowed ?: true
+            // EPIC-2 — back-arrow⇄X switch: on the first/no-history step show the dismiss "✕" in the
+            // LEADING slot (Duolingo pattern) instead of an empty spacer; the trailing X is then hidden.
+            val leadingIsClose = !navBackVisible && navDismissAllowed &&
+                (flow.settings.back_button_style?.close_on_first == true)
             if (navBackVisible || navDismissAllowed) {
             // Navigation bar
             Row(
@@ -1492,12 +1508,22 @@ internal fun OnboardingFlowHost(
                         // TalkBack announces purpose.
                         modifier = Modifier.semantics { contentDescription = backCd },
                     ) {
-                        Text(
-                            text = "\u2190",
-                            fontSize = backIconSize,
-                            fontWeight = FontWeight.SemiBold,
-                            color = backIconColor,
-                        )
+                        NavGlyph(bbStyle?.icon ?: "\u2190", backIconColor, backIconSize)
+                    }
+                } else if (leadingIsClose) {
+                    // EPIC-2 \u2014 back\u21c4X switch: dismiss glyph in the leading slot on the first step.
+                    val leadCloseCd = stringResource(R.string.appdna_a11y_onboarding_close)
+                    IconButton(
+                        onClick = {
+                            HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_button_tap, hapticConfig)
+                            if (currentIndex < flow.steps.size) {
+                                onFlowDismissed(flow.steps[currentIndex].id, currentIndex)
+                            }
+                        },
+                        enabled = !isProcessing,
+                        modifier = Modifier.semantics { contentDescription = leadCloseCd },
+                    ) {
+                        NavGlyph("\u2715", backIconColor, backIconSize)
                     }
                 } else {
                     Spacer(Modifier.size(48.dp))
@@ -1506,7 +1532,7 @@ internal fun OnboardingFlowHost(
                 // SPEC-070-A finalization B4 P1 — gate dismiss X on
                 // `flow.settings.dismiss_allowed`. iOS suppresses dismiss
                 // when set false (e.g. mandatory onboarding flows).
-                if (!navDismissAllowed) {
+                if (!navDismissAllowed || leadingIsClose) {
                     Spacer(Modifier.size(48.dp))
                 } else {
                 val dismissCd = stringResource(R.string.appdna_a11y_onboarding_close)

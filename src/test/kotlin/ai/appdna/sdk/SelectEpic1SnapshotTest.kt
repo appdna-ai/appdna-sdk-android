@@ -2,6 +2,7 @@ package ai.appdna.sdk
 
 import ai.appdna.sdk.onboarding.ContentBlockRendererView
 import ai.appdna.sdk.onboarding.ContinuousProgressBar
+import ai.appdna.sdk.onboarding.NavGlyph
 import ai.appdna.sdk.onboarding.OnboardingConfigParser
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -12,6 +13,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -519,6 +521,26 @@ class SelectEpic1SnapshotTest {
                         height = 12.dp,
                         gradientColors = listOf(Color(0xFF22C55E), Color(0xFFEAB308), Color(0xFFEF4444)),
                     )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun navGlyphs() {
+        captureRoboImage("src/test/snapshots/nav_glyphs.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(20.dp),
+                ) {
+                    // EPIC-2 — custom back glyph (chevron), default arrow, and the back⇄X close glyph.
+                    NavGlyph("‹", Color(0xFF6366F1), 28.sp) // custom chevron
+                    NavGlyph("←", Color(0xFFE5E7EB), 20.sp) // default back arrow
+                    NavGlyph("✕", Color(0xFFEF4444), 20.sp) // close (back⇄X switch)
                 }
             }
         }
