@@ -409,6 +409,8 @@ data class ContentBlock(
     val level: Int? = null,
     val image_url: String? = null,
     val alt: String? = null,
+    // EPIC-3 — wrap the image in a device frame: "phone" = phone bezel + dynamic-island notch; else none.
+    val image_frame: String? = null,
     // SPEC-401-A — `cover` (default) / `contain` / `fit` / `inside`
     // / `none`. iOS toggles `.fill`/`.fit` on this token.
     val image_fit: String? = null,
@@ -1499,6 +1501,39 @@ private fun ImageBlock(block: ContentBlock) {
         else -> Modifier.fillMaxWidth()
     }
     val imgHeightMax = if (iconSize != null) iconSize.dp else (block.height ?: 200.0).dp
+    if (block.image_frame == "phone") {
+        // EPIC-3 — phone mockup: dark bezel + dynamic-island notch, image fills the "screen".
+        Box(
+            modifier = Modifier
+                .then(if (explicitW != null) imgWidthMod else Modifier.fillMaxWidth())
+                .clip(RoundedCornerShape(40.dp))
+                .background(androidx.compose.ui.graphics.Color(0xFF101012))
+                .padding(10.dp),
+        ) {
+            Box {
+                ai.appdna.sdk.core.NetworkImage(
+                    url = block.image_url,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(imgHeightMax)
+                        .clip(RoundedCornerShape(30.dp))
+                        .background(androidx.compose.ui.graphics.Color(0xFF2A2A2E)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    contentDescription = block.alt ?: "Image",
+                )
+                Box(
+                    modifier = Modifier
+                        .align(androidx.compose.ui.Alignment.TopCenter)
+                        .padding(top = 8.dp)
+                        .width(96.dp)
+                        .height(26.dp)
+                        .clip(RoundedCornerShape(13.dp))
+                        .background(androidx.compose.ui.graphics.Color.Black),
+                )
+            }
+        }
+        return
+    }
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier

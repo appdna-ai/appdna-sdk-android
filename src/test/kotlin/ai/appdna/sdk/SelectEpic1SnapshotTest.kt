@@ -585,4 +585,40 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun phoneMockupFrame() {
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "img1", "type" to "image",
+                        "image_url" to "https://example.com/screen.png",
+                        "image_frame" to "phone", "height" to 420, "element_width" to "240px",
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/phone_mockup.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFE5E7EB))
+                        .padding(40.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

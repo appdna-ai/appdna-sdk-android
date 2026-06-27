@@ -1698,6 +1698,7 @@ internal object OnboardingConfigParser {
             empty_color = bm["empty_color"] as? String,
             z_index = (bm["z_index"] as? Number)?.toDouble(),
             image_fit = bm["image_fit"] as? String,
+            image_frame = bm["image_frame"] as? String,
             view_key = bm["view_key"] as? String,
             custom_config = @Suppress("UNCHECKED_CAST") (bm["custom_config"] as? Map<String, Any>),
             placeholder_image_url = bm["placeholder_image_url"] as? String,
