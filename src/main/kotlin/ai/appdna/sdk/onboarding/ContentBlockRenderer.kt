@@ -93,6 +93,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.zIndex
 // mutableIntStateOf, derivedStateOf, etc. covered by runtime.* import
@@ -3294,6 +3295,44 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                         fontSize = 40.sp,
                         fontWeight = FontWeight.Bold,
                         color = progressColor,
+                    )
+                }
+            }
+            "cog" -> {
+                // EPIC-3 — cog/gear spinner (Asana settings-style loader): thick ring + 8 flat teeth, rotating.
+                val cogTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "cog_spin")
+                val cogAngle by cogTransition.animateFloat(
+                    initialValue = 0f,
+                    targetValue = 360f,
+                    animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+                        animation = androidx.compose.animation.core.tween(durationMillis = 2000, easing = androidx.compose.animation.core.LinearEasing),
+                    ),
+                    label = "cog_angle",
+                )
+                Canvas(modifier = Modifier.size(80.dp).graphicsLayer { rotationZ = cogAngle }) {
+                    val cx = size.width / 2f
+                    val cy = size.height / 2f
+                    val outerR = size.minDimension / 2f
+                    val ringR = outerR * 0.60f
+                    val ringStroke = outerR * 0.22f
+                    val teethCount = 8
+                    val toothW = outerR * 0.20f
+                    val toothH = outerR * 0.28f
+                    for (i in 0 until teethCount) {
+                        rotate(degrees = i * 360f / teethCount, pivot = androidx.compose.ui.geometry.Offset(cx, cy)) {
+                            drawRoundRect(
+                                color = progressColor,
+                                topLeft = androidx.compose.ui.geometry.Offset(cx - toothW / 2f, cy - ringR - toothH * 0.55f),
+                                size = androidx.compose.ui.geometry.Size(toothW, toothH),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(toothW * 0.25f),
+                            )
+                        }
+                    }
+                    drawCircle(
+                        color = progressColor,
+                        radius = ringR,
+                        center = androidx.compose.ui.geometry.Offset(cx, cy),
+                        style = Stroke(width = ringStroke),
                     )
                 }
             }
