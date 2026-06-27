@@ -1314,6 +1314,23 @@ internal fun OnboardingFlowHost(
                 val progressTrackColor = flow.settings.progress_track_color?.let {
                     ai.appdna.sdk.core.StyleEngine.parseColor(it)
                 } ?: Color.Gray.copy(alpha = 0.2f)
+                // EPIC-2 — dynamic color flash on step-advance: briefly animate the fill to flash_color then back.
+                val progressFlashColor = flow.settings.progress_flash_color?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                var prevFlashIndex by remember { mutableStateOf(currentIndex) }
+                var progressFlashing by remember { mutableStateOf(false) }
+                LaunchedEffect(currentIndex) {
+                    if (currentIndex != prevFlashIndex && progressFlashColor != null) {
+                        progressFlashing = true
+                        kotlinx.coroutines.delay(450)
+                        progressFlashing = false
+                    }
+                    prevFlashIndex = currentIndex
+                }
+                val flashedProgressColor by animateColorAsState(
+                    targetValue = if (progressFlashing && progressFlashColor != null) progressFlashColor else progressColor,
+                    animationSpec = tween(durationMillis = 350),
+                    label = "progressFlash",
+                )
                 // SPEC-070-A finalization Phase B — progress_style branches.
                 // Mirrors iOS OnboardingRenderer.swift progress style switch:
                 //   "dots" — N circles, filled to currentIndex
@@ -1359,7 +1376,7 @@ internal fun OnboardingFlowHost(
                                 // fill color animates. Was causing visible "pop"
                                 // larger drift from iOS.
                                 val animatedColor by animateColorAsState(
-                                    targetValue = if (filled) progressColor else progressTrackColor,
+                                    targetValue = if (filled) flashedProgressColor else progressTrackColor,
                                     animationSpec = tween(durationMillis = 200),
                                     label = "dotColor",
                                 )
@@ -1382,7 +1399,7 @@ internal fun OnboardingFlowHost(
                             for (i in 1..totalSteps) {
                                 val filled = i <= current
                                 val animatedColor by animateColorAsState(
-                                    targetValue = if (filled) progressColor else progressTrackColor,
+                                    targetValue = if (filled) flashedProgressColor else progressTrackColor,
                                     animationSpec = tween(durationMillis = 200),
                                     label = "segColor",
                                 )
@@ -1430,7 +1447,7 @@ internal fun OnboardingFlowHost(
                         // optional multi-color gradient. Extracted so it's snapshot-testable.
                         ContinuousProgressBar(
                             progress = animatedProgress,
-                            color = progressColor,
+                            color = flashedProgressColor,
                             trackColor = progressTrackColor,
                             height = progressHeight,
                             gradientColors = gradientCols,
