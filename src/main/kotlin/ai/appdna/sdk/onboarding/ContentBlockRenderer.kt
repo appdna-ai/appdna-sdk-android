@@ -1345,6 +1345,7 @@ private fun RenderBlockContent(
         "otp_input" -> OtpInputBlock(block, inputValues)
         "warning_banner" -> WarningBannerBlock(block, loc)
         "password_strength" -> PasswordStrengthBlock(block)
+        "speech_bubble" -> SpeechBubbleBlock(block, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2021,6 +2022,46 @@ private fun PasswordStrengthBlock(block: ContentBlock) {
         }
         if (label.isNotEmpty()) {
             Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = accent)
+        }
+    }
+}
+
+/** EPIC-11 — speech bubble (mascot dialogue): a rounded card + a downward tail triangle. `field_config.
+ * bubble_tail` (left|center|right, default left) positions the tail; bg_color/text_color style it. */
+@Composable
+private fun SpeechBubbleBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val bubbleColor = StyleEngine.parseColor(block.bg_color ?: "#FFFFFF")
+    val textColor = StyleEngine.parseColor(block.text_color ?: "#111827")
+    val tailPos = (block.field_config?.get("bubble_tail") as? String) ?: "left"
+    val text = loc?.invoke("block.${block.id}.text", block.text ?: "") ?: (block.text ?: "")
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(bubbleColor)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+        ) {
+            Text(text, fontSize = 15.sp, fontWeight = FontWeight.Medium, color = textColor, lineHeight = 20.sp)
+        }
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Canvas(
+                modifier = Modifier
+                    .align(
+                        when (tailPos) {
+                            "center" -> Alignment.TopCenter
+                            "right" -> Alignment.TopEnd
+                            else -> Alignment.TopStart
+                        },
+                    )
+                    .padding(start = if (tailPos == "left") 24.dp else 0.dp, end = if (tailPos == "right") 24.dp else 0.dp)
+                    .size(width = 18.dp, height = 9.dp),
+            ) {
+                val p = androidx.compose.ui.graphics.Path().apply {
+                    moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2f, size.height); close()
+                }
+                drawPath(p, bubbleColor)
+            }
         }
     }
 }

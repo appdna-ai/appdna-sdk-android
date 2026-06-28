@@ -1281,4 +1281,41 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun speechBubble() {
+        // EPIC-11 — speech bubble (mascot dialogue): white bubble + downward left tail.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sb", "type" to "speech_bubble",
+                        "text" to "Great job! You're on a 7-day streak 🔥",
+                        "bg_color" to "#FFFFFF", "text_color" to "#111827",
+                        "field_config" to mapOf<String, Any>("bubble_tail" to "left"),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/speech_bubble.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
