@@ -487,6 +487,18 @@ data class StepHookConfig(
 /**
  * Delegate for receiving onboarding flow lifecycle events.
  */
+/** Result of [AppDNAOnboardingDelegate.onElementInteraction] — lets the host push state back into the live
+ * step from its backend (SPEC-419 EPIC-11 — backend-interactive elements; e.g. a calendar day tap → backend
+ * confirms → update the rendered element without leaving the step). */
+data class ElementInteractionResult(
+    /** Per-block `field_config` patches to merge + re-render. Keyed by blockId -> (key -> value). */
+    val fieldConfigPatches: Map<String, Map<String, Any>>? = null,
+    /** Patches to merge into the step's `inputValues` (keyed by field_id). */
+    val inputValuePatches: Map<String, Any>? = null,
+    /** When true, advance to the next step after handling this interaction. */
+    val advance: Boolean = false,
+)
+
 interface AppDNAOnboardingDelegate {
     // Observe-only callbacks (unchanged)
     fun onOnboardingStarted(flowId: String) {}
@@ -512,6 +524,18 @@ interface AppDNAOnboardingDelegate {
         stepType: String,
         responses: Map<String, Any>
     ): StepConfigOverride? = null
+
+    // SPEC-419 EPIC-11: Async hook fired DURING render when an interactive element acts (calendar day tap,
+    // otp digit, memory flip, dark-mode toggle, health connect…). Return a result to push backend state into
+    // the live step. blockId/action/value identify the interaction; inputValues is the live snapshot.
+    suspend fun onElementInteraction(
+        flowId: String,
+        stepId: String,
+        blockId: String,
+        action: String,
+        value: String?,
+        inputValues: Map<String, Any>,
+    ): ElementInteractionResult? = null
 }
 
 // MARK: - Parsing helpers
