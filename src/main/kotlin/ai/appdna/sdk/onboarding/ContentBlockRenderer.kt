@@ -1350,6 +1350,7 @@ private fun RenderBlockContent(
         "summary_screen" -> SummaryScreenBlock(block, loc)
         "press_hold_confirm" -> PressHoldConfirmBlock(block, loc)
         "health_connect" -> HealthConnectBlock(block, onAction, loc)
+        "settings_footer" -> SettingsFooterBlock(block, onAction)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2215,6 +2216,48 @@ private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, 
             Text("✓", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = StyleEngine.parseColor("#10B981"))
         } else {
             Text("›", fontSize = 26.sp, color = Color.White.copy(alpha = 0.5f))
+        }
+    }
+}
+
+/** EPIC-11 — interactive footer: a dark-mode capsule toggle + a language switcher pill. `field_config.dark_mode`
+ * (bool) + `language` (label). Custom capsule switch (not the native widget) so both platforms pixel-match. */
+@Composable
+private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit) {
+    val darkMode = (block.field_config?.get("dark_mode") as? Boolean) ?: false
+    val language = (block.field_config?.get("language") as? String) ?: "English"
+    val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("🌙", fontSize = 18.sp)
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(28.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (darkMode) accent else Color.White.copy(alpha = 0.22f))
+                    .clickable { onAction("toggle_dark_mode") },
+                contentAlignment = if (darkMode) Alignment.CenterEnd else Alignment.CenterStart,
+            ) {
+                Box(modifier = Modifier.padding(3.dp).size(22.dp).clip(CircleShape).background(Color.White))
+            }
+        }
+        Row(
+            modifier = Modifier
+                .clip(RoundedCornerShape(20.dp))
+                .background(Color(0xFF1F2937))
+                .clickable { onAction("switch_language") }
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            Text("🌐", fontSize = 15.sp)
+            Text(language, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
+            Text("▾", fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
         }
     }
 }

@@ -1462,4 +1462,37 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun settingsFooter() {
+        // EPIC-11 — interactive footer: dark-mode capsule toggle (off/on) + language switcher pill.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "sf1", "type" to "settings_footer", "field_config" to mapOf<String, Any>("dark_mode" to false, "language" to "English")),
+                    mapOf<String, Any>("id" to "sf2", "type" to "settings_footer", "active_color" to "#6366F1", "field_config" to mapOf<String, Any>("dark_mode" to true, "language" to "Español")),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/settings_footer.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
