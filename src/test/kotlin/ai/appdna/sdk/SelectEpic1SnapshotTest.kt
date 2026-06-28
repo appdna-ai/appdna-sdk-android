@@ -1393,4 +1393,39 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun pressHoldConfirm() {
+        // EPIC-11 — press-and-hold-to-confirm: pill 65% filled (left→right accent fill behind centered text).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "ph", "type" to "press_hold_confirm", "text" to "Hold to confirm",
+                        "active_color" to "#6366F1", "field_config" to mapOf<String, Any>("hold_progress" to 0.65),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/press_hold_confirm.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

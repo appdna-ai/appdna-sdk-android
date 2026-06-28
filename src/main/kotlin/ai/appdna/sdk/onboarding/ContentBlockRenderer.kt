@@ -1348,6 +1348,7 @@ private fun RenderBlockContent(
         "speech_bubble" -> SpeechBubbleBlock(block, loc)
         "feedback_panel" -> FeedbackPanelBlock(block, loc)
         "summary_screen" -> SummaryScreenBlock(block, loc)
+        "press_hold_confirm" -> PressHoldConfirmBlock(block, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2147,6 +2148,33 @@ private fun SummaryScreenBlock(block: ContentBlock, loc: ((String, String) -> St
                 if (rowStats.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
         }
+    }
+}
+
+/** EPIC-11 — press-and-hold-to-confirm: a pill that fills left→right as the user holds. `field_config.
+ * hold_progress` (0-1) is the static fill fraction (runtime animates it); active_color = fill color. */
+@Composable
+private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val progress = ((block.field_config?.get("hold_progress") as? Number)?.toDouble() ?: 0.0)
+        .coerceIn(0.0, 1.0).toFloat()
+    val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    val text = loc?.invoke("block.${block.id}.text", block.text ?: "Hold to confirm") ?: (block.text ?: "Hold to confirm")
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp)
+            .clip(RoundedCornerShape(28.dp))
+            .background(Color(0xFF1F2937)),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .fillMaxHeight()
+                .fillMaxWidth(progress)
+                .background(accent),
+        )
+        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
 }
 
