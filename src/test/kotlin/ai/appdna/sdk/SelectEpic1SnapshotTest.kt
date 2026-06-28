@@ -1578,4 +1578,40 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun styleAlignment() {
+        // EPIC-9 parity — heading + text centered via STYLE.alignment only (no horizontal_align). Was: Android
+        // center / iOS left; now both center.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "h", "type" to "heading", "text" to "Centered Heading",
+                        "style" to mapOf<String, Any>("font_size" to 24, "font_weight" to 700, "color" to "#FFFFFF", "alignment" to "center")),
+                    mapOf<String, Any>("id" to "t", "type" to "text", "text" to "This body is centered via style.alignment",
+                        "style" to mapOf<String, Any>("font_size" to 15, "color" to "#A5B4FC", "alignment" to "center")),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/style_alignment.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
