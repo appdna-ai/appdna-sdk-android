@@ -2184,12 +2184,11 @@ private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) ->
  * connect flow is host-driven via onAction("health_connect"). */
 @Composable
 private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
-    val provider = (block.field_config?.get("health_provider") as? String) ?: "apple"
+    // EPIC-11 — provider is PLATFORM-FIXED: Android always shows Google Fit (Apple Health is iOS-only).
     val connected = (block.field_config?.get("connected") as? Boolean) ?: false
-    val (icon, defLabel, iconBgHex) = when (provider) {
-        "google" -> Triple("🏃", "Connect Google Fit", "#34A853")
-        else -> Triple("❤️", "Connect Apple Health", "#FF2D55")
-    }
+    val icon = "🏃"
+    val defLabel = "Connect Google Fit"
+    val iconBgHex = "#34A853"
     val label = loc?.invoke("block.${block.id}.text", block.text ?: defLabel) ?: (block.text ?: defLabel)
     val subtitle = (block.field_config?.get("health_subtitle") as? String) ?: "Sync steps, workouts & vitals"
     Row(

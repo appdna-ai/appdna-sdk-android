@@ -1431,13 +1431,14 @@ class SelectEpic1SnapshotTest {
 
     @Test
     fun healthConnect() {
-        // EPIC-11 — Health connect card: Apple Health (not connected, chevron) + Google Fit (connected, ✓).
+        // EPIC-11 — Health connect card. Provider is PLATFORM-FIXED: Android renders Google Fit (Apple Health
+        // is iOS-only), so this golden intentionally differs from the iOS one. Two states: connect + connected.
         val step = mapOf<String, Any>(
             "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
             "config" to mapOf<String, Any>(
                 "content_blocks" to listOf(
-                    mapOf<String, Any>("id" to "h1", "type" to "health_connect", "field_config" to mapOf<String, Any>("health_provider" to "apple")),
-                    mapOf<String, Any>("id" to "h2", "type" to "health_connect", "field_config" to mapOf<String, Any>("health_provider" to "google", "connected" to true)),
+                    mapOf<String, Any>("id" to "h1", "type" to "health_connect"),
+                    mapOf<String, Any>("id" to "h2", "type" to "health_connect", "field_config" to mapOf<String, Any>("connected" to true)),
                 ),
             ),
         )
