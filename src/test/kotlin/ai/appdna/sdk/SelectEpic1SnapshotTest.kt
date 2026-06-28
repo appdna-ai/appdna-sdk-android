@@ -1097,4 +1097,52 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun variablesConditional() {
+        // EPIC-5 — variables + conditional logic: heading uses a {{responses.user_name}} template (carried
+        // over from a prior step); two blocks gated by an age condition — "verified" shows (25 > 18), "too
+        // young" hides. Proves binding/template carry-over + visibility_condition + dot-path resolution.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "h", "type" to "heading", "horizontal_align" to "center", "text" to "Welcome back, {{responses.user_name}}!",
+                        "style" to mapOf<String, Any>("font_size" to 26, "font_weight" to 700, "color" to "#FFFFFF", "alignment" to "center"),
+                    ),
+                    mapOf<String, Any>(
+                        "id" to "ok", "type" to "text", "horizontal_align" to "center", "text" to "✓ Age verified — you're all set",
+                        "visibility_condition" to mapOf<String, Any>("type" to "when_gt", "variable" to "responses.age", "value" to "18"),
+                        "style" to mapOf<String, Any>("font_size" to 16, "font_weight" to 600, "color" to "#34D399", "alignment" to "center"),
+                    ),
+                    mapOf<String, Any>(
+                        "id" to "no", "type" to "text", "horizontal_align" to "center", "text" to "✗ You must be 18 or older",
+                        "visibility_condition" to mapOf<String, Any>("type" to "when_lt", "variable" to "responses.age", "value" to "18"),
+                        "style" to mapOf<String, Any>("font_size" to 16, "font_weight" to 600, "color" to "#F87171", "alignment" to "center"),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/variables_conditional.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                        responses = mapOf("user_name" to "Alex", "age" to "25"),
+                    )
+                }
+            }
+        }
+    }
 }
