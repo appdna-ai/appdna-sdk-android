@@ -939,4 +939,41 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun richTextInlineStyles() {
+        // EPIC-9 — rich_text inline markdown: bold, italic, link + authored base_style color.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "rt", "type" to "rich_text",
+                        "markdown_content" to "This is **bold**, *italic*, and a [link](https://appdna.ai).",
+                        "base_style" to mapOf<String, Any>("color" to "#E5E7EB"),
+                        "link_color" to "#A5B4FC",
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/rich_text.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
