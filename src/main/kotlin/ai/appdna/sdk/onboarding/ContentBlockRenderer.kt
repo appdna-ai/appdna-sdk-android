@@ -1341,6 +1341,7 @@ private fun RenderBlockContent(
         "image" -> ImageBlock(block)
         "media_gallery" -> MediaGalleryBlock(block)
         "section_background" -> SectionBackgroundBlock(block, onAction, toggleValues, inputValues, loc)
+        "carousel" -> CarouselBlock(block, onAction, toggleValues, inputValues, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1464,6 +1465,49 @@ private fun TextBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
         style = styleWithAlign,
         modifier = Modifier.fillMaxWidth(),
     )
+}
+
+@Composable
+private fun CarouselBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    toggleValues: MutableMap<String, Boolean>,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)?,
+) {
+    // EPIC-8 — swipeable carousel: each child block is a page; render a HorizontalPager
+    // + a dot indicator. Page indicator colors come through field_config.
+    val pages = block.children ?: block.stack_children ?: return
+    if (pages.isEmpty()) return
+    val pagerState = androidx.compose.foundation.pager.rememberPagerState(pageCount = { pages.size })
+    val activeColor = (block.field_config?.get("indicator_active_color") as? String)?.let { StyleEngine.parseColor(it) }
+        ?: StyleEngine.parseColor(ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")
+    val inactiveColor = (block.field_config?.get("indicator_color") as? String)?.let { StyleEngine.parseColor(it) }
+        ?: Color(0xFF4B5563)
+    Column(modifier = Modifier.fillMaxWidth()) {
+        androidx.compose.foundation.pager.HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth().height((block.height ?: 240.0).dp),
+        ) { page ->
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopStart) {
+                RenderBlock(pages[page], onAction, toggleValues, inputValues, loc)
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            horizontalArrangement = Arrangement.Center,
+        ) {
+            repeat(pages.size) { i ->
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(if (i == pagerState.currentPage) activeColor else inactiveColor),
+                )
+            }
+        }
+    }
 }
 
 @Composable

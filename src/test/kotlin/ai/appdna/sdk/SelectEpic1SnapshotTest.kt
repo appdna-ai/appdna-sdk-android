@@ -1016,4 +1016,44 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun carouselPaged() {
+        // EPIC-8 — swipeable carousel: 3 pages + dot indicator (page 0 active). Snapshot = first page.
+        val pageStyle = mapOf<String, Any>("font_size" to 24, "font_weight" to 700, "color" to "#FFFFFF")
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "car", "type" to "carousel", "height" to 120,
+                        "children" to listOf(
+                            mapOf<String, Any>("id" to "p1", "type" to "text", "text" to "Welcome to AppDNA", "style" to pageStyle),
+                            mapOf<String, Any>("id" to "p2", "type" to "text", "text" to "Discover your insights", "style" to pageStyle),
+                            mapOf<String, Any>("id" to "p3", "type" to "text", "text" to "Get started today", "style" to pageStyle),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/carousel.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
