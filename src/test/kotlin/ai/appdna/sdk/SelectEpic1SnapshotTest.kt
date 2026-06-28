@@ -1056,4 +1056,45 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun pricingCardPlans() {
+        // EPIC-10 — pricing plan cards: Monthly + Yearly (highlighted "BEST VALUE", accent border + badge).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "pc", "type" to "pricing_card", "active_color" to "#6366F1",
+                        "pricing_plans" to listOf(
+                            mapOf<String, Any>("id" to "m", "label" to "Monthly", "price" to "$9.99", "period" to "per month"),
+                            mapOf<String, Any>(
+                                "id" to "y", "label" to "Yearly", "price" to "$59.99", "period" to "per year",
+                                "badge" to "BEST VALUE", "is_highlighted" to true,
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/pricing_card.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
