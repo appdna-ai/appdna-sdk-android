@@ -1495,4 +1495,49 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun memoryMatch() {
+        // EPIC-11 — memory/pair-match: 3-col grid, all 3 states (up 🍎 / down ? / matched 🍌).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "mm", "type" to "memory_match", "active_color" to "#6366F1",
+                        "field_config" to mapOf<String, Any>(
+                            "match_columns" to 3,
+                            "match_cards" to listOf(
+                                mapOf<String, Any>("symbol" to "🍎", "state" to "up"),
+                                mapOf<String, Any>("state" to "down"),
+                                mapOf<String, Any>("symbol" to "🍌", "state" to "matched"),
+                                mapOf<String, Any>("state" to "down"),
+                                mapOf<String, Any>("symbol" to "🍎", "state" to "up"),
+                                mapOf<String, Any>("symbol" to "🍌", "state" to "matched"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/memory_match.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

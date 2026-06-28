@@ -1351,6 +1351,7 @@ private fun RenderBlockContent(
         "press_hold_confirm" -> PressHoldConfirmBlock(block, loc)
         "health_connect" -> HealthConnectBlock(block, onAction, loc)
         "settings_footer" -> SettingsFooterBlock(block, onAction)
+        "memory_match" -> MemoryMatchBlock(block, onAction)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2258,6 +2259,55 @@ private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit)
             Text("🌐", fontSize = 15.sp)
             Text(language, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
             Text("▾", fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
+        }
+    }
+}
+
+/** EPIC-11 — memory / pair-match grid (Duolingo): square cards in N columns, each face-down (accent "?"),
+ * face-up (white + symbol), or matched (green + symbol). `field_config.match_columns` + `match_cards`=
+ * [{symbol, state: down|up|matched}]. */
+@Composable
+private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
+    val cols = (block.field_config?.get("match_columns") as? Number)?.toInt()?.coerceIn(2, 5) ?: 3
+    val cardsRaw = (block.field_config?.get("match_cards") as? List<*>) ?: emptyList<Any>()
+    val cards = cardsRaw.mapNotNull { it as? Map<*, *> }
+    val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    val matched = StyleEngine.parseColor("#10B981")
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        cards.chunked(cols).forEach { rowCards ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                rowCards.forEach { m ->
+                    val symbol = (m["symbol"] as? String) ?: ""
+                    val state = (m["state"] as? String) ?: "down"
+                    val bg = when (state) {
+                        "up" -> Color.White
+                        "matched" -> matched.copy(alpha = 0.18f)
+                        else -> accent.copy(alpha = 0.16f)
+                    }
+                    val border = when (state) {
+                        "up" -> accent
+                        "matched" -> matched
+                        else -> accent.copy(alpha = 0.4f)
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(bg)
+                            .border(2.dp, border, RoundedCornerShape(12.dp))
+                            .clickable { onAction("flip_card") },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (state == "down") {
+                            Text("?", fontSize = 26.sp, fontWeight = FontWeight.Bold, color = accent)
+                        } else {
+                            Text(symbol, fontSize = 28.sp)
+                        }
+                    }
+                }
+                repeat(cols - rowCards.size) { Spacer(modifier = Modifier.weight(1f)) }
+            }
         }
     }
 }
