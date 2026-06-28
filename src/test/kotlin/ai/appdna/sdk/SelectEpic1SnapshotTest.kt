@@ -1351,4 +1351,46 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun summaryScreen() {
+        // EPIC-11 — session summary: headline + 2x2 stat grid (Time / Accuracy / XP / Streak).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sum", "type" to "summary_screen", "text" to "Lesson complete!",
+                        "field_config" to mapOf<String, Any>(
+                            "summary_stats" to listOf(
+                                mapOf<String, Any>("value" to "5:32", "label" to "Time", "color" to "#6366F1"),
+                                mapOf<String, Any>("value" to "92%", "label" to "Accuracy", "color" to "#10B981"),
+                                mapOf<String, Any>("value" to "+120", "label" to "XP earned", "color" to "#F59E0B"),
+                                mapOf<String, Any>("value" to "7", "label" to "Day streak", "color" to "#EF4444"),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/summary_screen.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

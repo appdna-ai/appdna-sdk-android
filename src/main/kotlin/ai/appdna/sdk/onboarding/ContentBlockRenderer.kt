@@ -1347,6 +1347,7 @@ private fun RenderBlockContent(
         "password_strength" -> PasswordStrengthBlock(block)
         "speech_bubble" -> SpeechBubbleBlock(block, loc)
         "feedback_panel" -> FeedbackPanelBlock(block, loc)
+        "summary_screen" -> SummaryScreenBlock(block, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2100,6 +2101,50 @@ private fun FeedbackPanelBlock(block: ContentBlock, loc: ((String, String) -> St
             Text(headline, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = accent)
             if (!detail.isNullOrEmpty()) {
                 Text(detail, fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f))
+            }
+        }
+    }
+}
+
+/** EPIC-11 — session summary screen (Duolingo end-of-lesson stats): optional headline + a 2-column grid of
+ * stat cards. `field_config.summary_stats` = [{value, label, color?}]; each card shows a big colored value +
+ * a muted label. */
+@Composable
+private fun SummaryScreenBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val statsRaw = (block.field_config?.get("summary_stats") as? List<*>) ?: emptyList<Any>()
+    val stats = statsRaw.mapNotNull { it as? Map<*, *> }
+    val headline = loc?.invoke("block.${block.id}.text", block.text ?: "") ?: (block.text ?: "")
+    val defaultAccent = ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (headline.isNotEmpty()) {
+            Text(
+                headline,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        stats.chunked(2).forEach { rowStats ->
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                rowStats.forEach { m ->
+                    val value = (m["value"] as? String) ?: ""
+                    val label = (m["label"] as? String) ?: ""
+                    val color = StyleEngine.parseColor((m["color"] as? String) ?: defaultAccent)
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(Color(0xFF1F2937))
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Text(value, fontSize = 24.sp, fontWeight = FontWeight.Bold, color = color)
+                        Text(label, fontSize = 13.sp, color = Color.White.copy(alpha = 0.7f))
+                    }
+                }
+                if (rowStats.size == 1) Spacer(modifier = Modifier.weight(1f))
             }
         }
     }
