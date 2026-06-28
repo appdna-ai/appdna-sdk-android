@@ -499,6 +499,27 @@ data class ElementInteractionResult(
     val advance: Boolean = false,
 )
 
+/** The merged result of applying an [ElementInteractionResult] to a step's live state. */
+data class AppliedInteraction(
+    val inputValues: Map<String, Any>,
+    val fieldConfigOverrides: Map<String, Map<String, Any>>,
+    val advance: Boolean,
+)
+
+/** SPEC-419 EPIC-11 — pure application of an [ElementInteractionResult] to a step's live state. Merges
+ * `inputValuePatches` over [inputValues] and exposes per-block `fieldConfigPatches` as overrides the renderer
+ * layers at READ TIME (ContentBlock is immutable on iOS — both platforms use a read-time override layer for
+ * parity). The caller acts on [AppliedInteraction.advance]. Pure + unit-tested. */
+fun applyInteractionResult(result: ElementInteractionResult, inputValues: Map<String, Any>): AppliedInteraction {
+    val iv = inputValues.toMutableMap()
+    result.inputValuePatches?.let { iv.putAll(it) }
+    return AppliedInteraction(
+        inputValues = iv,
+        fieldConfigOverrides = result.fieldConfigPatches ?: emptyMap(),
+        advance = result.advance,
+    )
+}
+
 interface AppDNAOnboardingDelegate {
     // Observe-only callbacks (unchanged)
     fun onOnboardingStarted(flowId: String) {}
