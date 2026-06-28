@@ -1145,4 +1145,37 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun buttonHeightResize() {
+        // EPIC-6 — authored button_height resizes the CTA itself (default ~52 vs tall 72), not the layout.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "b1", "type" to "button", "text" to "Continue", "bg_color" to "#6366F1"),
+                    mapOf<String, Any>("id" to "b2", "type" to "button", "text" to "Get Started", "bg_color" to "#10B981", "button_height" to 72),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/button_height.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

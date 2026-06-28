@@ -1785,6 +1785,11 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             .graphicsLayer(scaleX = pressedScale, scaleY = pressedScale, alpha = pressedAlpha)
     } else Modifier
 
+    // EPIC-6 — apply authored button_height (resize the button itself) instead of only a 52dp floor.
+    // Without this the console "Size" control had no effect on the CTA (the field existed but was never read).
+    val heightMod: Modifier = block.button_height?.let { Modifier.height(it.dp) }
+        ?: Modifier.defaultMinSize(minHeight = 52.dp)
+
     // Gap 5: Gradient background support
     val shape = RoundedCornerShape(cornerRadius)
     val gradient = block.block_style?.background_gradient
@@ -1860,7 +1865,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             // SPEC-089d §3.18: Outline variant — transparent bg, colored border + text
             OutlinedButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
+                modifier = Modifier.fillMaxWidth().then(heightMod).then(pressedModifier),
                 shape = shape,
                 border = androidx.compose.foundation.BorderStroke(1.5.dp, bgColor),
                 colors = ButtonDefaults.outlinedButtonColors(contentColor = bgColor),
@@ -1872,7 +1877,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
         "text" -> {
             TextButton(
                 onClick = onClick,
-                modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
+                modifier = Modifier.fillMaxWidth().then(heightMod).then(pressedModifier),
                 shape = shape,
                 interactionSource = interactionSource,
             ) {
@@ -1886,7 +1891,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .defaultMinSize(minHeight = 52.dp)
+                        .then(heightMod)
                         .then(pressedModifier)
                         .clip(shape)
                         .then(gradientModifier)
@@ -1898,7 +1903,7 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
             } else {
                 Button(
                     onClick = onClick,
-                    modifier = Modifier.fillMaxWidth().defaultMinSize(minHeight = 52.dp).then(pressedModifier),
+                    modifier = Modifier.fillMaxWidth().then(heightMod).then(pressedModifier),
                     shape = shape,
                     colors = ButtonDefaults.buttonColors(containerColor = bgColor),
                     // SPEC-419 — flat like iOS/SwiftUI buttons. Material's default ~1dp elevation
