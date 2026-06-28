@@ -976,4 +976,44 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun socialLoginProviders() {
+        // EPIC-7 — social login provider buttons (Apple / Google / Email) with brand defaults.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "sl", "type" to "social_login",
+                        // Apple is intentionally iOS-only (hidden on Android), so use the
+                        // cross-platform providers for a like-for-like parity snapshot.
+                        "providers" to listOf(
+                            mapOf<String, Any>("type" to "google", "label" to "Continue with Google"),
+                            mapOf<String, Any>("type" to "email", "label" to "Continue with Email"),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/social_login.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }
