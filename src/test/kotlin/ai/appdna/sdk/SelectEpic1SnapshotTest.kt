@@ -1540,4 +1540,42 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun calendarMonth() {
+        // EPIC-11 — month calendar: June 2026, days 12-14 selected (accent), today=15 (ring).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>(
+                        "id" to "cal", "type" to "calendar_month", "active_color" to "#6366F1",
+                        "field_config" to mapOf<String, Any>(
+                            "month_label" to "June 2026", "days_in_month" to 30, "start_offset" to 1,
+                            "selected_days" to listOf(12, 13, 14), "today" to 15,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/calendar_month.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

@@ -1352,6 +1352,7 @@ private fun RenderBlockContent(
         "health_connect" -> HealthConnectBlock(block, onAction, loc)
         "settings_footer" -> SettingsFooterBlock(block, onAction)
         "memory_match" -> MemoryMatchBlock(block, onAction)
+        "calendar_month" -> CalendarMonthBlock(block, onAction)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2307,6 +2308,58 @@ private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
                     }
                 }
                 repeat(cols - rowCards.size) { Spacer(modifier = Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/** EPIC-11 — month calendar (Flo): header + weekday row + day grid. `field_config`: month_label, days_in_month,
+ * start_offset (weekday of the 1st, 0=Sun), selected_days[], today. Selected = accent-filled circle; today =
+ * accent ring. (Multi-month scroll is host-driven; this renders one month.) */
+@Composable
+private fun CalendarMonthBlock(block: ContentBlock, onAction: (String) -> Unit) {
+    val cfg = block.field_config
+    val monthLabel = (cfg?.get("month_label") as? String) ?: "June 2026"
+    val daysInMonth = (cfg?.get("days_in_month") as? Number)?.toInt() ?: 30
+    val startOffset = ((cfg?.get("start_offset") as? Number)?.toInt() ?: 0).coerceIn(0, 6)
+    val selectedDays = (cfg?.get("selected_days") as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList()
+    val today = (cfg?.get("today") as? Number)?.toInt() ?: -1
+    val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    val weekdays = listOf("S", "M", "T", "W", "T", "F", "S")
+    val rows = (startOffset + daysInMonth + 6) / 7
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(monthLabel, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+        Row(modifier = Modifier.fillMaxWidth()) {
+            weekdays.forEach { wd ->
+                Text(wd, modifier = Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = Color.White.copy(alpha = 0.5f), textAlign = TextAlign.Center)
+            }
+        }
+        for (r in 0 until rows) {
+            Row(modifier = Modifier.fillMaxWidth()) {
+                for (c in 0 until 7) {
+                    val day = r * 7 + c - startOffset + 1
+                    Box(modifier = Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
+                        if (day in 1..daysInMonth) {
+                            val isSelected = day in selectedDays
+                            val isToday = day == today
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSelected) accent else Color.Transparent)
+                                    .then(if (isToday && !isSelected) Modifier.border(1.5.dp, accent, CircleShape) else Modifier),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "$day",
+                                    fontSize = 15.sp,
+                                    fontWeight = if (isToday || isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (isSelected) Color.White else Color.White.copy(alpha = 0.9f),
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
