@@ -1318,4 +1318,37 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun feedbackPanel() {
+        // EPIC-11 — quiz feedback panel: correct (green ✓) + wrong (red ✗), each headline + detail.
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "fc", "type" to "feedback_panel", "text" to "Great job!", "field_config" to mapOf<String, Any>("feedback_state" to "correct", "feedback_detail" to "10-day streak kept 🔥")),
+                    mapOf<String, Any>("id" to "fw", "type" to "feedback_panel", "text" to "Not quite", "field_config" to mapOf<String, Any>("feedback_state" to "wrong", "feedback_detail" to "Correct answer: Tokyo")),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/feedback_panel.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

@@ -1346,6 +1346,7 @@ private fun RenderBlockContent(
         "warning_banner" -> WarningBannerBlock(block, loc)
         "password_strength" -> PasswordStrengthBlock(block)
         "speech_bubble" -> SpeechBubbleBlock(block, loc)
+        "feedback_panel" -> FeedbackPanelBlock(block, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2061,6 +2062,44 @@ private fun SpeechBubbleBlock(block: ContentBlock, loc: ((String, String) -> Str
                     moveTo(0f, 0f); lineTo(size.width, 0f); lineTo(size.width / 2f, size.height); close()
                 }
                 drawPath(p, bubbleColor)
+            }
+        }
+    }
+}
+
+/** EPIC-11 — quiz feedback panel (Duolingo correct/wrong): tinted panel + circled icon + headline + detail.
+ * `field_config.feedback_state` (correct|wrong|info) picks accent+icon+default headline; `feedback_detail`
+ * is the secondary line; the `text` is the headline. */
+@Composable
+private fun FeedbackPanelBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val state = (block.field_config?.get("feedback_state") as? String) ?: "correct"
+    val (accentHex, icon, defHead) = when (state) {
+        "wrong" -> Triple("#EF4444", "✗", "Not quite")
+        "info" -> Triple("#3B82F6", "ℹ", "Heads up")
+        else -> Triple("#10B981", "✓", "Great job!")
+    }
+    val accent = StyleEngine.parseColor(block.active_color ?: accentHex)
+    val headline = loc?.invoke("block.${block.id}.text", block.text ?: defHead) ?: (block.text ?: defHead)
+    val detail = (block.field_config?.get("feedback_detail") as? String)
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(accent.copy(alpha = 0.15f))
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(40.dp).clip(CircleShape).background(accent),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(icon, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(headline, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = accent)
+            if (!detail.isNullOrEmpty()) {
+                Text(detail, fontSize = 14.sp, color = Color.White.copy(alpha = 0.85f))
             }
         }
     }
