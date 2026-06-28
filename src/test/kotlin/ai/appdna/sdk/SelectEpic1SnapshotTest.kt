@@ -1247,4 +1247,38 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun passwordStrength() {
+        // EPIC-11 — password-strength meter: weak (1/4 red) / good (3/4 yellow) / strong (4/4 green).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "p1", "type" to "password_strength", "field_config" to mapOf<String, Any>("strength_level" to 1)),
+                    mapOf<String, Any>("id" to "p2", "type" to "password_strength", "field_config" to mapOf<String, Any>("strength_level" to 3)),
+                    mapOf<String, Any>("id" to "p3", "type" to "password_strength", "field_config" to mapOf<String, Any>("strength_level" to 4)),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/password_strength.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

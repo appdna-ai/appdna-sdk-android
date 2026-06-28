@@ -1344,6 +1344,7 @@ private fun RenderBlockContent(
         "carousel" -> CarouselBlock(block, onAction, toggleValues, inputValues, loc)
         "otp_input" -> OtpInputBlock(block, inputValues)
         "warning_banner" -> WarningBannerBlock(block, loc)
+        "password_strength" -> PasswordStrengthBlock(block)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1989,6 +1990,38 @@ private fun WarningBannerBlock(block: ContentBlock, loc: ((String, String) -> St
     ) {
         Text(icon, fontSize = 18.sp)
         Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
+    }
+}
+
+/** EPIC-11 — password-strength meter: 4 segment bars filled by `field_config.strength_level` (0-4) with a
+ * red→amber→yellow→green ramp + a label (Weak/Fair/Good/Strong, overridable via `strength_label`). */
+@Composable
+private fun PasswordStrengthBlock(block: ContentBlock) {
+    val level = (block.field_config?.get("strength_level") as? Number)?.toInt()?.coerceIn(0, 4) ?: 0
+    val (colorHex, defLabel) = when (level) {
+        1 -> "#EF4444" to "Weak"
+        2 -> "#F59E0B" to "Fair"
+        3 -> "#EAB308" to "Good"
+        4 -> "#10B981" to "Strong"
+        else -> "#6B7280" to ""
+    }
+    val accent = StyleEngine.parseColor(block.active_color ?: colorHex)
+    val label = (block.field_config?.get("strength_label") as? String) ?: defLabel
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for (i in 0 until 4) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(6.dp)
+                        .clip(RoundedCornerShape(3.dp))
+                        .background(if (i < level) accent else Color(0xFF374151)),
+                )
+            }
+        }
+        if (label.isNotEmpty()) {
+            Text(label, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = accent)
+        }
     }
 }
 
