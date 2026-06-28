@@ -1213,4 +1213,38 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun warningBanner() {
+        // EPIC-11 — warning/info banner variants: warning (amber) / error (red) / success (green).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "w", "type" to "warning_banner", "text" to "Your session is about to expire", "field_config" to mapOf<String, Any>("banner_variant" to "warning")),
+                    mapOf<String, Any>("id" to "e", "type" to "warning_banner", "text" to "Passwords do not match", "field_config" to mapOf<String, Any>("banner_variant" to "error")),
+                    mapOf<String, Any>("id" to "s", "type" to "warning_banner", "text" to "Email verified successfully", "field_config" to mapOf<String, Any>("banner_variant" to "success")),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/warning_banner.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

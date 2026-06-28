@@ -1343,6 +1343,7 @@ private fun RenderBlockContent(
         "section_background" -> SectionBackgroundBlock(block, onAction, toggleValues, inputValues, loc)
         "carousel" -> CarouselBlock(block, onAction, toggleValues, inputValues, loc)
         "otp_input" -> OtpInputBlock(block, inputValues)
+        "warning_banner" -> WarningBannerBlock(block, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1959,6 +1960,35 @@ private fun OtpInputBlock(block: ContentBlock, inputValues: MutableMap<String, A
                 }
             }
         }
+    }
+}
+
+/** EPIC-11 — warning/info banner: a tinted rounded card with a leading icon + message. `field_config.
+ * banner_variant` (warning|error|info|success) picks the accent + default icon; `banner_icon` overrides it. */
+@Composable
+private fun WarningBannerBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
+    val variant = (block.field_config?.get("banner_variant") as? String) ?: "warning"
+    val (accentHex, defaultIcon) = when (variant) {
+        "error" -> "#EF4444" to "⛔"
+        "info" -> "#3B82F6" to "ℹ️"
+        "success" -> "#10B981" to "✓"
+        else -> "#F59E0B" to "⚠️"
+    }
+    val accent = StyleEngine.parseColor(block.active_color ?: accentHex)
+    val icon = (block.field_config?.get("banner_icon") as? String) ?: defaultIcon
+    val text = loc?.invoke("block.${block.id}.text", block.text ?: "") ?: (block.text ?: "")
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(accent.copy(alpha = 0.14f))
+            .border(1.dp, accent.copy(alpha = 0.45f), RoundedCornerShape(12.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Text(icon, fontSize = 18.sp)
+        Text(text, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = Color.White)
     }
 }
 
