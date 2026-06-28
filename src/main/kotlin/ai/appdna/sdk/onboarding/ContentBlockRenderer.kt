@@ -1342,6 +1342,7 @@ private fun RenderBlockContent(
         "media_gallery" -> MediaGalleryBlock(block)
         "section_background" -> SectionBackgroundBlock(block, onAction, toggleValues, inputValues, loc)
         "carousel" -> CarouselBlock(block, onAction, toggleValues, inputValues, loc)
+        "otp_input" -> OtpInputBlock(block, inputValues)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -1918,6 +1919,43 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                     interactionSource = interactionSource,
                 ) {
                     ButtonContent(textColor = txtColor)
+                }
+            }
+        }
+    }
+}
+
+/** EPIC-11 — OTP / code-input: a row of N single-character boxes (verification codes). The entered value
+ * lives in inputValues[field_id]; `field_config.otp_value` seeds a display value (used by snapshots/preview).
+ * Filled boxes show the digit + accent border; the next empty box is the active box (accent border). */
+@Composable
+private fun OtpInputBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+    val length = (block.field_config?.get("otp_length") as? Number)?.toInt()?.coerceIn(2, 10) ?: 6
+    val fieldId = block.field_id ?: block.id
+    val value = (inputValues[fieldId] as? String)
+        ?: (block.field_config?.get("otp_value") as? String)
+        ?: ""
+    val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
+    val boxBg = StyleEngine.parseColor(block.bg_color ?: "#1F2937")
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (i in 0 until length) {
+            val ch = value.getOrNull(i)
+            val isActive = i == value.length
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(boxBg)
+                    .border(
+                        width = if (isActive || ch != null) 2.dp else 1.dp,
+                        color = if (isActive) accent else if (ch != null) accent.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.35f),
+                        shape = RoundedCornerShape(10.dp),
+                    ),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (ch != null) {
+                    Text(ch.toString(), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
                 }
             }
         }
