@@ -1428,4 +1428,37 @@ class SelectEpic1SnapshotTest {
             }
         }
     }
+
+    @Test
+    fun healthConnect() {
+        // EPIC-11 — Health connect card: Apple Health (not connected, chevron) + Google Fit (connected, ✓).
+        val step = mapOf<String, Any>(
+            "type" to "custom", "name" to "t", "analytics_name" to "t", "skip_allowed" to false,
+            "config" to mapOf<String, Any>(
+                "content_blocks" to listOf(
+                    mapOf<String, Any>("id" to "h1", "type" to "health_connect", "field_config" to mapOf<String, Any>("health_provider" to "apple")),
+                    mapOf<String, Any>("id" to "h2", "type" to "health_connect", "field_config" to mapOf<String, Any>("health_provider" to "google", "connected" to true)),
+                ),
+            ),
+        )
+        val blocks = OnboardingConfigParser.parseStepForTest(step)?.config?.content_blocks ?: emptyList()
+
+        captureRoboImage("src/test/snapshots/health_connect.png") {
+            MaterialTheme {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFF0F1117))
+                        .padding(16.dp),
+                ) {
+                    ContentBlockRendererView(
+                        blocks = blocks,
+                        onAction = {},
+                        toggleValues = mutableMapOf(),
+                        inputValues = mutableMapOf(),
+                    )
+                }
+            }
+        }
+    }
 }

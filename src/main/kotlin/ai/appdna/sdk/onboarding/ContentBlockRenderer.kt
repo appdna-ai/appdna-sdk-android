@@ -1349,6 +1349,7 @@ private fun RenderBlockContent(
         "feedback_panel" -> FeedbackPanelBlock(block, loc)
         "summary_screen" -> SummaryScreenBlock(block, loc)
         "press_hold_confirm" -> PressHoldConfirmBlock(block, loc)
+        "health_connect" -> HealthConnectBlock(block, onAction, loc)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
         "list" -> ListBlock(block, loc)
@@ -2175,6 +2176,47 @@ private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) ->
                 .background(accent),
         )
         Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+    }
+}
+
+/** EPIC-11 — Health/HealthKit connect: a tappable card (icon + title + subtitle + chevron/✓). `field_config.
+ * health_provider` (apple|google) picks the icon + default label; `connected` shows a green check; the native
+ * connect flow is host-driven via onAction("health_connect"). */
+@Composable
+private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
+    val provider = (block.field_config?.get("health_provider") as? String) ?: "apple"
+    val connected = (block.field_config?.get("connected") as? Boolean) ?: false
+    val (icon, defLabel, iconBgHex) = when (provider) {
+        "google" -> Triple("🏃", "Connect Google Fit", "#34A853")
+        else -> Triple("❤️", "Connect Apple Health", "#FF2D55")
+    }
+    val label = loc?.invoke("block.${block.id}.text", block.text ?: defLabel) ?: (block.text ?: defLabel)
+    val subtitle = (block.field_config?.get("health_subtitle") as? String) ?: "Sync steps, workouts & vitals"
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(Color(0xFF1F2937))
+            .clickable { onAction("health_connect") }
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Box(
+            modifier = Modifier.size(44.dp).clip(CircleShape).background(StyleEngine.parseColor(iconBgHex).copy(alpha = 0.18f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(icon, fontSize = 22.sp)
+        }
+        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+            Text(subtitle, fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f))
+        }
+        if (connected) {
+            Text("✓", fontSize = 20.sp, fontWeight = FontWeight.Bold, color = StyleEngine.parseColor("#10B981"))
+        } else {
+            Text("›", fontSize = 26.sp, color = Color.White.copy(alpha = 0.5f))
+        }
     }
 }
 
