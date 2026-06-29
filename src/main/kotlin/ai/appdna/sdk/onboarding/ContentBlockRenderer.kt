@@ -4099,10 +4099,17 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
             else -> { /* checklist is the default, handled below */ }
         }
 
-        // Checklist items (shown for all variants if items exist).
-        // SPEC-419 gap#1 — orbiting_icons consumes `items` as the orbit icons,
-        // so it must NOT also render them as a checklist below (iOS doesn't).
-        if (items.isNotEmpty() && variant != "orbiting_icons") {
+        // Checklist items — render ONLY for the checklist (default) variant.
+        // SPEC-419 pass-14 #8 — match iOS (renders the full checklist solely in
+        // the `default:` switch case, ContentBlockStandaloneViews.swift:356) +
+        // the console preview (no checklist under ring/cog/splash/circular/
+        // linear). The graphic variants already show their own progress UI
+        // (circular even shows a current-item caption); a full checklist below
+        // them was Android-only divergence. orbiting_icons consumes `items` as
+        // the orbit icons, so it never renders a checklist either.
+        val isChecklistVariant = variant !in
+            setOf("orbiting_icons", "circular", "ring", "cog", "splash_bottom", "linear")
+        if (items.isNotEmpty() && isChecklistVariant) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -4164,8 +4171,16 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                             // SPEC-401-A R47 (Lens C #1) — when block.text_color
                             // unset, fall back to theme-adaptive onSurface (was
                             // raw default #000000 invisible-on-dark).
+                            // SPEC-419 pass-14 #6 — the ACTIVE (current) item uses
+                            // accent_color ("Active Text Color") like the preview
+                            // (OnboardingStepPreview.tsx:1252) + iOS. Completed uses
+                            // text_color; pending stays secondary.
                             color = when {
-                                isCompleted || isCurrent ->
+                                isCurrent ->
+                                    block.accent_color?.let { StyleEngine.parseColor(it) }
+                                        ?: (if (block.text_color == null)
+                                            MaterialTheme.colorScheme.onSurface else textColor)
+                                isCompleted ->
                                     if (block.text_color == null)
                                         MaterialTheme.colorScheme.onSurface
                                     else textColor
