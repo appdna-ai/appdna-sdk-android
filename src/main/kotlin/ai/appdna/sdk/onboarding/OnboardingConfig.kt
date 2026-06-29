@@ -1501,8 +1501,11 @@ internal object OnboardingConfigParser {
                 val particleColor = bm["particle_color"] as? String
                 val particleOpacity = (bm["particle_opacity"] as? Number)?.toDouble()
                 val particleSpeed = bm["particle_speed"] as? String
+                // SPEC-419 pass-15 #10 — countdown_timer `timer_variant` authored top-level by editor; fold for the renderer.
+                val timerVariant = bm["timer_variant"] as? String
                 if (labelFormat == null && customLabel == null && videoControls == null &&
-                    particleColor == null && particleOpacity == null && particleSpeed == null) {
+                    particleColor == null && particleOpacity == null && particleSpeed == null &&
+                    timerVariant == null) {
                     base
                 } else {
                     val merged = base ?: mutableMapOf()
@@ -1512,6 +1515,7 @@ internal object OnboardingConfigParser {
                     if (particleColor != null) merged.putIfAbsent("particle_color", particleColor)
                     if (particleOpacity != null) merged.putIfAbsent("particle_opacity", particleOpacity)
                     if (particleSpeed != null) merged.putIfAbsent("particle_speed", particleSpeed)
+                    if (timerVariant != null) merged.putIfAbsent("timer_variant", timerVariant)
                     merged
                 }
             },

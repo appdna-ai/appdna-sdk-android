@@ -3077,7 +3077,10 @@ private fun SocialLoginBlock(
  */
 @Composable
 private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit) {
-    val variant = block.variant ?: "digital"
+    // SPEC-419 pass-15 #10 — editor authors `timer_variant` (folded into field_config
+    // by OnboardingConfig.fromMap since Android is budget-locked); read it first, fall
+    // back to legacy `variant`.
+    val variant = (block.field_config?.get("timer_variant") as? String) ?: block.variant ?: "digital"
     val initialSeconds = when (block.target_type) {
         "fixed_datetime" -> {
             // Parse ISO datetime and compute remaining seconds
@@ -3107,11 +3110,14 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
     val showMinutes = block.show_minutes ?: true
     val showSeconds = block.show_seconds ?: true
 
+    // SPEC-419 pass-15 #28 — default unit labels hrs/min/sec to match preview (was Days/Hours/Min/Sec).
     val labels = block.labels ?: CountdownLabels()
-    val daysLabel = labels.days ?: "Days"
-    val hoursLabel = labels.hours ?: "Hours"
-    val minutesLabel = labels.minutes ?: "Min"
-    val secondsLabel = labels.seconds ?: "Sec"
+    val daysLabel = labels.days ?: "days"
+    val hoursLabel = labels.hours ?: "hrs"
+    val minutesLabel = labels.minutes ?: "min"
+    val secondsLabel = labels.seconds ?: "sec"
+    // SPEC-419 pass-15 #11 — unit labels use secondary grey (digits use accent_color); matches preview.
+    val unitLabelColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
 
     // Countdown tick
     LaunchedEffect(Unit) {
@@ -3170,23 +3176,118 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
         else -> Arrangement.Center
     }
 
+    // SPEC-419 pass-15 #10 — h/m/s segments + labels for circular/flip/bar variants (matches preview).
+    val segs = buildList {
+        if (showHours) add(hours.toString().padStart(2, '0'))
+        if (showMinutes) add(minutes.toString().padStart(2, '0'))
+        if (showSeconds) add(seconds.toString().padStart(2, '0'))
+    }
+    val segLabels = buildList {
+        if (showHours) add(hoursLabel)
+        if (showMinutes) add(minutesLabel)
+        if (showSeconds) add(secondsLabel)
+    }
+    val joined = segs.joinToString(":")
+
     when (variant) {
-        "bar" -> {
-            // Shrinking bar variant
-            val fraction = if (initialSeconds > 0) remainingSeconds.toFloat() / initialSeconds else 0f
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height((block.height ?: 8.0).dp)
-                    .clip(RoundedCornerShape((block.corner_radius ?: 4.0).dp))
-                    .background(bgColor ?: Color.Gray.copy(alpha = 0.2f)),
+        "circular" -> {
+            // SPEC-419 pass-15 #10 — 75% accent ring with joined digits centered.
+            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.size(80.dp), contentAlignment = Alignment.Center) {
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val sw = 4.dp.toPx()
+                        drawArc(
+                            color = StyleEngine.parseColor("#E5E7EB"),
+                            startAngle = 0f,
+                            sweepAngle = 360f,
+                            useCenter = false,
+                            style = Stroke(width = sw, cap = StrokeCap.Round),
+                            topLeft = Offset(sw / 2, sw / 2),
+                            size = androidx.compose.ui.geometry.Size(this.size.width - sw, this.size.height - sw),
+                        )
+                        drawArc(
+                            color = accentColor,
+                            startAngle = -90f,
+                            sweepAngle = 270f,
+                            useCenter = false,
+                            style = Stroke(width = sw, cap = StrokeCap.Round),
+                            topLeft = Offset(sw / 2, sw / 2),
+                            size = androidx.compose.ui.geometry.Size(this.size.width - sw, this.size.height - sw),
+                        )
+                    }
+                    Text(
+                        text = joined,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    )
+                }
+            }
+        }
+        "flip" -> {
+            // SPEC-419 pass-15 #10 — each segment in a tinted card, label below.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
             ) {
+                segs.forEachIndexed { i, seg ->
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(StyleEngine.parseColor("#F1F5F9"))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = seg,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = accentColor,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                            )
+                        }
+                        Text(
+                            text = segLabels.getOrElse(i) { "" },
+                            fontSize = 10.sp,
+                            color = unitLabelColor,
+                        )
+                    }
+                }
+            }
+        }
+        "bar" -> {
+            // SPEC-419 pass-15 #10 — time + "remaining" label + shrinking accent bar (matches preview).
+            val fraction = if (initialSeconds > 0) remainingSeconds.toFloat() / initialSeconds else 0f
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = joined, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = accentColor)
+                    Text(text = "remaining", fontSize = 14.sp, color = unitLabelColor)
+                }
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth(fraction)
-                        .fillMaxHeight()
-                        .background(accentColor),
-                )
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(bgColor ?: StyleEngine.parseColor("#E5E7EB")),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(accentColor),
+                    )
+                }
             }
         }
         else -> {
@@ -3216,7 +3317,8 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
                             text = value.toString().padStart(2, '0'),
                             fontSize = fontSize,
                             fontWeight = FontWeight.Bold,
-                            color = textColor,
+                            // SPEC-419 pass-15 #11 — digits use accent_color (matches preview).
+                            color = accentColor,
                             // SPEC-401-A R3 — monospaced digits so the
                             // counter doesn't visibly shift width per
                             // second. iOS uses .system(.monospaced).
@@ -3227,10 +3329,8 @@ private fun CountdownTimerBlock(block: ContentBlock, onAction: (String) -> Unit)
                             // SPEC-401-A R48 (Lens C #6) — countdown unit-label
                             // 10→11sp matching iOS .footnote (~11pt).
                             fontSize = 11.sp,
-                            // SPEC-401-A R3 — accent_color when authored,
-                            // mirrors iOS unit-label colour (was hardcoded
-                            // textColor.alpha 0.6 — accent ignored).
-                            color = accentColor,
+                            // SPEC-419 pass-15 #11 — unit labels use secondary grey.
+                            color = unitLabelColor,
                         )
                     }
                     // SPEC-401-A R3 — drop the inter-column ":" separator.
