@@ -6522,10 +6522,11 @@ private fun FormInputPasswordBlock(
                 focusedLabelColor = focusedBorder,
                 unfocusedLabelColor = unfocusedBorder,
                 cursorColor = cursorCol,
-                // SPEC-419 — Transparent container so the field doesn't draw M3's default
-                // surface fill inside its border (read as a "double border" vs the page bg).
-                focusedContainerColor = Color.Transparent,
-                unfocusedContainerColor = Color.Transparent,
+                // SPEC-419 pass-18 — honor field_style.background_color ("Field Fill") like the
+                // Text/TextArea siblings + iOS; defaults Transparent so M3's default surface fill
+                // doesn't draw inside the border (the "double border" vs the page bg).
+                focusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
+                unfocusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
             ),
         )
     }
