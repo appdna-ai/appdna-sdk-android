@@ -1548,7 +1548,9 @@ private fun SectionBackgroundBlock(
         "bottom" -> Arrangement.Bottom
         else -> Arrangement.SpaceBetween
     }
-    val boxMod = block.height?.let { Modifier.fillMaxWidth().height(it.dp) } ?: Modifier.fillMaxSize()
+    // Unset height defaults to 480.dp to match iOS (ContentBlockRendererView) + the console preview
+    // (was fillMaxSize → a native↔native height divergence when the author left height unset).
+    val boxMod = block.height?.let { Modifier.fillMaxWidth().height(it.dp) } ?: Modifier.fillMaxWidth().height(480.dp)
     Box(modifier = boxMod) {
         // Background: vertical weighted color zones.
         Column(modifier = Modifier.fillMaxSize()) {
@@ -1556,7 +1558,8 @@ private fun SectionBackgroundBlock(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(zone.weight.toFloat())
+                        // coerceAtLeast: Compose Modifier.weight require()s > 0 — a 0/negative authored zone weight crashed the step.
+                        .weight(zone.weight.toFloat().coerceAtLeast(0.01f))
                         .background(StyleEngine.parseColor(zone.color)),
                 )
             }
