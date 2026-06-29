@@ -6563,6 +6563,25 @@ private fun FormInputDateBlock(
     }
     val inlineGraphical = pickerVariant == "graphical" && (effectiveMode == "date" || effectiveMode == "datetime")
 
+    // SPEC-419 pass-15 #16/#17/#34 — honor field_style.text_color (compact button text),
+    // calendar_bg_color/wheel_bg_color (picker + button background), and highlight_color
+    // (picker accent). iOS + preview already apply these.
+    val buttonTextColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.onSurface
+    val highlightColor = block.highlight_color?.let { StyleEngine.parseColor(it) }
+    val calendarBg = (block.field_config?.get("calendar_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+        ?: block.calendar_bg_color?.let { StyleEngine.parseColor(it) }
+    val wheelBg = (block.field_config?.get("wheel_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+        ?: block.wheel_bg_color?.let { StyleEngine.parseColor(it) }
+    val datePickerColors: androidx.compose.material3.DatePickerColors = androidx.compose.material3.DatePickerDefaults.colors().let { base ->
+        if (highlightColor == null && calendarBg == null) base
+        else androidx.compose.material3.DatePickerDefaults.colors(
+            containerColor = calendarBg ?: base.containerColor,
+            selectedDayContainerColor = highlightColor ?: base.selectedDayContainerColor,
+            todayDateBorderColor = highlightColor ?: base.todayDateBorderColor,
+            selectedYearContainerColor = highlightColor ?: base.selectedYearContainerColor,
+        )
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -6574,7 +6593,7 @@ private fun FormInputDateBlock(
                 if (savedRaw.isEmpty()) null else try { isoFormatter.parse(savedRaw)?.time } catch (_: Exception) { null }
             }
             val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-            DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth())
+            DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth(), colors = datePickerColors)
             LaunchedEffect(datePickerState.selectedDateMillis) {
                 val millis = datePickerState.selectedDateMillis
                 if (millis != null && validateDate(millis)) {
@@ -6605,16 +6624,18 @@ private fun FormInputDateBlock(
                     1.dp,
                     StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
                 ),
-                // SPEC-401-A R44 — theme-adaptive content color (was Color.DarkGray
-                // — invisible on dark surface in dark mode).
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
+                // SPEC-419 pass-15 #16/#17 — honor field_style.text_color + wheel/calendar bg.
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = buttonTextColor,
+                    containerColor = wheelBg ?: calendarBg ?: Color.Transparent,
+                ),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(text = displayText, fontSize = 14.sp)
+                    Text(text = displayText, fontSize = 14.sp, color = buttonTextColor)
                     // SPEC-401-A R49 (Lens A #4) \u2014 use effectiveMode for icon.
                     Text(text = when (effectiveMode) {
                         "date" -> "\uD83D\uDCC5"
@@ -6674,8 +6695,9 @@ private fun FormInputDateBlock(
             dismissButton = {
                 TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
             },
+            colors = datePickerColors,
         ) {
-            DatePicker(state = datePickerState)
+            DatePicker(state = datePickerState, colors = datePickerColors)
         }
     }
 
