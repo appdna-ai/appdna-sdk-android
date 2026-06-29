@@ -6470,6 +6470,10 @@ private fun FormInputPasswordBlock(
         val textCol = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.White
         val placeholderCol = block.field_style?.placeholder_color?.let { StyleEngine.parseColor(it) } ?: Color.White.copy(alpha = 0.5f)
         val cursorCol = focusedBorder
+        // SPEC-419 pass-17 — mirror FormInputTextBlock font_size + field_height onto the password sibling.
+        val pwFontSize = ((block.field_config?.get("input_text_size") as? Number)?.toFloat()
+            ?: (block.field_config?.get("font_size") as? Number)?.toFloat() ?: 14f).sp
+        val pwFieldHeightDp = (block.field_config?.get("field_height") as? Number)?.toFloat()
         androidx.compose.material3.OutlinedTextField(
             value = text,
             onValueChange = {
@@ -6478,8 +6482,9 @@ private fun FormInputPasswordBlock(
             },
             placeholder = { Text(block.field_placeholder ?: "Password", color = placeholderCol) },
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
+            textStyle = androidx.compose.ui.text.TextStyle(fontSize = pwFontSize),
             // SPEC-401-A R11 \u2014 Password Autofill keyboard + Done return key.
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().let { if (pwFieldHeightDp != null) it.heightIn(min = pwFieldHeightDp.dp) else it },
             singleLine = true,
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                 keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
@@ -8421,7 +8426,8 @@ private fun FormInputLocationPlaceholder(
                     )
                 }
             },
-            modifier = Modifier.fillMaxWidth(),
+            // SPEC-419 pass-17 — honor field_config.field_height on the location search box (iOS sibling already does).
+            modifier = Modifier.fillMaxWidth().let { m -> (block.field_config?.get("field_height") as? Number)?.toFloat()?.let { m.heightIn(min = it.dp) } ?: m },
             singleLine = true,
             shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
             colors = OutlinedTextFieldDefaults.colors(
