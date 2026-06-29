@@ -4337,8 +4337,25 @@ private fun OrbitingIconsLoader(
     val subtitleColor = StyleEngine.parseColor(cfg?.get("subtitle_color") as? String ?: "#E11D48")
     val showPercentage = block.show_percentage ?: false
     val pctLocation = cfg?.get("percentage_location") as? String ?: "below"
+    // SPEC-419 pass-16 #3 — honor field_config.animated_bg ("none"|"constellation"|"pulse")
+    // + animated_bg_color. Mirrors iOS ContentBlockStandaloneViews.swift:603-623; was
+    // never rendered on Android.
+    val animatedBg = cfg?.get("animated_bg") as? String ?: "none"
+    val animatedBgColor = StyleEngine.parseColor(cfg?.get("animated_bg_color") as? String ?: "#EEEEEE")
 
     val orbitTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "orbit_spin")
+    val bgPulse by orbitTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(
+                durationMillis = 1500,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing,
+            ),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "bg_pulse",
+    )
     val rotation by orbitTransition.animateFloat(
         initialValue = 0f,
         targetValue = 360f,
@@ -4368,6 +4385,25 @@ private fun OrbitingIconsLoader(
             modifier = Modifier.size(sizeDp.dp),
             contentAlignment = Alignment.Center,
         ) {
+            // Animated background (optional) — mirrors iOS pulse/constellation.
+            when (animatedBg) {
+                "constellation" -> Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(CircleShape)
+                        .background(
+                            Brush.radialGradient(
+                                colors = listOf(animatedBgColor.copy(alpha = 0.2f), Color.Transparent),
+                            ),
+                        ),
+                )
+                "pulse" -> Box(
+                    modifier = Modifier
+                        .size((sizeDp * (1.0 + 0.1 * bgPulse)).dp)
+                        .clip(CircleShape)
+                        .background(animatedBgColor.copy(alpha = 0.15f + 0.15f * bgPulse)),
+                )
+            }
             // Orbit ring
             Box(
                 modifier = Modifier
@@ -8702,7 +8738,9 @@ private fun FormInputSignatureBlock(
             // SPEC-419 pass-15 #15 — honor field_config.stroke_color (editor + preview); was hardcoded theme onSurface.
             val strokeColor = (block.field_config?.get("stroke_color") as? String)?.let { StyleEngine.parseColor(it) }
                 ?: MaterialTheme.colorScheme.onSurface
-            val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
+            // SPEC-419 pass-16 #2 — honor field_config.stroke_width (editor default 2); was hardcoded 2.dp.
+            val strokeWidthDp = (block.field_config?.get("stroke_width") as? Number)?.toFloat() ?: 2f
+            val strokePx = with(LocalDensity.current) { strokeWidthDp.dp.toPx() }
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val allLines = lines.toList() + listOf(currentLine)
                 allLines.forEach { line ->
