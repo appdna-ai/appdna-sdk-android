@@ -6622,15 +6622,36 @@ private fun FormInputDateBlock(
         ?: block.calendar_bg_color?.let { StyleEngine.parseColor(it) }
     val wheelBg = (block.field_config?.get("wheel_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
         ?: block.wheel_bg_color?.let { StyleEngine.parseColor(it) }
+    // SPEC-419 pass-16 #12 — honor wheel_text_color on the inline graphical picker
+    // (day/weekday/year content), mirroring iOS colorMultiply + preview wheelText.
+    val wheelTextColor = (block.field_config?.get("wheel_text_color") as? String)?.let { StyleEngine.parseColor(it) }
     val datePickerColors: androidx.compose.material3.DatePickerColors = androidx.compose.material3.DatePickerDefaults.colors().let { base ->
-        if (highlightColor == null && calendarBg == null) base
+        if (highlightColor == null && calendarBg == null && wheelTextColor == null) base
         else androidx.compose.material3.DatePickerDefaults.colors(
             containerColor = calendarBg ?: base.containerColor,
             selectedDayContainerColor = highlightColor ?: base.selectedDayContainerColor,
             todayDateBorderColor = highlightColor ?: base.todayDateBorderColor,
             selectedYearContainerColor = highlightColor ?: base.selectedYearContainerColor,
+            dayContentColor = wheelTextColor ?: base.dayContentColor,
+            weekdayContentColor = wheelTextColor ?: base.weekdayContentColor,
+            yearContentColor = wheelTextColor ?: base.yearContentColor,
         )
     }
+    // SPEC-419 pass-16 #11 — opt-in picker border + padding around the whole picker
+    // (any variant). Mirrors editor field_config.picker_border_*/picker_padding +
+    // iOS overlay + preview OnboardingStepPreview.tsx:2577-2580.
+    val pickerBorderColorHex = block.field_config?.get("picker_border_color") as? String
+    val pickerBorderWidth = (block.field_config?.get("picker_border_width") as? Number)?.toFloat()
+        ?: (if (pickerBorderColorHex != null) 1f else 0f)
+    val pickerCornerRadius = ((block.field_config?.get("picker_corner_radius") as? Number)?.toFloat() ?: 12f).dp
+    val pickerPadding = ((block.field_config?.get("picker_padding") as? Number)?.toFloat() ?: 0f).dp
+    val pickerChromeMod = Modifier
+        .then(
+            if (pickerBorderWidth > 0f && pickerBorderColorHex != null)
+                Modifier.border(pickerBorderWidth.dp, StyleEngine.parseColor(pickerBorderColorHex), RoundedCornerShape(pickerCornerRadius))
+            else Modifier,
+        )
+        .padding(pickerPadding)
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -6643,7 +6664,7 @@ private fun FormInputDateBlock(
                 if (savedRaw.isEmpty()) null else try { isoFormatter.parse(savedRaw)?.time } catch (_: Exception) { null }
             }
             val datePickerState = rememberDatePickerState(initialSelectedDateMillis = initialMillis)
-            DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth(), colors = datePickerColors)
+            DatePicker(state = datePickerState, modifier = Modifier.fillMaxWidth().then(pickerChromeMod), colors = datePickerColors)
             LaunchedEffect(datePickerState.selectedDateMillis) {
                 val millis = datePickerState.selectedDateMillis
                 if (millis != null && validateDate(millis)) {
@@ -6668,7 +6689,7 @@ private fun FormInputDateBlock(
                         "time" -> showTimePicker = true
                     }
                 },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().then(pickerChromeMod),
                 shape = RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp),
                 border = androidx.compose.foundation.BorderStroke(
                     1.dp,
@@ -6796,7 +6817,22 @@ private fun FormInputDateBlock(
                 TextButton(onClick = { showTimePicker = false }) { Text("Cancel") }
             },
             title = { Text("Select time") },
-            text = { TimePicker(state = timePickerState) },
+            // SPEC-419 pass-16 #14 — honor highlight_color on the time picker (selector +
+            // selected containers); was M3 primary only. iOS FormInputDateBlock uses .tint(accentColor).
+            text = {
+                if (highlightColor != null) {
+                    TimePicker(
+                        state = timePickerState,
+                        colors = androidx.compose.material3.TimePickerDefaults.colors(
+                            selectorColor = highlightColor,
+                            periodSelectorSelectedContainerColor = highlightColor,
+                            timeSelectorSelectedContainerColor = highlightColor.copy(alpha = 0.2f),
+                        ),
+                    )
+                } else {
+                    TimePicker(state = timePickerState)
+                }
+            },
         )
     }
 }
