@@ -4468,15 +4468,53 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
     // Sibling WheelPickerBlock (line ~3953) already fires SELECTION haptic.
     val view = androidx.compose.ui.platform.LocalView.current
 
+    // SPEC-419 — honor picker_mode (date/datetime/time): add hour/minute columns for time modes.
+    val mode = (block.picker_mode ?: "date").lowercase()
+    val showTime = mode == "datetime" || mode == "date_time" || mode == "time"
+    val showDate = mode != "time"
+    // SPEC-419 — honor wheel_height (was hardcoded 150dp), wheel_bg_color, date_validation_message,
+    // and the block-level `text` label (none were rendered before).
+    val wheelHeightDp = (block.wheel_height ?: 200.0).dp
+    val wheelBg = block.wheel_bg_color
+        ?.takeIf { it.isNotBlank() && it.lowercase() != "transparent" }
+        ?.let { StyleEngine.parseColor(it) }
+    val outerLabel = block.text
+    val validationMsg = block.date_validation_message
+    // Column inner padding centers the selected row under the highlight strip (40dp): (h-40)/2.
+    val colPad = (((wheelHeightDp.value - 40f) / 2f).coerceAtLeast(0f)).dp
+
+    // SPEC-419 — year range from min_date/max_date + allow_future/allow_past (was hardcoded
+    // 1950..2030, ignoring the authored constraints). Mirrors iOS dateRange (-150y..+50y default).
+    val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
+    fun yearOf(s: String?): Int? = s?.trim()?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+    var minYear = yearOf(block.min_date) ?: (currentYear - 150)
+    var maxYear = yearOf(block.max_date) ?: (currentYear + 50)
+    if (block.allow_future == false) maxYear = minOf(maxYear, currentYear)
+    if (block.allow_past == false) minYear = maxOf(minYear, currentYear)
+    if (minYear > maxYear) minYear = maxYear
+    val years = (minYear..maxYear).toList()
+
     // Simple day/month/year selectors
     val months = listOf("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
     var selectedDay by remember { mutableIntStateOf(1) }
     var selectedMonth by remember { mutableIntStateOf(1) }
-    var selectedYear by remember { mutableIntStateOf(2000) }
+    var selectedYear by remember(minYear, maxYear) { mutableIntStateOf(2000.coerceIn(minYear, maxYear)) }
+    var selectedHour by remember { mutableIntStateOf(0) }
+    var selectedMinute by remember { mutableIntStateOf(0) }
+
+    // SPEC-419 — emit the combined value honoring the active mode.
+    fun emit() {
+        val parts = mutableListOf<String>()
+        if (showDate) parts.add(String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay))
+        if (showTime) parts.add(String.format(java.util.Locale.US, "%02d:%02d", selectedHour, selectedMinute))
+        inputValues[fieldId] = parts.joinToString(" ")
+    }
 
     val dayListState = rememberLazyListState()
     val monthListState = rememberLazyListState()
     val yearListState = rememberLazyListState()
+    val hourListState = rememberLazyListState()
+    val minuteListState = rememberLazyListState()
 
     // SPEC-401-A R62 (Lens C P1) — viewport-center math instead of
     // `firstVisibleItemIndex == index`. Without this, only the literal
@@ -4495,8 +4533,26 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
     val monthCentered by remember { derivedStateOf { centeredIndexOf(monthListState) } }
     val dayCentered by remember { derivedStateOf { centeredIndexOf(dayListState) } }
     val yearCentered by remember { derivedStateOf { centeredIndexOf(yearListState) } }
+    val hourCentered by remember { derivedStateOf { centeredIndexOf(hourListState) } }
+    val minuteCentered by remember { derivedStateOf { centeredIndexOf(minuteListState) } }
 
-    Box(modifier = Modifier.fillMaxWidth().height(150.dp)) {
+    // SPEC-419 — outer Column carries the block-level label + validation message; the wheel honors
+    // the authored height + background color.
+    Column(modifier = Modifier.fillMaxWidth()) {
+    if (!outerLabel.isNullOrBlank()) {
+        Text(
+            text = outerLabel,
+            fontSize = 14.sp,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+            modifier = Modifier.padding(bottom = 8.dp),
+        )
+    }
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(wheelHeightDp)
+            .then(if (wheelBg != null) Modifier.background(wheelBg, RoundedCornerShape(8.dp)) else Modifier),
+    ) {
         // SPEC-401-A R62 (Lens C P1) — visible center-strip overlay so
         // users can see WHERE the selection actually lives. Sits behind
         // the LazyColumn Row at viewport-center. Mirrors
@@ -4511,15 +4567,16 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(150.dp),
+            .height(wheelHeightDp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         // Month column
+        if (showDate) {
         Box(modifier = Modifier.weight(1f)) {
             LazyColumn(
                 state = monthListState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = colPad),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = monthListState),
             ) {
@@ -4539,7 +4596,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedMonth = index + 1
-                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                emit()
                                 // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
                                 // haptic mirrors iOS UIPickerView system tick.
                                 ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
@@ -4555,7 +4612,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
             LazyColumn(
                 state = dayListState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = colPad),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = dayListState),
             ) {
@@ -4579,7 +4636,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedDay = day
-                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                emit()
                                 // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
                                 // haptic mirrors iOS UIPickerView system tick.
                                 ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
@@ -4592,11 +4649,10 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
 
         // Year column
         Box(modifier = Modifier.weight(1f)) {
-            val years = (1950..2030).toList()
             LazyColumn(
                 state = yearListState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 55.dp),
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = colPad),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 flingBehavior = rememberSnapFlingBehavior(lazyListState = yearListState),
             ) {
@@ -4617,7 +4673,7 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                             .padding(vertical = 8.dp)
                             .clickable {
                                 selectedYear = year
-                                inputValues[fieldId] = String.format(java.util.Locale.US, "%04d-%02d-%02d", selectedYear, selectedMonth, selectedDay)
+                                emit()
                                 // SPEC-401-A R57 (Lens C R57 #2, P3) — SELECTION
                                 // haptic mirrors iOS UIPickerView system tick.
                                 ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
@@ -4627,8 +4683,81 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
                 }
             }
         }
+        } // SPEC-419 — close if (showDate)
+
+        // SPEC-419 — hour + minute columns for picker_mode datetime/time (was day/month/year only).
+        if (showTime) {
+            // Hour column (00–23)
+            Box(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    state = hourListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = colPad),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = hourListState),
+                ) {
+                    items(24) { index ->
+                        val isCenter = hourCentered == index
+                        Text(
+                            text = String.format(java.util.Locale.US, "%02d", index),
+                            fontSize = if (isCenter) 18.sp else 14.sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) highlightColor else wheelTextColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .clickable {
+                                    selectedHour = index
+                                    emit()
+                                    ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
+                                },
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+            // Minute column (00–59)
+            Box(modifier = Modifier.weight(1f)) {
+                LazyColumn(
+                    state = minuteListState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = colPad),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    flingBehavior = rememberSnapFlingBehavior(lazyListState = minuteListState),
+                ) {
+                    items(60) { index ->
+                        val isCenter = minuteCentered == index
+                        Text(
+                            text = String.format(java.util.Locale.US, "%02d", index),
+                            fontSize = if (isCenter) 18.sp else 14.sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) highlightColor else wheelTextColor,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp)
+                                .clickable {
+                                    selectedMinute = index
+                                    emit()
+                                    ai.appdna.sdk.core.HapticEngine.trigger(view, ai.appdna.sdk.core.HapticType.SELECTION)
+                                },
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+            }
+        }
     }
     } // SPEC-401-A R62 (Lens C P1) — close Box wrapper added for highlight strip
+    // SPEC-419 — authored validation message below the wheel (mirrors iOS).
+    if (!validationMsg.isNullOrBlank()) {
+        Text(
+            text = validationMsg,
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+    }
+    } // SPEC-419 — close outer Column
 }
 
 // MARK: - Stack Block (ZStack container — SPEC-089d AC-024)
