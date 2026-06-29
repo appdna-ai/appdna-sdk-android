@@ -4998,9 +4998,12 @@ private fun StarBackgroundBlock(block: ContentBlock) {
 @Composable
 private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
     val minVal = block.min_value ?: 0.0
-    val maxVal = block.max_value_picker ?: 100.0
+    // SPEC-419 — editor writes `max_value`/`default_value`; native canonical keys are
+    // `max_value_picker`/`default_picker_value`. Read the picker key first, fall back to the editor
+    // key so authored ranges/defaults aren't lost on-device.
+    val maxVal = block.max_value_picker ?: block.max_value ?: 100.0
     val step = block.step_value ?: 1.0
-    val defaultVal = block.default_picker_value ?: minVal
+    val defaultVal = block.default_picker_value ?: block.default_value ?: minVal
     val unitStr = block.unit ?: ""
     val unitPos = block.unit_position ?: "after"
     val highlightColor = StyleEngine.parseColor(block.highlight_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
@@ -5126,7 +5129,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                         // ("٢٫٥") on ar/fa/bn/my locales — sister of R27
                         // which fixed countdown + form date/time pickers.
                         val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(java.util.Locale.US, v)
-                        val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
+                        val display = if (unitPos == "before" || unitPos == "prefix") "$unitStr$formatted" else "$formatted$unitStr"
                         val isCenter = index == centeredIndex
 
                         Text(
@@ -5201,7 +5204,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
                         // ("٢٫٥") on ar/fa/bn/my locales — sister of R27
                         // which fixed countdown + form date/time pickers.
                         val formatted = if (v == v.toLong().toDouble()) v.toLong().toString() else "%.1f".format(java.util.Locale.US, v)
-                        val display = if (unitPos == "before") "$unitStr$formatted" else "$formatted$unitStr"
+                        val display = if (unitPos == "before" || unitPos == "prefix") "$unitStr$formatted" else "$formatted$unitStr"
                         val isCenter = index == centeredIndex
 
                         Text(
