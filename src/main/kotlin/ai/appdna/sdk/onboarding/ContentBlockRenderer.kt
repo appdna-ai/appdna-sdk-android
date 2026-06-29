@@ -1540,7 +1540,8 @@ private fun SectionBackgroundBlock(
             )
         }
     }
-    if (zones.isEmpty()) return
+    // No early-return on empty zones — render the foreground children on a bare background, matching
+    // iOS (ContentBlockRendererView) + the console preview (was: rendered nothing when zones absent).
     val children = block.children ?: block.stack_children ?: emptyList()
     val arrangement = when (block.field_config?.get("content_arrangement") as? String) {
         "top" -> Arrangement.Top
