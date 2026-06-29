@@ -1493,13 +1493,25 @@ internal object OnboardingConfigParser {
                 // a new top-level ContentBlock field (budget-locked). The console
                 // editor + preview + iOS all read `video_controls`.
                 val videoControls = bm["video_controls"] as? Boolean
-                if (labelFormat == null && customLabel == null && videoControls == null) {
+                // SPEC-419 pass-15 #8/#9/#25 — star_background particle_color /
+                // particle_opacity / particle_speed are authored top-level by the
+                // console editor + preview + (now) iOS, but Android is budget-locked
+                // (245/245 top-level params). Fold them into field_config so the
+                // StarBackgroundBlock renderer can honor them.
+                val particleColor = bm["particle_color"] as? String
+                val particleOpacity = (bm["particle_opacity"] as? Number)?.toDouble()
+                val particleSpeed = bm["particle_speed"] as? String
+                if (labelFormat == null && customLabel == null && videoControls == null &&
+                    particleColor == null && particleOpacity == null && particleSpeed == null) {
                     base
                 } else {
                     val merged = base ?: mutableMapOf()
                     if (labelFormat != null) merged.putIfAbsent("label_format", labelFormat)
                     if (customLabel != null) merged.putIfAbsent("custom_label", customLabel)
                     if (videoControls != null) merged.putIfAbsent("video_controls", videoControls)
+                    if (particleColor != null) merged.putIfAbsent("particle_color", particleColor)
+                    if (particleOpacity != null) merged.putIfAbsent("particle_opacity", particleOpacity)
+                    if (particleSpeed != null) merged.putIfAbsent("particle_speed", particleSpeed)
                     merged
                 }
             },

@@ -5368,12 +5368,20 @@ private fun CustomViewBlock(block: ContentBlock) {
 
 @Composable
 private fun StarBackgroundBlock(block: ContentBlock) {
-    val particleColor = StyleEngine.parseColor(block.active_color ?: block.text_color ?: "#FFFFFF")
-    val baseOpacity = (block.block_style?.opacity ?: 0.8).toFloat()
+    // SPEC-419 pass-15 #8/#9/#25 — editor authors particle_color / particle_opacity /
+    // particle_speed (folded into field_config by OnboardingConfig.fromMap). Read those
+    // first, fall back to the legacy native keys for back-compat.
+    val fcParticleColor = block.field_config?.get("particle_color") as? String
+    val fcParticleOpacity = (block.field_config?.get("particle_opacity") as? Number)?.toFloat()
+    val fcParticleSpeed = block.field_config?.get("particle_speed") as? String
+    val particleColor = StyleEngine.parseColor(fcParticleColor ?: block.active_color ?: block.text_color ?: "#FFFFFF")
+    // SPEC-419 pass-15 #27 — secondary_color tints 1/3 of particles (matches editor + preview)
+    val secondaryColor = block.secondary_color?.let { StyleEngine.parseColor(it) } ?: particleColor
+    val baseOpacity = (fcParticleOpacity ?: (block.block_style?.opacity ?: 0.8).toFloat())
     val particleCount = when (block.density) {
         "sparse" -> 20; "dense" -> 100; else -> 50
     }
-    val speedFactor = when (block.speed) {
+    val speedFactor = when (fcParticleSpeed ?: block.speed) {
         "slow" -> 0.3f; "fast" -> 1.5f; else -> 0.8f
     }
     val minSize = (block.size_range?.firstOrNull() ?: 1.0).toFloat()
@@ -5430,9 +5438,11 @@ private fun StarBackgroundBlock(block: ContentBlock) {
         // (StarBackgroundView.swift:88 `circle.size = p.size`). Multiplying
         // by scaleX shrank particles to invisibility on narrow widths and
         // ballooned them into giant blobs in fullscreen mode.
-        particles.value.forEach { p ->
+        particles.value.forEachIndexed { i, p ->
+            // SPEC-419 pass-15 #27 — every 3rd particle uses secondary_color
+            val pColor = if (i % 3 == 0) secondaryColor else particleColor
             drawCircle(
-                color = particleColor.copy(alpha = p.opacity * baseOpacity),
+                color = pColor.copy(alpha = p.opacity * baseOpacity),
                 radius = p.size,
                 center = Offset(p.x * scaleX, p.y * scaleY),
             )
