@@ -2432,10 +2432,11 @@ private fun ListBlock(block: ContentBlock, loc: ((String, String) -> String)? = 
                     // and accepted text_color, so the same authored
                     // payload rendered different colors across
                     // platforms.
+                    // SPEC-419 pass-15 #5 — honor authored check_color (editor default green #22C55E); was hardcoded brandAccent.
                     "check" -> Icon(
                         imageVector = Icons.Filled.CheckCircle,
                         contentDescription = null,
-                        tint = StyleEngine.parseColor((ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
+                        tint = StyleEngine.parseColor(block.check_color ?: "#22C55E"),
                         modifier = Modifier.size(16.dp),
                     )
                     // SPEC-401-A R44 — theme-adaptive bullet (was Color.Gray).
