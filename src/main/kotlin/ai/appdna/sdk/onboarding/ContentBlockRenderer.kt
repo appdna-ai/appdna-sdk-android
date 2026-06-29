@@ -6259,6 +6259,13 @@ private fun FormInputTextBlock(
     var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     val borderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB")
     val cornerRadius = (block.field_style?.corner_radius ?: 8.0).dp
+    // SPEC-419 pass-16 #4 — honor field_config.input_text_size (preferred) / font_size
+    // (default 14), mirroring preview + iOS precedence. Was no textStyle (M3 default).
+    val inputFontSize = ((block.field_config?.get("input_text_size") as? Number)?.toFloat()
+        ?: (block.field_config?.get("font_size") as? Number)?.toFloat() ?: 14f).sp
+    // SPEC-419 pass-16 #5 — honor field_config.field_height (editor "Field Height"),
+    // mirroring iOS fieldHeight() minHeight. Was ignored on Android.
+    val fieldHeightDp = (block.field_config?.get("field_height") as? Number)?.toFloat()
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -6324,7 +6331,8 @@ private fun FormInputTextBlock(
                 imeAction = androidx.compose.ui.text.input.ImeAction.Done,
             ),
             shape = RoundedCornerShape(cornerRadius),
-            modifier = Modifier.fillMaxWidth(),
+            textStyle = TextStyle(fontSize = inputFontSize),
+            modifier = if (fieldHeightDp != null) Modifier.fillMaxWidth().heightIn(min = fieldHeightDp.dp) else Modifier.fillMaxWidth(),
             singleLine = true,
             interactionSource = interactionSource,
             colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
