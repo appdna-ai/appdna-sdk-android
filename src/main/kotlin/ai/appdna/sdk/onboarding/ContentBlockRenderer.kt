@@ -8088,7 +8088,7 @@ private fun FormInputRangeSliderBlock(
         // Min slider
         Row(verticalAlignment = Alignment.CenterVertically) {
             // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
-            Text("Min", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
+            Text((block.field_config?.get("min_label") as? String) ?: "Min", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = lowValue,
                 onValueChange = { v ->
@@ -8112,7 +8112,7 @@ private fun FormInputRangeSliderBlock(
         // Max slider
         Row(verticalAlignment = Alignment.CenterVertically) {
             // SPEC-401-A R44 — theme-adaptive secondary (was Color.Gray).
-            Text("Max", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
+            Text((block.field_config?.get("max_label") as? String) ?: "Max", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f), modifier = Modifier.width(30.dp))
             Slider(
                 value = highValue,
                 onValueChange = { v ->
