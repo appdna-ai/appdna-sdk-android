@@ -350,13 +350,15 @@ fun Modifier.applyBlockPosition(
  */
 internal fun parseStackAlignment(token: String?): Alignment? {
     if (token.isNullOrBlank()) return null
-    return when (token.lowercase()) {
+    // SPEC-419 — normalize hyphenated editor values (top-left, center-left, bottom-center) to
+    // underscores so they map alongside the existing camelCase/underscore tokens.
+    return when (token.lowercase().replace("-", "_")) {
         "top_left", "topleft", "topleading", "top_leading" -> Alignment.TopStart
         "top", "topcenter", "top_center" -> Alignment.TopCenter
         "top_right", "topright", "toptrailing", "top_trailing" -> Alignment.TopEnd
-        "left", "leading", "centerleading", "center_leading" -> Alignment.CenterStart
-        "center", "middle" -> Alignment.Center
-        "right", "trailing", "centertrailing", "center_trailing" -> Alignment.CenterEnd
+        "left", "leading", "centerleading", "center_leading", "center_left" -> Alignment.CenterStart
+        "center", "middle", "center_center" -> Alignment.Center
+        "right", "trailing", "centertrailing", "center_trailing", "center_right" -> Alignment.CenterEnd
         "bottom_left", "bottomleft", "bottomleading", "bottom_leading" -> Alignment.BottomStart
         "bottom", "bottomcenter", "bottom_center" -> Alignment.BottomCenter
         "bottom_right", "bottomright", "bottomtrailing", "bottom_trailing" -> Alignment.BottomEnd
