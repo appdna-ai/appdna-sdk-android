@@ -7642,14 +7642,17 @@ private fun FormInputSliderBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    val minVal = (block.min_value ?: 0.0).toFloat()
-    val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
+    // slider (StepContentEditor :5411/:5415/:5419); top-level keys never populated.
+    // Top-level first (back-compat), then field_config, then literal default.
+    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
+    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
     // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
     // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
     // (continuous), out of parity with iOS integer-snap default; also made
     // the R59 step-tick haptic never fire because bucket-change gate was
     // `stepVal > 0f`.
-    val stepVal = (block.step_value ?: 1.0).toFloat()
+    val stepVal = (block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
@@ -7660,7 +7663,7 @@ private fun FormInputSliderBlock(
     var value by remember {
         mutableStateOf(
             (inputValues[fieldId] as? Number)?.toFloat()
-                ?: (block.default_picker_value ?: minVal.toDouble()).toFloat()
+                ?: (block.default_picker_value ?: (block.field_config?.get("default_value") as? Number)?.toDouble() ?: minVal.toDouble()).toFloat()
         )
     }
     // SPEC-401-A R55 (Lens C R55 #2, P2) — discrete step gradations matching
@@ -7799,9 +7802,11 @@ private fun FormInputStepperBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    val minVal = (block.min_value ?: 0.0).toInt()
-    val maxVal = (block.max_value_picker ?: 100.0).toInt()
-    val stepVal = (block.step_value ?: 1.0).toInt()
+    // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
+    // stepper (StepContentEditor :5388/:5392/:5396); top-level keys never populated.
+    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toInt()
+    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toInt()
+    val stepVal = (block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toInt()
     val unitStr = block.unit ?: ""
     // SPEC-401-A R57 (Lens C R57 #1, P2) — host View for haptic feedback on
     // +/- tap. Mirrors iOS UIStepper auto-emitting click haptic on every
@@ -7813,7 +7818,7 @@ private fun FormInputStepperBlock(
     var value by remember {
         mutableStateOf(
             (inputValues[fieldId] as? Number)?.toInt()
-                ?: (block.default_picker_value ?: minVal.toDouble()).toInt()
+                ?: (block.default_picker_value ?: (block.field_config?.get("default_value") as? Number)?.toDouble() ?: minVal.toDouble()).toInt()
         )
     }
 
@@ -8027,14 +8032,16 @@ private fun FormInputRangeSliderBlock(
     inputValues: MutableMap<String, Any>,
 ) {
     val fieldId = block.field_id ?: block.id
-    val minVal = (block.min_value ?: 0.0).toFloat()
-    val maxVal = (block.max_value_picker ?: 100.0).toFloat()
+    // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
+    // range slider (StepContentEditor :5411/:5415/:5419); top-level keys never populated.
+    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
+    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
     // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
     // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
     // (continuous), out of parity with iOS integer-snap default; also made
     // the R59 step-tick haptic never fire because bucket-change gate was
     // `stepVal > 0f`.
-    val stepVal = (block.step_value ?: 1.0).toFloat()
+    val stepVal = (block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toFloat()
     val unitStr = block.unit ?: ""
     val fillCol = StyleEngine.parseColor(block.field_style?.fill_color ?: block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     // SPEC-401-A R55 (Lens C R55 #3, P3) — inactive track color from
