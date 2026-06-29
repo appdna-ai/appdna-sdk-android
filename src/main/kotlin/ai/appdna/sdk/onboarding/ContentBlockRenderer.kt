@@ -3555,11 +3555,31 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     val cornerRadius = (block.corner_radius ?: 3.0).dp
     val segmentGap = (block.segment_gap ?: 4.0).dp
     val showLabel = block.show_label ?: false
+    // SPEC-419 gap#2 — explicit continuous fill from `progress_value` (0–1
+    // fraction OR 0–100 percent), clamped 0..1. When unset the bar keeps
+    // auto-binding to the step index. Mirrors iOS + the console preview.
+    val pvFraction: Float? = block.progress_value?.toFloat()?.let {
+        (if (it > 1f) it / 100f else it).coerceIn(0f, 1f)
+    }
+    // SPEC-419 gap#6 — honor `label_format`/`custom_label`. The console editor
+    // authors these top-level, but Android can't add top-level ContentBlock
+    // params (JVM arg-budget), so the parser surfaces them via field_config.
+    // Default keeps the existing "Step X of Y". Mirrors the preview label logic.
+    val labelFormat = block.field_config?.get("label_format") as? String
+    val customLabel = block.field_config?.get("custom_label") as? String
+    val pvInt = (block.progress_value ?: 0.0).toInt()
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Optional label
         if (showLabel && segmentCount > 0) {
-            val labelText = "Step $activeSegments of $segmentCount"
+            val labelText = when (labelFormat) {
+                null -> "Step $activeSegments of $segmentCount"
+                "fraction" -> if (variant == "segmented") "$activeSegments/$segmentCount" else "$pvInt/100"
+                "custom" -> customLabel ?: ""
+                else -> if (variant == "segmented")
+                    "${((activeSegments.toFloat() / maxOf(segmentCount, 1)) * 100).toInt()}%"
+                else "$pvInt%"
+            }
             val labelStyle = if (block.label_style != null) {
                 // SPEC-401-A R44 — theme-adaptive secondary base (was Color.Gray).
                 StyleEngine.applyTextStyle(TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)), block.label_style)
@@ -3596,7 +3616,7 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
             }
             else -> {
                 // Continuous progress bar
-                val fraction = if (segmentCount > 0) {
+                val fraction = pvFraction ?: if (segmentCount > 0) {
                     (activeSegments.toFloat() / segmentCount).coerceIn(0f, 1f)
                 } else 0f
 
@@ -3854,11 +3874,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        // SPEC-401-A R4 — `orbiting_icons` variant falls back to
-        // circular indicator until the radial-icon renderer is
-        // ported. Without this branch Android dropped through to
-        // the checklist default, which made the loading state
-        // inconsistent with iOS.
+        // SPEC-419 gap#1 — `orbiting_icons` now renders the full radial-icon
+        // layout (icons arranged in a circle around a central dot), matching
+        // iOS OrbitingIconsLoaderView + the console preview. Previously it
+        // fell back to the plain circular spinner.
         if (loadingMessage != null && loadingTextPos == "above") {
             Text(
                 text = loadingMessage,
@@ -3867,7 +3886,15 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                 textAlign = TextAlign.Center,
             )
         }
-        when (if (variant == "orbiting_icons") "circular" else variant) {
+        when (variant) {
+            "orbiting_icons" -> {
+                OrbitingIconsLoader(
+                    block = block,
+                    items = items,
+                    progressColor = progressColor,
+                    overallProgress = overallProgress,
+                )
+            }
             "circular" -> {
                 // SPEC-401-A R19 — match iOS ContentBlockStandaloneViews
                 // .swift:228-248. iOS rotates the indicator continuously via
@@ -4054,8 +4081,10 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
             else -> { /* checklist is the default, handled below */ }
         }
 
-        // Checklist items (shown for all variants if items exist)
-        if (items.isNotEmpty()) {
+        // Checklist items (shown for all variants if items exist).
+        // SPEC-419 gap#1 — orbiting_icons consumes `items` as the orbit icons,
+        // so it must NOT also render them as a checklist below (iOS doesn't).
+        if (items.isNotEmpty() && variant != "orbiting_icons") {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -4137,6 +4166,147 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
                 fontSize = loadingTextSize,
                 color = loadingMessageColor,
                 textAlign = TextAlign.Center,
+            )
+        }
+    }
+}
+
+/**
+ * SPEC-419 gap#1 — orbiting_icons loading layout. Icons arranged in a circle
+ * around a central dot, rotating continuously. Reads its layout config from
+ * `field_config` (no top-level ContentBlock params), mirroring iOS
+ * `OrbitingIconsLoaderView` + the console preview.
+ */
+@Composable
+private fun OrbitingIconsLoader(
+    block: ContentBlock,
+    items: List<LoadingItem>,
+    progressColor: Color,
+    overallProgress: Float,
+) {
+    val cfg = block.field_config
+    fun cfgDouble(key: String): Double? = (cfg?.get(key) as? Number)?.toDouble()
+    val sizeDp = (cfgDouble("size") ?: 240.0)
+    val orbitRadius = (cfgDouble("orbit_radius") ?: 80.0)
+    val centralSize = (cfgDouble("central_size") ?: 10.0).dp
+    val centralBgHex = cfg?.get("central_bg_color") as? String ?: "#FEE2E2"
+    val ringColorHex = cfg?.get("ring_color") as? String ?: "#D1D5DB"
+    val ringWidth = (cfgDouble("ring_width") ?: 1.0).dp
+    val ringOpacity = (cfgDouble("ring_opacity") ?: 0.5).toFloat()
+    val labelSize = (cfgDouble("label_font_size") ?: 17.0).sp
+    val subtitleSize = (cfgDouble("subtitle_font_size") ?: 14.0).sp
+    val labelColor = StyleEngine.parseColor(cfg?.get("label_color") as? String ?: "#0F172A")
+    val subtitleColor = StyleEngine.parseColor(cfg?.get("subtitle_color") as? String ?: "#E11D48")
+    val showPercentage = block.show_percentage ?: false
+    val pctLocation = cfg?.get("percentage_location") as? String ?: "below"
+
+    val orbitTransition = androidx.compose.animation.core.rememberInfiniteTransition(label = "orbit_spin")
+    val rotation by orbitTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = androidx.compose.animation.core.infiniteRepeatable(
+            animation = androidx.compose.animation.core.tween(
+                durationMillis = ((cfgDouble("orbit_duration_ms") ?: 6000.0).toInt()),
+                easing = androidx.compose.animation.core.LinearEasing,
+            ),
+        ),
+        label = "orbit_angle",
+    )
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        if (showPercentage && pctLocation == "above") {
+            Text(
+                text = "${(overallProgress * 100).toInt()}%",
+                fontSize = labelSize,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
+            )
+        }
+
+        Box(
+            modifier = Modifier.size(sizeDp.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            // Orbit ring
+            Box(
+                modifier = Modifier
+                    .size((orbitRadius * 2).dp)
+                    .border(ringWidth, StyleEngine.parseColor(ringColorHex).copy(alpha = ringOpacity), CircleShape),
+            )
+            // Central dot
+            Box(
+                modifier = Modifier
+                    .size(centralSize)
+                    .clip(CircleShape)
+                    .background(StyleEngine.parseColor(centralBgHex)),
+            )
+            // Orbiting icons
+            Box(
+                modifier = Modifier.graphicsLayer { rotationZ = rotation },
+                contentAlignment = Alignment.Center,
+            ) {
+                items.forEachIndexed { idx, item ->
+                    val baseAngle = item.icon_orbit_angle?.toDouble()
+                        ?: (360.0 * idx / maxOf(items.size, 1))
+                    val rad = baseAngle * Math.PI / 180.0
+                    val xOff = (cos(rad) * orbitRadius).dp
+                    val yOff = (sin(rad) * orbitRadius).dp
+                    val iconSize = (item.icon_size ?: 48f).dp
+                    val iconBg = StyleEngine.parseColor(item.icon_bg_color ?: "#BE123C")
+                    Box(
+                        modifier = Modifier
+                            .offset(x = xOff, y = yOff)
+                            .size(iconSize)
+                            .clip(CircleShape)
+                            .background(iconBg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        val iconUrl = item.icon_url
+                        val iconGlyph = item.icon
+                        when {
+                            !iconUrl.isNullOrBlank() -> ai.appdna.sdk.core.NetworkImage(
+                                url = iconUrl,
+                                modifier = Modifier.fillMaxSize(0.6f).clip(CircleShape),
+                            )
+                            !iconGlyph.isNullOrBlank() -> Text(
+                                text = iconGlyph,
+                                fontSize = (item.icon_size ?: 48f).times(0.45f).sp,
+                                color = Color.White,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        // Title label (block.text) + active item subtitle
+        block.text?.takeIf { it.isNotBlank() }?.let { title ->
+            Text(
+                text = title,
+                fontSize = labelSize,
+                fontWeight = FontWeight.SemiBold,
+                color = labelColor,
+                textAlign = TextAlign.Center,
+            )
+        }
+        items.firstOrNull()?.label?.takeIf { it.isNotBlank() }?.let { subtitle ->
+            Text(
+                text = subtitle,
+                fontSize = subtitleSize,
+                color = subtitleColor,
+                textAlign = TextAlign.Center,
+            )
+        }
+
+        if (showPercentage && pctLocation == "below") {
+            Text(
+                text = "${(overallProgress * 100).toInt()}%",
+                fontSize = labelSize,
+                fontWeight = FontWeight.Bold,
+                color = labelColor,
             )
         }
     }

@@ -1480,7 +1480,23 @@ internal object OnboardingConfigParser {
                 } else null
             }?.toImmutableList(),
             // Gap 8: Parse field_config for display_style, use_variable, use_webhook
-            field_config = bm["field_config"] as? Map<String, Any>,
+            // SPEC-419 gap#6 — progress_bar `label_format`/`custom_label` are authored
+            // top-level by the console editor, but Android can't add top-level ContentBlock
+            // params (JVM arg-budget guard), so fold them into field_config for the renderer.
+            // iOS reads them as top-level Codable fields.
+            field_config = run {
+                val base = (bm["field_config"] as? Map<String, Any>)?.toMutableMap()
+                val labelFormat = bm["label_format"] as? String
+                val customLabel = bm["custom_label"] as? String
+                if (labelFormat == null && customLabel == null) {
+                    base
+                } else {
+                    val merged = base ?: mutableMapOf()
+                    if (labelFormat != null) merged.putIfAbsent("label_format", labelFormat)
+                    if (customLabel != null) merged.putIfAbsent("custom_label", customLabel)
+                    merged
+                }
+            },
             // SPEC-089d: Visibility, animation, pressed style, bindings, sizing
             visibility_condition = (bm["visibility_condition"] as? Map<String, Any>)?.let { vc ->
                 VisibilityCondition(
