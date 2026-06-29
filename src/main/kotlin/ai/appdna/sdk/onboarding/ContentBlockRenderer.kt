@@ -4587,6 +4587,69 @@ private fun CircularGaugeBlock(block: ContentBlock) {
                     }
                 }
             }
+            "linear" -> {
+                // SPEC-419 pass-15 #2 — horizontal bar gauge (mirrors preview linear variant):
+                // value-indicator triangle + label above, gradient bar, ticks 0/25/50/75/100 below.
+                val density = LocalDensity.current
+                val barHeight = maxOf(8.0, sizePx * 0.08).dp
+                val totalWidth = (sizePx * 1.2).dp
+                val pct = animatedProgress
+                val labelText = if (!block.text.isNullOrEmpty()) block.text!! else "${(animatedProgress * 100).roundToInt()}%"
+                val ticks = listOf(0, 25, 50, 75, 100)
+                val totalWidthPx = with(density) { totalWidth.toPx() }
+                Column(
+                    modifier = Modifier.width(totalWidth),
+                    horizontalAlignment = Alignment.Start,
+                ) {
+                    Box(modifier = Modifier.width(totalWidth).height(22.dp)) {
+                        val indicatorOffset = with(density) { (pct * totalWidthPx - 5f).toDp() }
+                        Column(
+                            modifier = Modifier.absoluteOffset(x = indicatorOffset),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(text = labelText, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = fillColor)
+                            Canvas(modifier = Modifier.size(width = 10.dp, height = 6.dp)) {
+                                val w = this.size.width
+                                val h = this.size.height
+                                val path = androidx.compose.ui.graphics.Path().apply {
+                                    moveTo(0f, 0f)
+                                    lineTo(w, 0f)
+                                    lineTo(w / 2f, h)
+                                    close()
+                                }
+                                drawPath(path, color = fillColor)
+                            }
+                        }
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(totalWidth)
+                            .height(barHeight)
+                            .clip(RoundedCornerShape(barHeight / 2))
+                            .background(trackColor),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .width(with(density) { (pct * totalWidthPx).toDp() })
+                                .clip(RoundedCornerShape(barHeight / 2))
+                                .background(Brush.horizontalGradient(listOf(fillColor.copy(alpha = 0.53f), fillColor))),
+                        )
+                    }
+                    Box(modifier = Modifier.width(totalWidth).height(16.dp)) {
+                        ticks.forEach { tick ->
+                            val tickOffset = with(density) { ((tick / 100f) * totalWidthPx - 4f).toDp() }
+                            Column(
+                                modifier = Modifier.absoluteOffset(x = tickOffset),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                            ) {
+                                Box(modifier = Modifier.width(1.dp).height(4.dp).background(StyleEngine.parseColor("#D1D5DB")))
+                                Text(text = "$tick", fontSize = 8.sp, color = StyleEngine.parseColor("#9CA3AF"))
+                            }
+                        }
+                    }
+                }
+            }
             else -> {
                 // arc / radial — full square Box with Canvas + center label.
                 val isRadial = variant == "radial"
