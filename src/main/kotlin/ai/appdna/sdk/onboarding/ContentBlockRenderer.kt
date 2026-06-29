@@ -2665,13 +2665,13 @@ private fun LottieContentBlock(block: ContentBlock) {
                 // ignored. Honour canonical first, legacy as fallback.
                 autoplay = block.autoplay ?: block.lottie_autoplay ?: true,
                 loop = block.loop ?: block.lottie_loop ?: true,
-                speed = block.lottie_speed ?: 1.0f,
+                speed = block.lottie_speed ?: 1.0f,  // SPEC-419 pass-22 TODO — editor writes block.speed but iOS `speed` is String?; defer both for type reconciliation
                 width = block.lottie_width?.toFloat(),
                 // SPEC-401-A R10 — match iOS field-name precedence at
                 // ContentBlockRendererView.swift:599. Authored `lottie_height`
                 // overrides generic `height`; both fall through to 160 default.
                 height = (block.lottie_height ?: block.height ?: 160.0).toFloat(),
-                alignment = block.icon_alignment ?: "center",
+                alignment = block.icon_alignment ?: block.alignment ?: "center",  // SPEC-419 pass-22 — editor writes block.alignment
                 play_on_scroll = block.play_on_scroll,
                 play_on_tap = block.play_on_tap,
                 color_overrides = block.color_overrides,
@@ -2699,7 +2699,7 @@ private fun RiveContentBlock(block: ContentBlock) {
                 // unconditionally.
                 autoplay = block.autoplay ?: true,
                 height = (block.height ?: 160.0).toFloat(),
-                alignment = block.icon_alignment ?: "center",
+                alignment = block.icon_alignment ?: block.alignment ?: "center",  // SPEC-419 pass-22 — editor writes block.alignment
                 inputs = block.rive_inputs,
                 trigger_on_step_complete = block.trigger_on_step_complete,
             )
@@ -7645,8 +7645,11 @@ private fun FormInputSliderBlock(
     // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
     // slider (StepContentEditor :5411/:5415/:5419); top-level keys never populated.
     // Top-level first (back-compat), then field_config, then literal default.
-    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
-    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
+    // SPEC-419 pass-22 — field_config min/max now authorable; clamp so Compose Slider valueRange stays valid (min<max).
+    val rawMinV = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
+    val rawMaxV = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
+    val minVal = minOf(rawMinV, rawMaxV)
+    val maxVal = maxOf(rawMaxV, minVal + 1f)
     // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
     // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
     // (continuous), out of parity with iOS integer-snap default; also made
@@ -7804,9 +7807,13 @@ private fun FormInputStepperBlock(
     val fieldId = block.field_id ?: block.id
     // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
     // stepper (StepContentEditor :5388/:5392/:5396); top-level keys never populated.
-    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toInt()
-    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toInt()
-    val stepVal = (block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toInt()
+    // SPEC-419 pass-22 — clamp the now-authorable range (min<max, step>0) to guard coerceIn.
+    val rawStepI = (block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toInt()
+    val stepVal = if (rawStepI > 0) rawStepI else 1
+    val rawMinI = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toInt()
+    val rawMaxI = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toInt()
+    val minVal = minOf(rawMinI, rawMaxI)
+    val maxVal = maxOf(rawMaxI, minVal + stepVal)
     val unitStr = block.unit ?: ""
     // SPEC-401-A R57 (Lens C R57 #1, P2) — host View for haptic feedback on
     // +/- tap. Mirrors iOS UIStepper auto-emitting click haptic on every
@@ -8034,8 +8041,11 @@ private fun FormInputRangeSliderBlock(
     val fieldId = block.field_id ?: block.id
     // SPEC-419 pass-21 — editor authors min/max/step into field_config for the
     // range slider (StepContentEditor :5411/:5415/:5419); top-level keys never populated.
-    val minVal = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
-    val maxVal = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
+    // SPEC-419 pass-22 — clamp the now-authorable range so Compose Slider valueRange stays valid (min<max).
+    val rawMinR = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
+    val rawMaxR = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
+    val minVal = minOf(rawMinR, rawMaxR)
+    val maxVal = maxOf(rawMaxR, minVal + 1f)
     // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
     // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
     // (continuous), out of parity with iOS integer-snap default; also made
