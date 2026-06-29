@@ -6646,6 +6646,9 @@ private fun FormInputSelectBlock(
             "stacked" -> {
                 // Stacked: Column of cards. Per-option bg/border/text colors honored
                 // (Hotfix-1.0.33). Mirrors iOS FormInputBlockViews.swift:532-622.
+                // SPEC-419 pass-13 — option_height (or size) → row min-height, mirroring iOS.
+                val stackedMinHeight = ((cfg?.get("option_height") as? Number)?.toFloat()
+                    ?: (cfg?.get("size") as? Number)?.toFloat())
                 Column(
                     verticalArrangement = Arrangement.spacedBy(optionSpacingDp),
                     modifier = Modifier.fillMaxWidth(),
@@ -6702,6 +6705,7 @@ private fun FormInputSelectBlock(
                                     },
                                 )
                                 .fillMaxWidth()
+                                .then(if (stackedMinHeight != null) Modifier.heightIn(min = stackedMinHeight.dp) else Modifier)
                                 .testTag("option.$oi.row.bg")
                                 .then(
                                     if (isMulti) {
@@ -6890,6 +6894,10 @@ private fun FormInputSelectBlock(
                 // Grid: N-column layout. Hotfix-1.0.33 — read `grid_columns` from
                 // field_config (default 2). Per-option color reads now honored.
                 val gridCols = ((cfg?.get("grid_columns") as? Number)?.toInt() ?: 2).coerceIn(1, 6)
+                // SPEC-419 pass-13 — honor option_height (or size) as a cell min-height,
+                // mirroring iOS gridSelectView optionHeight (FormInputBlockViews.swift:1026).
+                val gridMinHeight = ((cfg?.get("option_height") as? Number)?.toFloat()
+                    ?: (cfg?.get("size") as? Number)?.toFloat())
                 val chunked = options.chunked(gridCols)
                 Column(verticalArrangement = Arrangement.spacedBy(optionSpacingDp)) {
                     chunked.forEach { row ->
@@ -6921,6 +6929,7 @@ private fun FormInputSelectBlock(
                                 Card(
                                     modifier = Modifier
                                         .weight(1f)
+                                        .then(if (gridMinHeight != null) Modifier.heightIn(min = gridMinHeight.dp) else Modifier)
                                         .clickable { pickOption(option.value) },
                                     shape = RoundedCornerShape(cornerR),
                                     colors = CardDefaults.cardColors(
@@ -7025,6 +7034,18 @@ private fun FormInputSelectBlock(
                             }
                             // Fill empty slots in last row to keep grid alignment
                             repeat(gridCols - row.size) { Spacer(Modifier.weight(1f)) }
+                        }
+                    }
+                    // EPIC-1 / SPEC-419 pass-13 — tooltip below the grid (was ignored on
+                    // Android). Mirrors iOS gridSelectView (FormInputBlockViews.swift:1178-1188).
+                    (cfg?.get("tooltip_text") as? String)?.takeIf { it.isNotBlank() }?.let { tip ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            modifier = Modifier.padding(top = 4.dp),
+                        ) {
+                            Text("ⓘ", fontSize = 12.sp, color = textCol.copy(alpha = 0.5f))
+                            Text(tip, fontSize = 12.sp, color = textCol.copy(alpha = 0.5f))
                         }
                     }
                 }
