@@ -64,6 +64,8 @@ fun NetworkImage(
     contentScale: ContentScale = ContentScale.Crop,
     placeholderColor: Color = Color.Gray.copy(alpha = 0.2f),
     contentDescription: String? = null,
+    // SPEC-419 — image_position: how the (cropped) image aligns within its frame.
+    alignment: Alignment = Alignment.Center,
 ) {
     if (url.isNullOrBlank()) {
         Box(modifier = modifier.background(placeholderColor))
@@ -77,6 +79,7 @@ fun NetworkImage(
             contentScale = contentScale,
             placeholderColor = placeholderColor,
             contentDescription = contentDescription,
+            alignment = alignment,
         )
         return
     }
@@ -93,6 +96,7 @@ fun NetworkImage(
         imageLoader = AppDNAImageLoader.singleton(context),
         modifier = modifier,
         contentScale = contentScale,
+        alignment = alignment,
     ) {
         // Mirror the prior loading / error visuals exactly so visual
         // snapshots and host-app expectations don't shift.
@@ -137,6 +141,7 @@ private fun SvgNetworkImage(
     contentScale: ContentScale,
     placeholderColor: Color,
     contentDescription: String?,
+    alignment: Alignment = Alignment.Center,
 ) {
     var bitmap by remember(url) { mutableStateOf<Bitmap?>(null) }
     var failed by remember(url) { mutableStateOf(false) }
@@ -181,6 +186,7 @@ private fun SvgNetworkImage(
                     bitmap = current.asImageBitmap(),
                     contentDescription = contentDescription,
                     contentScale = contentScale,
+                    alignment = alignment,
                     modifier = Modifier.fillMaxSize(),
                 )
             }

@@ -1652,10 +1652,34 @@ private fun ImageBlock(block: ContentBlock) {
     // mapping them to `ContentScale.None` (intrinsic-pixel) and
     // `ContentScale.Inside`, producing visibly different layouts for
     // the same payload.
+    // SPEC-419 (P3) — add the "fill" (stretch) and "none" (intrinsic) arms so they no longer
+    // collapse to Crop. Mirrors the preview's literal objectFit values
+    // (OnboardingStepPreview.tsx) + iOS styledImage.
     val fit = block.image_fit ?: ""
     val contentScale = when (fit) {
         "contain", "fit" -> androidx.compose.ui.layout.ContentScale.Fit
+        "fill" -> androidx.compose.ui.layout.ContentScale.FillBounds
+        "none" -> androidx.compose.ui.layout.ContentScale.None
         else -> androidx.compose.ui.layout.ContentScale.Crop
+    }
+
+    // SPEC-419 (P2) — aspect_ratio routed through field_config (JVM-255 ContentBlock budget); the
+    // preview applies it (OnboardingStepPreview.tsx) and iOS now does too. Same 5-option mapping.
+    val aspectRatio: Float? = when (block.field_config?.get("aspect_ratio") as? String) {
+        "16:9" -> 16f / 9f
+        "4:3" -> 4f / 3f
+        "1:1" -> 1f
+        "3:4" -> 3f / 4f
+        "9:16" -> 9f / 16f
+        else -> null
+    }
+
+    // SPEC-419 (P3) — image_position top/bottom routed through field_config; preview uses
+    // objectPosition, iOS uses frame alignment. Default center.
+    val imageAlignment = when (block.field_config?.get("image_position") as? String) {
+        "top" -> androidx.compose.ui.Alignment.TopCenter
+        "bottom" -> androidx.compose.ui.Alignment.BottomCenter
+        else -> androidx.compose.ui.Alignment.Center
     }
 
     // SPEC-401-A R9 — iOS uses `.frame(maxHeight: imgHeight)` at
@@ -1712,13 +1736,16 @@ private fun ImageBlock(block: ContentBlock) {
         }
         return
     }
+    val aspectMod = if (aspectRatio != null) Modifier.aspectRatio(aspectRatio) else Modifier
     ai.appdna.sdk.core.NetworkImage(
         url = block.image_url,
         modifier = Modifier
             .then(imgWidthMod)
+            .then(aspectMod)
             .heightIn(max = imgHeightMax)
             .then(shapeModifier),
         contentScale = if (explicitW != null) androidx.compose.ui.layout.ContentScale.Fit else contentScale,
+        alignment = imageAlignment,
         // SPEC-401-A R57 (Lens A R57 #15, P3) — fall back to "Image" when
         // alt unset, matching iOS accessibilityLabel(block.alt ?? "Image")
         // at ContentBlockRendererView.swift:340. Was passing null — TalkBack
