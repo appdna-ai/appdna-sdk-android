@@ -1710,9 +1710,13 @@ private fun ImageBlock(block: ContentBlock) {
     val imgHeightMax = if (iconSize != null) iconSize.dp else (block.height ?: 200.0).dp
     if (block.image_frame == "phone") {
         // EPIC-3 — phone mockup: dark bezel + dynamic-island notch, image fills the "screen".
+        // SPEC-419 pass-13 — cap at 260dp wide + center, matching iOS phoneMockup
+        // `.frame(maxWidth: 260)` (+ preview). Without the cap the bezel stretched
+        // full device-width on Android.
+        Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.TopCenter) {
         Box(
             modifier = Modifier
-                .then(if (explicitW != null) imgWidthMod else Modifier.fillMaxWidth())
+                .then(if (explicitW != null) imgWidthMod else Modifier.widthIn(max = 260.dp).fillMaxWidth())
                 .clip(RoundedCornerShape(40.dp))
                 .background(androidx.compose.ui.graphics.Color(0xFF101012))
                 .padding(10.dp),
@@ -1738,6 +1742,7 @@ private fun ImageBlock(block: ContentBlock) {
                         .background(androidx.compose.ui.graphics.Color.Black),
                 )
             }
+        }
         }
         return
     }
@@ -2848,7 +2853,12 @@ private fun SocialLoginBlock(
                 else -> Triple(ai.appdna.sdk.AppDNA.brandAccentColor(), Color.White, ai.appdna.sdk.AppDNA.brandAccentColor())
             }
             val bgColor = provider.bg_color?.let { StyleEngine.parseColor(it) } ?: defaultBg
-            val textColor = provider.text_color?.let { StyleEngine.parseColor(it) } ?: defaultText
+            // SPEC-419 pass-13 — outlined/minimal buttons have a CLEAR background, so the
+            // brand-white default text was invisible (white-on-transparent). iOS forces
+            // `.primary` (theme-adaptive) for these styles
+            // (ContentBlockRendererView.swift:1389-1392); mirror with onSurface.
+            val textColor = provider.text_color?.let { StyleEngine.parseColor(it) }
+                ?: if (buttonStyle == "outlined" || buttonStyle == "minimal") MaterialTheme.colorScheme.onSurface else defaultText
             val borderColor = provider.border_color?.let { StyleEngine.parseColor(it) } ?: defaultBorder
             // OB-2 — per-provider corner_radius + border_width overrides.
             val providerCorner = (provider.corner_radius ?: block.button_corner_radius?.toFloat() ?: 12f).dp
@@ -4240,13 +4250,27 @@ private fun OrbitingIconsLoader(
                     .size((orbitRadius * 2).dp)
                     .border(ringWidth, StyleEngine.parseColor(ringColorHex).copy(alpha = ringOpacity), CircleShape),
             )
-            // Central dot
-            Box(
-                modifier = Modifier
-                    .size(centralSize)
-                    .clip(CircleShape)
-                    .background(StyleEngine.parseColor(centralBgHex)),
-            )
+            // Central dot/image — SPEC-419 pass-13: render central_image_url when
+            // authored (was central-color dot only). Mirrors iOS
+            // ContentBlockStandaloneViews.swift:528-540.
+            val centralImageUrl = (cfg?.get("central_image_url") as? String)?.takeIf { it.isNotBlank() }
+            if (centralImageUrl != null) {
+                ai.appdna.sdk.core.NetworkImage(
+                    url = centralImageUrl,
+                    modifier = Modifier
+                        .size(centralSize)
+                        .clip(CircleShape)
+                        .background(StyleEngine.parseColor(centralBgHex)),
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(
+                    modifier = Modifier
+                        .size(centralSize)
+                        .clip(CircleShape)
+                        .background(StyleEngine.parseColor(centralBgHex)),
+                )
+            }
             // Orbiting icons
             Box(
                 modifier = Modifier.graphicsLayer { rotationZ = rotation },
@@ -6814,11 +6838,26 @@ private fun FormInputSelectBlock(
                         // SPEC-419 D5 — per-option badge straddling the card top border (BoxScope child,
                         // half above the top edge; inset 12dp from the trailing/leading edge).
                         option.badge?.text?.takeIf { it.isNotBlank() }?.let { bt ->
-                            val leadingBadge = (option.badge?.position ?: "").contains("leading")
+                            // SPEC-419 pass-13 — honor the full 4-corner + center badge_position
+                            // set (was contains("leading") only → bottom_* badges pinned to top).
+                            // Mirrors iOS badgeAlignment/badgeOffsetX (FormInputBlockViews.swift:842).
+                            val badgePos = option.badge?.position ?: ""
+                            val badgeAlign = when (badgePos) {
+                                "top_leading" -> Alignment.TopStart
+                                "bottom_leading" -> Alignment.BottomStart
+                                "bottom_trailing" -> Alignment.BottomEnd
+                                "leading" -> Alignment.CenterStart
+                                "trailing" -> Alignment.CenterEnd
+                                else -> Alignment.TopEnd
+                            }
+                            val badgeOffsetX = when (badgePos) {
+                                "top_leading", "bottom_leading", "leading" -> 12.dp
+                                else -> (-12).dp
+                            }
                             Box(
                                 modifier = Modifier
-                                    .align(if (leadingBadge) Alignment.TopStart else Alignment.TopEnd)
-                                    .offset(x = if (leadingBadge) 12.dp else (-12).dp, y = (-9).dp)
+                                    .align(badgeAlign)
+                                    .offset(x = badgeOffsetX, y = (-9).dp)
                                     .testTag("option.$oi.badge")
                                     .background(
                                         option.badge?.bg_color?.let { StyleEngine.parseColor(it) } ?: Color(0xFF22C55E),
@@ -6932,17 +6971,45 @@ private fun FormInputSelectBlock(
                                                 )
                                             }
                                         }
-                                        // Selected/unselected toggle-badge overlay
-                                        // (top-right) matching iOS grid path.
-                                        val badgeIcon = if (isSelected) option.selected_icon else option.unselected_icon
-                                        if (!badgeIcon.isNullOrEmpty()) {
-                                            Text(
-                                                text = badgeIcon,
+                                        // EPIC-1 / SPEC-419 pass-13 — toggle-icon overlay honors
+                                        // show_toggle_icon, toggle_icon_position, toggle_icon_size,
+                                        // and selected/unselected bg+fg colors (was hardcoded TopEnd,
+                                        // 12sp, no bg). Mirrors iOS gridSelectView
+                                        // (FormInputBlockViews.swift:1003-1149).
+                                        val defSelIcon = cfg?.get("selected_icon") as? String
+                                        val defUnselIcon = cfg?.get("unselected_icon") as? String
+                                        val showToggleIcon = (cfg?.get("show_toggle_icon") as? Boolean) ?: (defSelIcon != null)
+                                        if (showToggleIcon) {
+                                            val toggleAlign = when (cfg?.get("toggle_icon_position") as? String) {
+                                                "top_leading" -> Alignment.TopStart
+                                                "bottom_trailing" -> Alignment.BottomEnd
+                                                "bottom_leading" -> Alignment.BottomStart
+                                                else -> Alignment.TopEnd
+                                            }
+                                            val toggleSizeF = (cfg?.get("toggle_icon_size") as? Number)?.toFloat() ?: 20f
+                                            val badgeIcon = if (isSelected) (option.selected_icon ?: defSelIcon ?: "✓")
+                                                            else (option.unselected_icon ?: defUnselIcon ?: "+")
+                                            val badgeFg = if (isSelected)
+                                                ((cfg?.get("toggle_icon_selected_fg_color") as? String)?.let { StyleEngine.parseColor(it) } ?: optSelText)
+                                            else ((cfg?.get("toggle_icon_unselected_fg_color") as? String)?.let { StyleEngine.parseColor(it) } ?: textCol.copy(alpha = 0.5f))
+                                            val badgeBg = if (isSelected)
+                                                ((cfg?.get("toggle_icon_selected_bg_color") as? String)?.let { StyleEngine.parseColor(it) } ?: fillCol.copy(alpha = 0.2f))
+                                            else ((cfg?.get("toggle_icon_unselected_bg_color") as? String)?.let { StyleEngine.parseColor(it) } ?: Color.Transparent)
+                                            Box(
                                                 modifier = Modifier
-                                                    .align(Alignment.TopEnd)
-                                                    .padding(6.dp),
-                                                fontSize = 12.sp,
-                                            )
+                                                    .align(toggleAlign)
+                                                    .padding(6.dp)
+                                                    .size(toggleSizeF.dp)
+                                                    .background(badgeBg, CircleShape),
+                                                contentAlignment = Alignment.Center,
+                                            ) {
+                                                Text(
+                                                    text = badgeIcon,
+                                                    fontSize = (toggleSizeF * 0.5f).sp,
+                                                    color = badgeFg,
+                                                    fontWeight = FontWeight.Bold,
+                                                )
+                                            }
                                         }
                                     }
                                 }
