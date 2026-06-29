@@ -6370,6 +6370,10 @@ private fun FormInputTextAreaBlock(
     // so every back-press wiped typed answers. Read from inputValues map.
     var text by remember { mutableStateOf((inputValues[fieldId] as? String) ?: "") }
     val minLines = (block.field_config?.get("min_lines") as? Number)?.toInt() ?: 3
+    // SPEC-419 pass-19 #2 — honor field_config.field_height as an additional minimum
+    // (the editor shows "Field Height" for textarea too; iOS sibling now mirrors this).
+    // min_lines stays the floor; field_height adds a second null-safe minimum.
+    val taFieldHeightDp = (block.field_config?.get("field_height") as? Number)?.toFloat()
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -6421,7 +6425,7 @@ private fun FormInputTextAreaBlock(
                     )
                 },
                 shape = RoundedCornerShape(cornerRadius),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().let { if (taFieldHeightDp != null) it.heightIn(min = taFieldHeightDp.dp) else it },
                 singleLine = false,
                 minLines = minLines,
                 interactionSource = interactionSource,
@@ -6525,7 +6529,10 @@ private fun FormInputPasswordBlock(
                 // SPEC-419 pass-18 — honor field_style.background_color ("Field Fill") like the
                 // Text/TextArea siblings + iOS; defaults Transparent so M3's default surface fill
                 // doesn't draw inside the border (the "double border" vs the page bg).
-                focusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
+                // SPEC-419 pass-19 #4 — differentiate focused_background_color on focus like the
+                // Text/TextArea siblings (focusedBgColor = focused_background_color ?? background_color).
+                focusedContainerColor = block.field_style?.focused_background_color?.let { StyleEngine.parseColor(it) }
+                    ?: block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
                 unfocusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
             ),
         )
@@ -8437,6 +8444,11 @@ private fun FormInputLocationPlaceholder(
                 // SPEC-419 pass-15 #18 \u2014 honor field_style.text_color for the input text.
                 focusedTextColor = fieldTextColor,
                 unfocusedTextColor = fieldTextColor,
+                // SPEC-419 pass-19 #3 \u2014 honor field_style.background_color ("Field Fill") like the
+                // Text/Password siblings + iOS (FormInputBlockViews.swift:1676); else M3's default
+                // surface fill draws over the authored fill. Defaults Transparent.
+                focusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
+                unfocusedContainerColor = block.field_style?.background_color?.let { StyleEngine.parseColor(it) } ?: Color.Transparent,
             ),
         )
 
