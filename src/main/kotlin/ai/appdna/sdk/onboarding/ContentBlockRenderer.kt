@@ -5434,14 +5434,19 @@ private fun RowBlock(
                         // off-position ("too far left"). Wrap-content lets ImageBlock own the size and
                         // the row position it correctly, vertically centred (align_items default).
                         val cw = child.element_width
+                        // SPEC-419 pass-16 #16 — fractional widths (e.g. "50%") get fillMaxWidth(fraction)
+                        // via applyRelativeSizing, mirroring iOS + preview; was swallowed by weight(1f).
+                        val cwFractional = cw != null && cw.endsWith("%")
                         // SPEC-419 — a fixed-width child (leading icon) wraps content + gets a small
                         // start inset so it isn't flush against the card's left border (user: "inset
                         // from the left edge"); flexible children weight/fill.
                         val childMod = if (cw != null && cw.endsWith("px")) Modifier.padding(start = 12.dp)
+                            else if (cwFractional) Modifier
                             else if (childFill) Modifier.weight(1f) else Modifier
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                        // SPEC-419 pass-15 #33 — apply per-child element_height (width handled above); skip height for input_*.
-                        val childSizeMod = overflowMod.applyRelativeSizing(null, if (child.type.startsWith("input_")) null else child.element_height)
+                        // SPEC-419 pass-15 #33 — apply per-child element_height (px width handled above);
+                        // pass-16 #16 — fractional width applied here. Skip height for input_*.
+                        val childSizeMod = overflowMod.applyRelativeSizing(if (cwFractional) cw else null, if (child.type.startsWith("input_")) null else child.element_height)
                         Box(modifier = childSizeMod) {
                             RenderBlock(
                                 block = child,
@@ -8362,6 +8367,17 @@ private fun FormInputLocationPlaceholder(
     val ddIconColor = (cfg?.get("dropdown_icon_color") as? String)?.let { StyleEngine.parseColor(it) }
     val ddIconBgColor = (cfg?.get("dropdown_icon_bg_color") as? String)?.takeIf { it.isNotEmpty() }?.let { StyleEngine.parseColor(it) }
     val ddOpacity = (cfg?.get("dropdown_opacity") as? Number)?.toFloat() ?: 1f
+    // SPEC-419 pass-16 #13 — honor dropdown_subtext_color/_sub_font_size (subtitle row),
+    // dropdown_icon_size, and dropdown_icon_bg_gradient. iOS FormInputBlockViews.swift:1749-1791
+    // already renders all of these; Android hardcoded 24dp icon / solid bg / no subtitle.
+    val ddSubtextColor = (cfg?.get("dropdown_subtext_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val ddSubFontSize = ((cfg?.get("dropdown_sub_font_size") as? Number)?.toFloat() ?: 12f).sp
+    val ddIconSize = ((cfg?.get("dropdown_icon_size") as? Number)?.toFloat() ?: 24f).dp
+    @Suppress("UNCHECKED_CAST")
+    val ddIconBgGradColors: List<Color>? = ((cfg?.get("dropdown_icon_bg_gradient") as? Map<String, Any?>)
+        ?.get("colors") as? List<*>)
+        ?.mapNotNull { (it as? String)?.let { hex -> StyleEngine.parseColor(hex) } }
+        ?.takeIf { it.size >= 2 }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -8449,20 +8465,42 @@ private fun FormInputLocationPlaceholder(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // SPEC-419 pass-15 #19 — pin icon with optional icon bg + icon color.
+                        // SPEC-419 pass-15 #19 / pass-16 #13 — pin icon with optional gradient/solid
+                        // bg + icon color, honoring dropdown_icon_size.
                         Box(
                             modifier = Modifier
-                                .size(24.dp)
-                                .then(if (ddIconBgColor != null) Modifier.clip(RoundedCornerShape(6.dp)).background(ddIconBgColor) else Modifier),
+                                .size(ddIconSize)
+                                .then(
+                                    when {
+                                        ddIconBgGradColors != null -> Modifier.clip(RoundedCornerShape(6.dp))
+                                            .background(Brush.linearGradient(ddIconBgGradColors))
+                                        ddIconBgColor != null -> Modifier.clip(RoundedCornerShape(6.dp)).background(ddIconBgColor)
+                                        else -> Modifier
+                                    },
+                                ),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(text = "📍", fontSize = 10.sp, color = ddIconColor ?: Color.Unspecified)
                         }
-                        Text(
-                            text = suggestion.address,
-                            fontSize = ddFontSize,
-                            color = ddTextColor ?: MaterialTheme.colorScheme.onSurface,
-                        )
+                        // #13 — primary + optional subtitle row (split address on first comma),
+                        // mirroring iOS title/subtitle.
+                        val addrParts = suggestion.address.split(",", limit = 2)
+                        val addrPrimary = addrParts.getOrNull(0)?.trim().orEmpty().ifEmpty { suggestion.address }
+                        val addrSecondary = addrParts.getOrNull(1)?.trim().orEmpty()
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(
+                                text = addrPrimary,
+                                fontSize = ddFontSize,
+                                color = ddTextColor ?: MaterialTheme.colorScheme.onSurface,
+                            )
+                            if (addrSecondary.isNotEmpty()) {
+                                Text(
+                                    text = addrSecondary,
+                                    fontSize = ddSubFontSize,
+                                    color = ddSubtextColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
                     if (index < suggestions.size - 1) {
                         // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
