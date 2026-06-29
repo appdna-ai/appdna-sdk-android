@@ -1488,12 +1488,18 @@ internal object OnboardingConfigParser {
                 val base = (bm["field_config"] as? Map<String, Any>)?.toMutableMap()
                 val labelFormat = bm["label_format"] as? String
                 val customLabel = bm["custom_label"] as? String
-                if (labelFormat == null && customLabel == null) {
+                // SPEC-419 pass-14 #3 — fold the top-level `video_controls` key
+                // into field_config so the renderer can honour it without adding
+                // a new top-level ContentBlock field (budget-locked). The console
+                // editor + preview + iOS all read `video_controls`.
+                val videoControls = bm["video_controls"] as? Boolean
+                if (labelFormat == null && customLabel == null && videoControls == null) {
                     base
                 } else {
                     val merged = base ?: mutableMapOf()
                     if (labelFormat != null) merged.putIfAbsent("label_format", labelFormat)
                     if (customLabel != null) merged.putIfAbsent("custom_label", customLabel)
+                    if (videoControls != null) merged.putIfAbsent("video_controls", videoControls)
                     merged
                 }
             },

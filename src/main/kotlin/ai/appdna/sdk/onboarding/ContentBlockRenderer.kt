@@ -2609,7 +2609,11 @@ private fun VideoBlock(block: ContentBlock) {
                 autoplay = block.autoplay ?: block.video_autoplay,
                 loop = block.loop ?: block.video_loop,
                 muted = block.muted ?: block.video_muted,
-                controls = block.controls ?: true,
+                // SPEC-419 pass-14 #3 — honour the authored `video_controls`
+                // fallback (folded into field_config in OnboardingConfig.fromMap)
+                // so an authored `false` actually hides the controls, matching
+                // iOS + preview. Was unconditionally `?: true`.
+                controls = block.controls ?: (block.field_config?.get("video_controls") as? Boolean) ?: true,
                 inline_playback = block.inline_playback ?: true,
             )
         )
@@ -5009,7 +5013,11 @@ private fun StackBlock(
         ?: mapBlockAlignment(block.horizontal_align, block.vertical_align)
 
     Box(
-        modifier = Modifier.fillMaxWidth(),
+        // SPEC-419 pass-14 #4 — apply authored `height` to the stack container
+        // (the editor default-inits 200; preview applies block.height at
+        // OnboardingStepPreview.tsx:1735). Was fillMaxWidth only, so authored
+        // heights were dropped on-device.
+        modifier = Modifier.fillMaxWidth().let { m -> block.height?.let { m.height(it.dp) } ?: m },
         contentAlignment = stackAlignment,
     ) {
         childBlocks.forEach { child ->
