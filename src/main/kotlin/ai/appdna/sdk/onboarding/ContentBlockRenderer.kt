@@ -1531,7 +1531,10 @@ private fun SectionBackgroundBlock(
 ) {
     // EPIC-4b — paint vertical proportional color zones, overlay the children content on top.
     // Zones + arrangement come through field_config (ContentBlock is at the JVM constructor-arg limit).
-    val zonesRaw = block.field_config?.get("background_zones") as? List<*> ?: return
+    // SPEC-419 — NO early-return when the zones key is absent (AI/imported configs may omit it).
+    // Fall back to an empty list so the foreground children still render on a bare background,
+    // matching iOS (`?? []`) + the console preview (`|| []`). The comment below already said so.
+    val zonesRaw = block.field_config?.get("background_zones") as? List<*> ?: emptyList<Any?>()
     val zones = zonesRaw.mapNotNull { z ->
         (z as? Map<*, *>)?.let {
             BackgroundZone(
@@ -4685,7 +4688,9 @@ private fun RowBlock(
     // `stack_children` on row-block creation (StepContentEditor.tsx).
     // Mirrors iOS ContentBlockRendererView.swift:1129.
     val childBlocks = block.children ?: block.stack_children ?: emptyList()
-    val rowGap = (block.gap ?: 8.0).dp
+    // SPEC-419 — editor writes `spacing` (preview reads `spacing`); `gap` is the legacy/imported
+    // key. Read spacing first so authored row gap isn't lost on-device.
+    val rowGap = (block.spacing ?: block.gap ?: 8.0).dp
     val direction = block.row_direction ?: "horizontal"
     val distribution = block.row_distribution ?: "start"
     val childFill = block.row_child_fill ?: true
