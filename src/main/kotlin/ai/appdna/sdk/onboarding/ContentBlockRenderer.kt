@@ -3931,7 +3931,11 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
     val loadingMessage = block.loading_text
     val loadingTextPos = block.loading_text_position ?: "below"
     val loadingTextSize = (block.loading_text_size ?: 15.0).sp
-    val loadingMessageColor = block.loading_text_color?.let { StyleEngine.parseColor(it) } ?: textColor
+    // SPEC-419 pass-15 #13 — loading message color falls back loading_text_color → text_color → #9CA3AF
+    // (matches iOS + preview; Android previously fell back to text_color→#000).
+    val loadingMessageColor = block.loading_text_color?.let { StyleEngine.parseColor(it) }
+        ?: block.text_color?.let { StyleEngine.parseColor(it) }
+        ?: StyleEngine.parseColor("#9CA3AF")
 
     // Track which items have completed
     var completedCount by remember { mutableIntStateOf(0) }
@@ -8628,7 +8632,9 @@ private fun FormInputSignatureBlock(
             // matching iOS `FormInputBlockViews.swift:1780-1789` (which uses
             // `.color(.primary)` and `lineWidth: 2`). Was hardcoded
             // `Color.Black` + 4f (twice as thick + invisible in dark mode).
-            val strokeColor = MaterialTheme.colorScheme.onSurface
+            // SPEC-419 pass-15 #15 — honor field_config.stroke_color (editor + preview); was hardcoded theme onSurface.
+            val strokeColor = (block.field_config?.get("stroke_color") as? String)?.let { StyleEngine.parseColor(it) }
+                ?: MaterialTheme.colorScheme.onSurface
             val strokePx = with(LocalDensity.current) { 2.dp.toPx() }
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val allLines = lines.toList() + listOf(currentLine)
