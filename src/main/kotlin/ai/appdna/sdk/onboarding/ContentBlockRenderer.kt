@@ -5329,7 +5329,9 @@ private fun RowBlock(
                 childBlocks.forEach { child ->
                     val childMod = if (childFill) Modifier.fillMaxWidth() else Modifier
                     val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                    Box(modifier = overflowMod) {
+                    // SPEC-419 pass-15 #33 — apply per-child element_width/element_height (mirrors iOS + preview applyRelativeSizing); skip height for input_* like the top-level renderer.
+                    val childSizeMod = overflowMod.applyRelativeSizing(child.element_width, if (child.type.startsWith("input_")) null else child.element_height)
+                    Box(modifier = childSizeMod) {
                         RenderBlock(
                             block = child,
                             onAction = onAction,
@@ -5375,7 +5377,9 @@ private fun RowBlock(
                         val w = if (idx < ratios.size) ratios[idx] else avg
                         val childMod = Modifier.weight(w)
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                        Box(modifier = overflowMod) {
+                        // SPEC-419 pass-15 #33 — apply per-child element_height (width owned by weight here); skip height for input_*.
+                        val childSizeMod = overflowMod.applyRelativeSizing(null, if (child.type.startsWith("input_")) null else child.element_height)
+                        Box(modifier = childSizeMod) {
                             RenderBlock(
                                 block = child,
                                 onAction = onAction,
@@ -5400,7 +5404,9 @@ private fun RowBlock(
                         val childMod = if (cw != null && cw.endsWith("px")) Modifier.padding(start = 12.dp)
                             else if (childFill) Modifier.weight(1f) else Modifier
                         val overflowMod = if (child.overflow == "visible") childMod.zIndex(1f) else childMod
-                        Box(modifier = overflowMod) {
+                        // SPEC-419 pass-15 #33 — apply per-child element_height (width handled above); skip height for input_*.
+                        val childSizeMod = overflowMod.applyRelativeSizing(null, if (child.type.startsWith("input_")) null else child.element_height)
+                        Box(modifier = childSizeMod) {
                             RenderBlock(
                                 block = child,
                                 onAction = onAction,
@@ -6831,6 +6837,10 @@ private fun FormInputSelectBlock(
     val unselectedBorderW = ((cfg?.get("unselected_border_width") as? Number)?.toDouble() ?: 1.0).dp
     val bgOpacity = ((cfg?.get("background_opacity") as? Number)?.toDouble() ?: 1.0).toFloat().coerceIn(0f, 1f)
     val optionSpacingDp = ((cfg?.get("option_spacing") as? Number)?.toDouble() ?: 8.0).dp
+    // SPEC-419 pass-15 #36 — block-level title/subtitle font defaults from field_config (iOS
+    // FormInputBlockViews.swift:678-679, defaults 15/12); per-option size overrides these.
+    val defaultTitleSize = (cfg?.get("title_font_size") as? Number)?.toFloat() ?: 15f
+    val defaultSubtitleSize = (cfg?.get("subtitle_font_size") as? Number)?.toFloat() ?: 12f
     var selectedValue by remember { mutableStateOf(inputValues[fieldId] as? String ?: "") }
     val initialSelected: Set<String> = remember {
         when (val existing = inputValues[fieldId]) {
@@ -7018,7 +7028,8 @@ private fun FormInputSelectBlock(
                                     Text(
                                         text = option.label,
                                         modifier = Modifier.testTag("option.$oi.title"),
-                                        fontSize = (option.title_font_size ?: 14.0).sp,
+                                        // SPEC-419 pass-15 #36 — fall back to block-level default (not hardcoded 14).
+                                        fontSize = (option.title_font_size?.toFloat() ?: defaultTitleSize).sp,
                                         color = optTitleColor,
                                         fontWeight = option.title_font_weight?.let { wStr ->
                                             ai.appdna.sdk.core.FontResolver.fontWeight(wStr.toIntOrNull() ?: when (wStr.lowercase()) {
@@ -7044,7 +7055,8 @@ private fun FormInputSelectBlock(
                                         Text(
                                             text = subtitle,
                                             modifier = Modifier.testTag("option.$oi.subtitle"),
-                                            fontSize = (option.subtitle_font_size ?: 12.0).sp,
+                                            // SPEC-419 pass-15 #36 — fall back to block-level default (not hardcoded 12).
+                                            fontSize = (option.subtitle_font_size?.toFloat() ?: defaultSubtitleSize).sp,
                                             color = optSubtitleColor,
                                         )
                                     }
