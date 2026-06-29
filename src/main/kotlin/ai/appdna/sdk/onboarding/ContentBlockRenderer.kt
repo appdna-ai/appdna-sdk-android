@@ -2137,8 +2137,9 @@ private fun SummaryScreenBlock(block: ContentBlock, loc: ((String, String) -> St
         stats.chunked(2).forEach { rowStats ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 rowStats.forEach { m ->
-                    val value = (m["value"] as? String) ?: ""
-                    val label = (m["label"] as? String) ?: ""
+                    // Coerce — a numeric stat value (Int/Double) cast `as? String` would blank the card.
+                    val value = m["value"]?.toString() ?: ""
+                    val label = m["label"]?.toString() ?: ""
                     val color = StyleEngine.parseColor((m["color"] as? String) ?: defaultAccent)
                     Column(
                         modifier = Modifier
@@ -2185,9 +2186,10 @@ private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) ->
     }
 }
 
-/** EPIC-11 — Health/HealthKit connect: a tappable card (icon + title + subtitle + chevron/✓). `field_config.
- * health_provider` (apple|google) picks the icon + default label; `connected` shows a green check; the native
- * connect flow is host-driven via onAction("health_connect"). */
+/** EPIC-11 — Health connect: a tappable card (icon + title + subtitle + chevron/✓). PLATFORM-FIXED to Google
+ * Fit 🏃 on Android (iOS is Apple Health); the provider is NOT author-selectable — `health_provider` is ignored.
+ * `field_config.health_subtitle` sets the subtitle; `connected` shows a green check; the native connect flow is
+ * host-driven via onAction("health_connect"). */
 @Composable
 private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
     // EPIC-11 — provider is PLATFORM-FIXED: Android always shows Google Fit (Apple Health is iOS-only).
