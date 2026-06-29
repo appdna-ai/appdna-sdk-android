@@ -8258,6 +8258,19 @@ private fun FormInputLocationPlaceholder(
     val coroutineScope = rememberCoroutineScope()
     var debounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
+    // SPEC-419 pass-15 #18/#19/#35 — honor field_style.text_color, show_prefix_icon,
+    // and dropdown_* styling (all read from field_config, matching iOS + editor).
+    val cfg = block.field_config
+    val showPrefixIcon = (cfg?.get("show_prefix_icon") as? Boolean) ?: true
+    val fieldTextColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: Color.Unspecified
+    val ddBgColor = (cfg?.get("dropdown_bg_color") as? String)?.takeIf { it.isNotEmpty() }?.let { StyleEngine.parseColor(it) }
+    val ddTextColor = (cfg?.get("dropdown_text_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val ddFontSize = ((cfg?.get("dropdown_font_size") as? Number)?.toFloat() ?: 14f).sp
+    val ddRowHeight = (cfg?.get("dropdown_row_height") as? Number)?.toFloat()
+    val ddIconColor = (cfg?.get("dropdown_icon_color") as? String)?.let { StyleEngine.parseColor(it) }
+    val ddIconBgColor = (cfg?.get("dropdown_icon_bg_color") as? String)?.takeIf { it.isNotEmpty() }?.let { StyleEngine.parseColor(it) }
+    val ddOpacity = (cfg?.get("dropdown_opacity") as? Number)?.toFloat() ?: 1f
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -8288,7 +8301,10 @@ private fun FormInputLocationPlaceholder(
             // Material3 OutlinedTextFieldDefaults adaptive placeholder color
             // applies (theme-aware in dark mode).
             placeholder = { Text(block.field_placeholder ?: "Search location...") },
-            leadingIcon = { Text("\uD83D\uDCCD", fontSize = 16.sp) },
+            // SPEC-419 pass-15 #35 \u2014 honor show_prefix_icon (default true).
+            leadingIcon = if (showPrefixIcon) {
+                { Text("\uD83D\uDCCD", fontSize = 16.sp) }
+            } else null,
             trailingIcon = {
                 if (isSearching) {
                     CircularProgressIndicator(
@@ -8303,6 +8319,9 @@ private fun FormInputLocationPlaceholder(
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = StyleEngine.parseColor(block.field_style?.focused_border_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1")),
                 unfocusedBorderColor = StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
+                // SPEC-419 pass-15 #18 \u2014 honor field_style.text_color for the input text.
+                focusedTextColor = fieldTextColor,
+                unfocusedTextColor = fieldTextColor,
             ),
         )
 
@@ -8312,10 +8331,8 @@ private fun FormInputLocationPlaceholder(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape((block.field_style?.corner_radius ?: 8.0).dp))
-                    // SPEC-401-A R38 (Lens C #4) — theme-aware surface so the
-                    // suggestion list is readable in dark mode (was hardcoded
-                    // #F9FAFB white panel + Color.Black text).
-                    .background(MaterialTheme.colorScheme.surface)
+                    // SPEC-419 pass-15 #19 — honor dropdown_bg_color (+ opacity); default theme surface.
+                    .background((ddBgColor ?: MaterialTheme.colorScheme.surface).copy(alpha = ddOpacity))
                     .border(
                         1.dp,
                         StyleEngine.parseColor(block.field_style?.border_color ?: "#D1D5DB"),
@@ -8323,9 +8340,10 @@ private fun FormInputLocationPlaceholder(
                     ),
             ) {
                 suggestions.forEachIndexed { index, suggestion ->
-                    Column(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .then(if (ddRowHeight != null) Modifier.height(ddRowHeight.dp) else Modifier)
                             .clickable {
                                 text = suggestion.address
                                 showSuggestions = false
@@ -8336,8 +8354,23 @@ private fun FormInputLocationPlaceholder(
                                 )
                             }
                             .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(text = suggestion.address, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
+                        // SPEC-419 pass-15 #19 — pin icon with optional icon bg + icon color.
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .then(if (ddIconBgColor != null) Modifier.clip(RoundedCornerShape(6.dp)).background(ddIconBgColor) else Modifier),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(text = "📍", fontSize = 10.sp, color = ddIconColor ?: Color.Unspecified)
+                        }
+                        Text(
+                            text = suggestion.address,
+                            fontSize = ddFontSize,
+                            color = ddTextColor ?: MaterialTheme.colorScheme.onSurface,
+                        )
                     }
                     if (index < suggestions.size - 1) {
                         // SPEC-401-A R24 — Material3 1.2 deprecated `Divider`
