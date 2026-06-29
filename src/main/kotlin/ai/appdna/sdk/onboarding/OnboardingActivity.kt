@@ -1263,23 +1263,41 @@ internal fun OnboardingFlowHost(
         StepFullScreenBackground(currentStep = currentStep)
 
         // SPEC-419 — top status-bar scrim, matching iOS. iOS darkens the status-bar region on
-        // EVERY step (pixel-sampled iOS top ≈ (15,20,30) regardless of photo/gradient bg) for
-        // legibility; without a matching scrim, Android's full-bleed bg shows a LIGHTER band at
-        // the very top (the gradient's #213359 stop, or the photo) — the user-reported "top a
-        // different colour than the centre" (dE ~65 vs iOS on every screen). A dark→transparent
-        // vertical gradient over the top ~140dp reproduces it (black@0.55 over #213359 ≈ (15,23,40)
-        // ≈ iOS). Painted OVER the bg, UNDER the safe-area content so chrome/text stay legible.
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .height(140.dp)
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+        // dark/photo/gradient steps for legibility; without a matching scrim, Android's full-bleed
+        // bg shows a LIGHTER band at the very top (the gradient's #213359 stop, or the photo) — the
+        // user-reported "top a different colour than the centre". A dark→transparent vertical
+        // gradient over the top ~140dp reproduces it. Painted OVER the bg, UNDER the safe-area
+        // content so chrome/text stay legible.
+        // SPEC-419 pass-13 correctness — GATE the scrim to dark/photo/gradient backgrounds. Painting
+        // it UNCONDITIONALLY smudged a dark band over light `color`-type steps (white/pastel) where
+        // iOS shows none. Skip for light solid-color (and light default/theme) backgrounds.
+        fun lumaOf(c: Color) = 0.2126 * c.red + 0.7152 * c.green + 0.0722 * c.blue
+        val stepBg = currentStep?.config?.background
+        val showTopScrim = when (stepBg?.type) {
+            "gradient", "image" -> true
+            "color" -> stepBg.color?.let { lumaOf(ai.appdna.sdk.core.StyleEngine.parseColor(it)) < 0.5 } ?: false
+            null -> {
+                val base = currentStep?.config?.chat_config?.style?.background_color
+                    ?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
+                    ?: if (currentStep?.type == OnboardingStep.StepType.INTERACTIVE_CHAT) Color(0xFF0F172A)
+                       else bgColorForStatusBar
+                lumaOf(base) < 0.5
+            }
+            else -> lumaOf(bgColorForStatusBar) < 0.5 // lottie/rive → neutral theme base
+        }
+        if (showTopScrim) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .height(140.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color.Black.copy(alpha = 0.55f), Color.Transparent),
+                        ),
                     ),
-                ),
-        )
+            )
+        }
 
         // Safe-area content layer — sits on top of the full-bleed
         // background. `imePadding()` keeps keyboards from cropping inputs;

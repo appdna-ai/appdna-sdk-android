@@ -3567,18 +3567,22 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     // Default keeps the existing "Step X of Y". Mirrors the preview label logic.
     val labelFormat = block.field_config?.get("label_format") as? String
     val customLabel = block.field_config?.get("custom_label") as? String
-    val pvInt = (block.progress_value ?: 0.0).toInt()
+    // SPEC-419 pass-13 correctness — the percentage/fraction label must use the
+    // SAME normalization as the fill (`pvFraction`). Previously rendered the RAW
+    // `progress_value` → `progress_value=0.75` filled 75% but the label read
+    // "0%". Mirrors iOS pvPercent.
+    val pvPercent = ((pvFraction ?: 0f) * 100).roundToInt()
 
     Column(modifier = Modifier.fillMaxWidth()) {
         // Optional label
         if (showLabel && segmentCount > 0) {
             val labelText = when (labelFormat) {
                 null -> "Step $activeSegments of $segmentCount"
-                "fraction" -> if (variant == "segmented") "$activeSegments/$segmentCount" else "$pvInt/100"
+                "fraction" -> if (variant == "segmented") "$activeSegments/$segmentCount" else "$pvPercent/100"
                 "custom" -> customLabel ?: ""
                 else -> if (variant == "segmented")
                     "${((activeSegments.toFloat() / maxOf(segmentCount, 1)) * 100).toInt()}%"
-                else "$pvInt%"
+                else "$pvPercent%"
             }
             val labelStyle = if (block.label_style != null) {
                 // SPEC-401-A R44 — theme-adaptive secondary base (was Color.Gray).
@@ -4656,7 +4660,31 @@ private fun DateWheelPickerBlock(block: ContentBlock, inputValues: MutableMap<St
     // SPEC-419 — year range from min_date/max_date + allow_future/allow_past (was hardcoded
     // 1950..2030, ignoring the authored constraints). Mirrors iOS dateRange (-150y..+50y default).
     val currentYear = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR)
-    fun yearOf(s: String?): Int? = s?.trim()?.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+    // SPEC-419 P1 — parse relative-date strings ("today"/"now", "-18y", "+1y",
+    // "-30d", "-6m") the editor promotes (StepContentEditor min/max placeholders)
+    // in addition to ISO "yyyy-MM-dd". Mirrors iOS parseDate()
+    // (ContentBlockStandaloneViews.swift:1014-1037). Previously substring(0,4)
+    // only → relative strings returned null/garbage → the 18+ DOB age-gate was
+    // unenforced on Android vs iOS.
+    fun yearOf(s: String?): Int? {
+        val trimmed = s?.trim()?.lowercase()?.takeIf { it.isNotEmpty() } ?: return null
+        if (trimmed == "today" || trimmed == "now") return currentYear
+        val lastChar = trimmed.last()
+        if (lastChar in "dmy") {
+            val amount = trimmed.dropLast(1).toIntOrNull()
+            if (amount != null) {
+                val c = java.util.Calendar.getInstance()
+                when (lastChar) {
+                    'd' -> c.add(java.util.Calendar.DAY_OF_YEAR, amount)
+                    'm' -> c.add(java.util.Calendar.MONTH, amount)
+                    'y' -> c.add(java.util.Calendar.YEAR, amount)
+                }
+                return c.get(java.util.Calendar.YEAR)
+            }
+        }
+        // Absolute ISO date "yyyy-MM-dd"
+        return trimmed.takeIf { it.length >= 4 }?.substring(0, 4)?.toIntOrNull()
+    }
     var minYear = yearOf(block.min_date) ?: (currentYear - 150)
     var maxYear = yearOf(block.max_date) ?: (currentYear + 50)
     if (block.allow_future == false) maxYear = minOf(maxYear, currentYear)
