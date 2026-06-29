@@ -1356,7 +1356,7 @@ private fun RenderBlockContent(
         "memory_match" -> MemoryMatchBlock(block, onAction)
         "calendar_month" -> CalendarMonthBlock(block, onAction)
         "button" -> ButtonBlock(block, onAction, loc)
-        "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 16.0).dp))
+        "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 24.0).dp)) // SPEC-419 pass-14 #11 — unset default 24 to match editor+preview (was 16)
         "list" -> ListBlock(block, loc)
         "divider" -> DividerBlock(block)
         "badge" -> BadgeBlock(block, loc)
@@ -2478,7 +2478,7 @@ private fun DividerBlock(block: ContentBlock) {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = (block.divider_margin_y ?: 8.0).dp)
+            .padding(vertical = (block.divider_margin_y ?: 16.0).dp) // SPEC-419 pass-14 #12 — unset default 16 to match editor+preview (was 8)
             .height((block.divider_thickness ?: 1.0).dp)
             .background(StyleEngine.parseColor(block.divider_color ?: "#E5E7EB")),
     )
@@ -3565,10 +3565,10 @@ private fun ProgressBarBlock(block: ContentBlock, loc: ((String, String) -> Stri
     // EPIC-2 — multiple progress colors at once (horizontal gradient across the fill).
     val gradColors = block.bar_gradient_colors?.takeIf { it.size >= 2 }?.map { StyleEngine.parseColor(it) }
     val trackColor = StyleEngine.parseColor(block.track_color ?: "#E5E7EB")
-    val barHeight = (block.bar_height ?: block.height ?: 6.0).dp
+    val barHeight = (block.bar_height ?: block.height ?: 8.0).dp // SPEC-419 pass-14 #14 — unset default 8 to match editor+preview (was 6)
     val cornerRadius = (block.corner_radius ?: 3.0).dp
     val segmentGap = (block.segment_gap ?: 4.0).dp
-    val showLabel = block.show_label ?: false
+    val showLabel = block.show_label ?: true // SPEC-419 pass-14 #13 — unset default true to match editor+preview (was false)
     // SPEC-419 gap#2 — explicit continuous fill from `progress_value` (0–1
     // fraction OR 0–100 percent), clamped 0..1. When unset the bar keeps
     // auto-binding to the step index. Mirrors iOS + the console preview.
