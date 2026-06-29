@@ -5121,9 +5121,18 @@ private fun RowBlock(
             } else {
                 Modifier.fillMaxWidth()
             }
+            // SPEC-419 pass-13 — cross-axis (horizontal) alignment from align_items for
+            // the vertical row, mirroring iOS hAlign (VStack alignment): leading/start →
+            // Start, trailing/end → End, else center (was always Column-default Start).
+            val hAlignment = when (block.align_items) {
+                "leading", "start", "left" -> Alignment.Start
+                "trailing", "end", "right" -> Alignment.End
+                else -> Alignment.CenterHorizontally
+            }
             Column(
                 modifier = modifier.then(baseMod),
                 verticalArrangement = if (rowGap.value > 0 && distribution == "start") Arrangement.spacedBy(rowGap) else vArrangement,
+                horizontalAlignment = hAlignment,
             ) {
                 LeadingIconSlot()
                 childBlocks.forEach { child ->
