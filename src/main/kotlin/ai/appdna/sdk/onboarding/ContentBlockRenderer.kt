@@ -6829,6 +6829,19 @@ private fun FormInputSelectBlock(
                                 val optSelBorder = option.selected_border_color?.let { StyleEngine.parseColor(it) } ?: selectedBorder
                                 val optSelText = option.selected_text_color?.let { StyleEngine.parseColor(it) } ?: selectedTextCol
                                 val optTitleColor = if (isSelected) optSelText else (option.title_color?.let { StyleEngine.parseColor(it) } ?: textCol)
+                                // EPIC-1 — resolve cell alignment: per-option override → block grid_cell_alignment → center.
+                                // Mirrors iOS gridSelectView cellAlignmentKey. Was hardcoded CenterHorizontally / TextAlign.Center.
+                                val cellAlignKey = option.cell_alignment ?: (cfg?.get("grid_cell_alignment") as? String) ?: "center"
+                                val cellHAlign = when (cellAlignKey) {
+                                    "leading", "left" -> Alignment.Start
+                                    "trailing", "right" -> Alignment.End
+                                    else -> Alignment.CenterHorizontally
+                                }
+                                val cellTextAlign = when (cellAlignKey) {
+                                    "leading", "left" -> TextAlign.Start
+                                    "trailing", "right" -> TextAlign.End
+                                    else -> TextAlign.Center
+                                }
                                 Card(
                                     modifier = Modifier
                                         .weight(1f)
@@ -6848,7 +6861,7 @@ private fun FormInputSelectBlock(
                                     Box(modifier = Modifier.fillMaxWidth()) {
                                         Column(
                                             modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            horizontalAlignment = cellHAlign,
                                         ) {
                                             option.resolvedImageURL(isSelected)?.takeIf { it.isNotEmpty() }?.let { url ->
                                                 Box(modifier = Modifier.size((optImgSizeRaw ?: 40f).dp).clip(when (option.image_shape) { "rounded" -> RoundedCornerShape(12.dp); "square" -> RoundedCornerShape(0.dp); else -> CircleShape })) {
@@ -6879,7 +6892,7 @@ private fun FormInputSelectBlock(
                                                         "black" -> 900; else -> 400
                                                     })
                                                 } ?: FontWeight.Normal,
-                                                textAlign = TextAlign.Center,
+                                                textAlign = cellTextAlign,
                                             )
                                             option.subtitle?.takeIf { it.isNotBlank() }?.let { subtitle ->
                                                 Text(
@@ -6887,7 +6900,7 @@ private fun FormInputSelectBlock(
                                                     fontSize = (option.subtitle_font_size ?: 12.0).sp,
                                                     color = option.subtitle_color?.let { StyleEngine.parseColor(it) }
                                                         ?: MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                                    textAlign = TextAlign.Center,
+                                                    textAlign = cellTextAlign,
                                                 )
                                             }
                                         }
