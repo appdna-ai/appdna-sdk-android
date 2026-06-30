@@ -348,7 +348,7 @@ internal fun RangeSliderField(
                 errors.remove(field.id)
             },
             valueRange = min..max,
-            steps = if (step > 0 && max > min) ((max - min) / step).toInt() - 1 else 0,
+            steps = if (step > 0 && max > min) (((max - min) / step).toInt() - 1).coerceAtLeast(0) else 0,  // SPEC-419 pass-34 — coerceAtLeast(0): Compose require(steps>=0) (mirror pass-22)
             modifier = Modifier.fillMaxWidth(),
         )
         Row(
