@@ -7721,7 +7721,8 @@ private fun FormInputSliderBlock(
     val rawMinV = (block.min_value ?: (block.field_config?.get("min_value") as? Number)?.toDouble() ?: 0.0).toFloat()
     val rawMaxV = (block.max_value_picker ?: (block.field_config?.get("max_value") as? Number)?.toDouble() ?: 100.0).toFloat()
     val minVal = minOf(rawMinV, rawMaxV)
-    val maxVal = maxOf(rawMaxV, minVal + 1f)
+    // SPEC-419 pass-39 — widen by the authored step (match iOS minVal+stepVal), not a hardcoded 1f, so a sub-unit decimal-step range isn't over-widened past the authored max.
+    val maxVal = maxOf(rawMaxV, minVal + ((block.step_value ?: (block.field_config?.get("step") as? Number)?.toDouble() ?: 1.0).toFloat().let { if (it > 0f) it else 1f }))
     // SPEC-401-A R61 (Lens A N2, P1) — default step_value=1.0 matches iOS
     // FormInputBlockViews.swift:953 `block.step_value ?? 1`. Was 0.0
     // (continuous), out of parity with iOS integer-snap default; also made
