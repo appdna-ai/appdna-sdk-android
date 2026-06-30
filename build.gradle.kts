@@ -279,39 +279,3 @@ dependencies {
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)
 }
-
-
-// SPEC-419 TEMP (revert before SDK PR) — build+install nurrai-android over the Mac bridge.
-tasks.register<Exec>("buildInstallNurrai") {
-    commandLine("bash", "-lc", """
-        set +e
-        AH="/opt/homebrew/share/android-commandlinetools"; ADB="${'$'}AH/platform-tools/adb"
-        cd ~/nurrai-android || { echo "NO nurrai-android" > ~/_buildout.txt; exit 7; }
-        ./gradlew :app:assembleDebug --console=plain > /tmp/nb_build.log 2>&1
-        RC=${'$'}?
-        APK=${'$'}(find app/build/outputs/apk -name "*.apk" 2>/dev/null | head -1)
-        INST="(skipped)"
-        if [ "${'$'}RC" = "0" ] && [ -n "${'$'}APK" ]; then
-            INST=${'$'}("${'$'}ADB" -e install -r -d "${'$'}APK" 2>&1 | tail -2)
-        fi
-        {
-            echo "GRADLE_RC=${'$'}RC"
-            echo "INSTALL=${'$'}INST"
-            grep -E "BUILD SUCCESSFUL|BUILD FAILED|^e: |error:" /tmp/nb_build.log | tail -12
-        } > ~/nurrai-android/_buildout.txt
-        cat ~/nurrai-android/_buildout.txt
-        echo "=== DONE ==="; exit 7
-    """)
-    isIgnoreExitValue = false
-}
-
-// SPEC-419 TEMP (revert before SDK PR) — dump the crash buffer for diagnosis.
-tasks.register<Exec>("dumpCrash") {
-    commandLine("bash", "-lc", """
-        AH="/opt/homebrew/share/android-commandlinetools"; ADB="${'$'}AH/platform-tools/adb"
-        "${'$'}ADB" -e logcat -d -b crash -t 300 > ~/nurrai-android/_crash.txt 2>&1
-        "${'$'}ADB" -e logcat -d -t 400 2>/dev/null | grep -iE "AndroidRuntime|FATAL|appdna|nurrai|Exception" | tail -60 >> ~/nurrai-android/_crash.txt
-        echo "=== DONE ==="; exit 7
-    """)
-    isIgnoreExitValue = true
-}
