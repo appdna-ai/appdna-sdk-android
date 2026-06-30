@@ -512,7 +512,11 @@ class SharedFixtureTest(
                     val platforms = json.optJSONArray("platforms") ?: JSONArray()
                     val applies = (0 until platforms.length())
                         .any { platforms.getString(it) == "android" }
-                    if (applies) {
+                    // `render`-category fixtures drive the structural/visual parity
+                    // harness and carry no `action` — they must NOT be loaded by this
+                    // behavioral runner (which requires `action.kind`).
+                    val isRender = json.optString("category", "") == "render"
+                    if (applies && !isRender) {
                         val name = file.name.removeSuffix(".fixture.json")
                         out.add(arrayOf(name, json))
                     }
