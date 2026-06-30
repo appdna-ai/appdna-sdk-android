@@ -6980,6 +6980,13 @@ private fun FormInputSelectBlock(
                 // SPEC-419 pass-13 — option_height (or size) → row min-height, mirroring iOS.
                 val stackedMinHeight = ((cfg?.get("option_height") as? Number)?.toFloat()
                     ?: (cfg?.get("size") as? Number)?.toFloat())
+                // SPEC-419 pass-24 — show_item_separators (console Switch, stacked only) draws a
+                // divider between stacked options, honoring separator_color + separator_thickness
+                // like the list variant. Off by default (cards already have borders).
+                val showItemSeparators = (cfg?.get("show_item_separators") as? Boolean) == true
+                val stackedSepColor = (cfg?.get("separator_color") as? String)?.let { StyleEngine.parseColor(it) }
+                    ?: StyleEngine.parseColor("#D1D5DB")
+                val stackedSepThickness = ((cfg?.get("separator_thickness") as? Number)?.toDouble() ?: 1.0).dp
                 Column(
                     verticalArrangement = Arrangement.spacedBy(optionSpacingDp),
                     modifier = Modifier.fillMaxWidth(),
@@ -7220,6 +7227,10 @@ private fun FormInputSelectBlock(
                             }
                         }
                         }
+                        // SPEC-419 pass-24 — optional divider between stacked options (parity with list).
+                        if (showItemSeparators && oi < options.lastIndex) {
+                            Box(modifier = Modifier.fillMaxWidth().height(stackedSepThickness).background(stackedSepColor))
+                        }
                     }
                 }
             }
@@ -7388,6 +7399,15 @@ private fun FormInputSelectBlock(
                 // dark scrim; selected = accent border. N-column grid (grid_columns, default 2).
                 val tileCols = ((cfg?.get("grid_columns") as? Number)?.toInt() ?: 2).coerceIn(1, 4)
                 val tileHeight = ((cfg?.get("tile_height") as? Number)?.toFloat() ?: 140f).dp
+                // SPEC-419 pass-24 — tile_aspect_ratio ("W:H", console Select 1:1/4:3/16:9/3:4)
+                // sizes the tile by its (weight-1f) width × the ratio. When set it overrides the
+                // fixed tile_height; falls back to tile_height when unset.
+                val tileAspect = (cfg?.get("tile_aspect_ratio") as? String)?.let { s ->
+                    val parts = s.split(":")
+                    val w = parts.getOrNull(0)?.toFloatOrNull()
+                    val h = parts.getOrNull(1)?.toFloatOrNull()
+                    if (parts.size == 2 && w != null && h != null && w > 0f && h > 0f) w / h else null
+                }
                 Column(verticalArrangement = Arrangement.spacedBy(optionSpacingDp)) {
                     options.chunked(tileCols).forEach { row ->
                         Row(
@@ -7401,7 +7421,7 @@ private fun FormInputSelectBlock(
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(tileHeight)
+                                        .then(if (tileAspect != null) Modifier.aspectRatio(tileAspect) else Modifier.height(tileHeight))
                                         .clip(RoundedCornerShape(cornerR))
                                         .selectable(
                                             selected = isSelected,
@@ -7511,6 +7531,9 @@ private fun FormInputSelectBlock(
                 // (settings-list look). Honors per-option bg + separator_color + selected tint/check.
                 val separatorColor = (cfg?.get("separator_color") as? String)?.let { StyleEngine.parseColor(it) }
                     ?: StyleEngine.parseColor("#D1D5DB")
+                // SPEC-419 pass-24 — separator_thickness (console Slider 0–4, default 1) drives the
+                // divider height; thickness was previously hardcoded to 1.dp.
+                val separatorThickness = ((cfg?.get("separator_thickness") as? Number)?.toDouble() ?: 1.0).dp
                 Column(modifier = Modifier.fillMaxWidth()) {
                     options.forEachIndexed { oi, option ->
                         val isSelected = isOptionSelected(option.value)
@@ -7541,7 +7564,7 @@ private fun FormInputSelectBlock(
                             }
                         }
                         if (oi < options.lastIndex) {
-                            Box(modifier = Modifier.fillMaxWidth().height(1.dp).background(separatorColor))
+                            Box(modifier = Modifier.fillMaxWidth().height(separatorThickness).background(separatorColor))
                         }
                     }
                 }
