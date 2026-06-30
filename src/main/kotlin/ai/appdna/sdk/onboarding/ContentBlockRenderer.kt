@@ -6856,6 +6856,62 @@ private fun FormInputDateBlock(
 }
 
 /** Dropdown/stacked/grid select input with display_style support. */
+// SPEC-419 pass-25 — selection indicator honoring field_config.radio_fill.
+// Parity with iOS radioIndicator (FormInputBlockViews.swift:935):
+//   "circle"    → default Material RadioButton (single) / Checkbox (multi)
+//   "checkmark" → filled check-circle when selected, empty circle when not
+//   <emoji>     → the glyph when selected, "○" when not (SF Symbol names are
+//                 iOS-only and fall back to the default circle on Android)
+@Composable
+private fun SelectRadioIndicator(
+    isSelected: Boolean,
+    isMulti: Boolean,
+    fillCol: Color,
+    radioFill: String,
+) {
+    when {
+        radioFill == "checkmark" -> {
+            if (isSelected) {
+                Icon(
+                    imageVector = Icons.Filled.CheckCircle,
+                    contentDescription = null,
+                    tint = fillCol,
+                    modifier = Modifier.size(24.dp),
+                )
+            } else if (isMulti) {
+                Checkbox(checked = false, onCheckedChange = null,
+                    colors = CheckboxDefaults.colors(checkedColor = fillCol))
+            } else {
+                RadioButton(selected = false, onClick = null,
+                    colors = RadioButtonDefaults.colors(selectedColor = fillCol))
+            }
+        }
+        radioFill == "circle" -> {
+            if (isMulti) {
+                Checkbox(checked = isSelected, onCheckedChange = null,
+                    colors = CheckboxDefaults.colors(checkedColor = fillCol))
+            } else {
+                RadioButton(selected = isSelected, onClick = null,
+                    colors = RadioButtonDefaults.colors(selectedColor = fillCol))
+            }
+        }
+        // Emoji glyph (short, all non-ASCII) renders directly; anything else
+        // (incl. SF Symbol names) falls back to the default circle indicator.
+        radioFill.length <= 2 && radioFill.isNotEmpty() && radioFill.all { it.code > 127 } -> {
+            Text(text = if (isSelected) radioFill else "○", fontSize = 20.sp)
+        }
+        else -> {
+            if (isMulti) {
+                Checkbox(checked = isSelected, onCheckedChange = null,
+                    colors = CheckboxDefaults.colors(checkedColor = fillCol))
+            } else {
+                RadioButton(selected = isSelected, onClick = null,
+                    colors = RadioButtonDefaults.colors(selectedColor = fillCol))
+            }
+        }
+    }
+}
+
 @Composable
 private fun FormInputSelectBlock(
     block: ContentBlock,
@@ -6931,6 +6987,10 @@ private fun FormInputSelectBlock(
     val showRadio = selectionIndicator == "radio" || selectionIndicator == "both"
     val radioPosition = (cfg?.get("radio_position") as? String) ?: "right"
     val radioOnLeft = radioPosition == "left" || radioPosition == "leading"
+    // SPEC-419 pass-25 — radio_fill: "circle" (default), "checkmark", or an emoji glyph.
+    // Mirrors iOS radioIndicator (FormInputBlockViews.swift:935). SF Symbol names are
+    // iOS-only → on Android they fall back to the default circle (handled in SelectRadioIndicator).
+    val radioFill = (cfg?.get("radio_fill") as? String) ?: "circle"
     val selectedBorderW = ((cfg?.get("selected_border_width") as? Number)?.toDouble() ?: 2.0).dp
     val unselectedBorderW = ((cfg?.get("unselected_border_width") as? Number)?.toDouble() ?: 1.0).dp
     val bgOpacity = ((cfg?.get("background_opacity") as? Number)?.toDouble() ?: 1.0).toFloat().coerceIn(0f, 1f)
@@ -7082,13 +7142,7 @@ private fun FormInputSelectBlock(
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 if (showRadio && radioOnLeft) {
-                                    if (isMulti) {
-                                        Checkbox(checked = isSelected, onCheckedChange = null,
-                                            colors = CheckboxDefaults.colors(checkedColor = fillCol))
-                                    } else {
-                                        RadioButton(selected = isSelected, onClick = null,
-                                            colors = RadioButtonDefaults.colors(selectedColor = fillCol))
-                                    }
+                                    SelectRadioIndicator(isSelected = isSelected, isMulti = isMulti, fillCol = fillCol, radioFill = radioFill)
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 // Per-option image (with optional selected/unselected variants).
@@ -7178,13 +7232,7 @@ private fun FormInputSelectBlock(
                                 }
                                 if (showRadio && !radioOnLeft) {
                                     Spacer(Modifier.width(8.dp))
-                                    if (isMulti) {
-                                        Checkbox(checked = isSelected, onCheckedChange = null,
-                                            colors = CheckboxDefaults.colors(checkedColor = fillCol))
-                                    } else {
-                                        RadioButton(selected = isSelected, onClick = null,
-                                            colors = RadioButtonDefaults.colors(selectedColor = fillCol))
-                                    }
+                                    SelectRadioIndicator(isSelected = isSelected, isMulti = isMulti, fillCol = fillCol, radioFill = radioFill)
                                 }
                             }
                         }
