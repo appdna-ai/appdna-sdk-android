@@ -5610,7 +5610,7 @@ private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String
     // `max_value_picker`/`default_picker_value`. Read the picker key first, fall back to the editor
     // key so authored ranges/defaults aren't lost on-device.
     val maxVal = block.max_value_picker ?: block.max_value ?: 100.0
-    val step = block.step_value ?: 1.0
+    val step = (block.step_value ?: 1.0).let { if (it > 0.0) it else 1.0 }  // SPEC-419 pass-35 — clamp >0; the value-gen `while (current <= maxVal)` hangs forever on step<=0 (mirror iOS number-wheel)
     val defaultVal = block.default_picker_value ?: block.default_value ?: minVal
     val unitStr = block.unit ?: ""
     val unitPos = block.unit_position ?: "after"
