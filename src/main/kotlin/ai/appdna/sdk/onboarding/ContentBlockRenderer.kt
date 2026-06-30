@@ -6636,8 +6636,9 @@ private fun FormInputDateBlock(
     // (picker accent). iOS + preview already apply these.
     val buttonTextColor = block.field_style?.text_color?.let { StyleEngine.parseColor(it) } ?: MaterialTheme.colorScheme.onSurface
     val highlightColor = block.highlight_color?.let { StyleEngine.parseColor(it) }
-    val calendarBg = (block.field_config?.get("calendar_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
-        ?: block.calendar_bg_color?.let { StyleEngine.parseColor(it) }
+    val calendarBg = ((block.field_config?.get("calendar_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
+        ?: block.calendar_bg_color?.let { StyleEngine.parseColor(it) })
+        ?.let { c -> (block.field_config?.get("calendar_opacity") as? Number)?.toFloat()?.let { c.copy(alpha = it.coerceIn(0f, 1f)) } ?: c }  // SPEC-419 pass-26 — fold calendar_opacity into the fill alpha (iOS applies .opacity)
     val wheelBg = (block.field_config?.get("wheel_bg_color") as? String)?.let { StyleEngine.parseColor(it) }
         ?: block.wheel_bg_color?.let { StyleEngine.parseColor(it) }
     // SPEC-419 pass-16 #12 — honor wheel_text_color on the inline graphical picker
