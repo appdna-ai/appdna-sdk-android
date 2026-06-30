@@ -390,9 +390,11 @@ private fun FormFieldControl(
         }
 
         FormFieldType.SLIDER -> {
-            val min = field.config?.min_value?.toFloat() ?: 0f
-            val max = field.config?.max_value?.toFloat() ?: 100f
-            val step = field.config?.step?.toFloat() ?: 1f
+            // SPEC-419 pass-33 — clamp so Compose Slider valueRange isn't empty (its internal coerceIn throws on min>=max).
+            val rawStep = field.config?.step?.toFloat() ?: 1f
+            val step = if (rawStep > 0f) rawStep else 1f
+            val min = minOf(field.config?.min_value?.toFloat() ?: 0f, field.config?.max_value?.toFloat() ?: 100f)
+            val max = maxOf(field.config?.max_value?.toFloat() ?: 100f, min + step)
             val unit = field.config?.unit ?: ""
             val decimalPlaces = field.config?.decimal_places ?: 0
             val current = (values[field.id] as? Number)?.toFloat() ?: min

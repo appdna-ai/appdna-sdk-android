@@ -298,9 +298,11 @@ internal fun RangeSliderField(
     values: MutableMap<String, Any?>,
     errors: MutableMap<String, String>,
 ) {
-    val min = field.config?.min_value?.toFloat() ?: 0f
-    val max = field.config?.max_value?.toFloat() ?: 100f
-    val step = field.config?.step?.toFloat() ?: 1f
+    // SPEC-419 pass-33 — clamp so Compose RangeSlider valueRange isn't empty (its internal coerceIn throws on min>=max).
+    val rawStep = field.config?.step?.toFloat() ?: 1f
+    val step = if (rawStep > 0f) rawStep else 1f
+    val min = minOf(field.config?.min_value?.toFloat() ?: 0f, field.config?.max_value?.toFloat() ?: 100f)
+    val max = maxOf(field.config?.max_value?.toFloat() ?: 100f, min + step)
     val unit = field.config?.unit ?: ""
     val decimalPlaces = field.config?.decimal_places ?: 0
 
@@ -310,7 +312,10 @@ internal fun RangeSliderField(
     val rawHigh = (values["${field.id}_high"] as? Number)?.toFloat()
         ?: ((values[field.id] as? Map<*, *>)?.get("high") as? Number)?.toFloat()
         ?: max
-    val range = rawLow..rawHigh
+    // SPEC-419 pass-33 — coerce both thumbs into [min,max] and order them so the RangeSlider `value` is never an empty range.
+    val loC = rawLow.coerceIn(min, max)
+    val hiC = rawHigh.coerceIn(min, max)
+    val range = minOf(loC, hiC)..maxOf(loC, hiC)
 
     val fmtLow = formatNumber(range.start, decimalPlaces)
     val fmtHigh = formatNumber(range.endInclusive, decimalPlaces)
