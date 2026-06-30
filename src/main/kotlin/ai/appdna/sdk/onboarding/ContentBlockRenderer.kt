@@ -2665,7 +2665,7 @@ private fun LottieContentBlock(block: ContentBlock) {
                 // ignored. Honour canonical first, legacy as fallback.
                 autoplay = block.autoplay ?: block.lottie_autoplay ?: true,
                 loop = block.loop ?: block.lottie_loop ?: true,
-                speed = block.lottie_speed ?: 1.0f,  // SPEC-419 pass-22 TODO — editor writes block.speed but iOS `speed` is String?; defer both for type reconciliation
+                speed = block.lottie_speed ?: 1.0f,  // SPEC-419 pass-23 — editor now authors lottie_speed (decoupled from the overloaded string `speed` particle key)
                 width = block.lottie_width?.toFloat(),
                 // SPEC-401-A R10 — match iOS field-name precedence at
                 // ContentBlockRendererView.swift:599. Authored `lottie_height`
