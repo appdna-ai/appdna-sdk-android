@@ -4,8 +4,10 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.animateColorAsState
@@ -2991,6 +2993,119 @@ private fun BlockBasedStepView(
 
     val activityCtx = androidx.compose.ui.platform.LocalContext.current
 
+    // SPEC-421 — runtime permission pipeline plumbing. The ActivityResultLauncher MUST be registered
+    // at COMPOSITION (never lazily at button-tap, which throws IllegalStateException when RESUMED).
+    // The launcher callback completes the manager's in-flight `request()` deferred, bridging the
+    // callback → suspend so the async pipeline can await the OS result. Mirrors the iOS pipeline.
+    val permissionManager = remember { PermissionManager(activityCtx) }
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted -> permissionManager.completePending(granted) }
+    // Wire the launcher bridge (the launcher is stable across recompositions).
+    permissionManager.requestLauncher = { perm -> permLauncher.launch(perm) }
+    // Opt-in "Open Settings" affordance for a permanently-denied permission.
+    var permSettingsFallback by remember(stepId) { mutableStateOf<PermissionSettingsFallback?>(null) }
+
+    // SPEC-421 — analytics props attached to every `permission_*` literal (parity with iOS permissionProps).
+    fun permissionProps(type: String): Map<String, Any> =
+        mapOf("permission_type" to type, "flow_id" to flowId, "step_id" to stepId)
+
+    // Store the resolved value under `permission_{type}` (routable by next_step_rules) and fire the
+    // observe-only delegate callback. Does NOT advance — callers advance explicitly.
+    fun storePermissionResult(type: String, granted: Boolean) {
+        inputValues["permission_" + type] = if (granted) "granted" else "denied"
+        AppDNA.onboarding.listener?.onPermissionResult(
+            flowId = flowId, stepId = stepId, permissionType = type, granted = granted,
+        )
+    }
+
+    // Advance via the same collect-and-onNext path the primary CTA uses so the freshly stored
+    // `permission_{type}` value rides along in the step response. Mirrors iOS advancePermissionStep.
+    fun advancePermissionStep() {
+        val merged = mutableMapOf<String, Any>()
+        merged.putAll(inputValues)
+        for ((key, value) in toggleValues) merged["toggle_$key"] = value
+        onNext(if (merged.isEmpty()) null else merged)
+    }
+
+    // Present the opt-in "Open Settings" affordance (advance handled on the user's choice), or advance.
+    fun maybeShowSettingsFallbackOrAdvance(type: String) {
+        val showFallback = (effectiveConfig.layout?.get("show_settings_fallback_on_denied") as? Boolean) == true
+        val label = (effectiveConfig.layout?.get("settings_fallback_label") as? String) ?: "Open Settings"
+        if (showFallback) {
+            permSettingsFallback = PermissionSettingsFallback(type = type, label = label)
+        } else {
+            advancePermissionStep()
+        }
+    }
+
+    // SPEC-421 — the full async permission pipeline for a `permission` CTA. Reads the step's
+    // `layout.permission_type`, runs the optional host pre-hook, status check, native OS request,
+    // analytics + delegate callbacks, stores the result, and advances. Never crashes on an undeclared
+    // manifest permission (status returns UNAVAILABLE → emit + advance without launching). Mirrors iOS
+    // OnboardingRenderer.runPermissionPipeline.
+    fun runPermissionPipeline() {
+        // Type source of truth = the step's `layout.permission_type` (the only console-authorable path).
+        val type = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+        interactionScope.launch {
+            // 1. Optional host pre-hook — host may resolve without prompting.
+            val handling = AppDNA.onboarding.listener?.onPermissionRequest(type)
+            if (handling is PermissionHandling.HandledByHost) {
+                val granted = handling.granted
+                if (granted) {
+                    AppDNA.track("permission_granted", permissionProps(type))
+                } else {
+                    AppDNA.track("permission_denied", permissionProps(type))
+                }
+                storePermissionResult(type, granted)
+                advancePermissionStep()
+                return@launch
+            }
+
+            // 2. Status check → route.
+            when (permissionManager.status(type)) {
+                PermissionStatus.GRANTED -> {
+                    AppDNA.track("permission_already_granted", permissionProps(type))
+                    storePermissionResult(type, true)
+                    advancePermissionStep()
+                }
+                PermissionStatus.DENIED -> {
+                    AppDNA.track("permission_denied", permissionProps(type))
+                    storePermissionResult(type, false)
+                    maybeShowSettingsFallbackOrAdvance(type)
+                }
+                PermissionStatus.UNAVAILABLE -> {
+                    AppDNA.track("permission_unavailable", permissionProps(type))
+                    ai.appdna.sdk.Log.warning(
+                        "[Permission] '$type' unavailable (not declared in host manifest or " +
+                        "unsupported type) — advancing without prompting.",
+                    )
+                    advancePermissionStep()
+                }
+                PermissionStatus.UNDETERMINED -> {
+                    // 3. Request the OS prompt (async via the composition-registered launcher).
+                    AppDNA.track("permission_prompted", permissionProps(type))
+                    val granted = permissionManager.request(type)
+                    if (granted) {
+                        AppDNA.track("permission_granted", permissionProps(type))
+                        storePermissionResult(type, true)
+                        advancePermissionStep()
+                    } else {
+                        AppDNA.track("permission_denied", permissionProps(type))
+                        storePermissionResult(type, false)
+                        // Sticky-denied detection is post-request only (never-asked vs permanently-denied
+                        // are indistinguishable from checkSelfPermission alone).
+                        val blocked = PermissionManager.isBlockedAfterDenial(
+                            granted = false,
+                            shouldShowRationale = permissionManager.shouldShowRationale(type),
+                        )
+                        if (blocked) maybeShowSettingsFallbackOrAdvance(type) else advancePermissionStep()
+                    }
+                }
+            }
+        }
+    }
+
     fun handleAction(action: String) {
         // SPEC-070-A C.1 — strict-typed auth/account action cases mirror iOS
         // `OnboardingRenderer.swift:1531-1545`. Action strings travel as either
@@ -3110,17 +3225,12 @@ private fun BlockBasedStepView(
                     flowId = flowId, stepId = stepId, stepIndex = currentStepIndex,
                 )
             }
-            // SPEC-070-A C.1 — `permission` is a SPEC-086 hook site. For now
-            // advance as safe fallback so existing hosts don't get stuck on
-            // a permission-tagged button without a runtime permission infra
-            // wired up. Mirrors iOS `OnboardingRenderer.swift:1525-1529`.
-            // SPEC-401-A R13 — pass `null` to match iOS exactly. iOS emits
-            // `onNext(nil)` so `responses[step.id]` is never written and
-            // hosts switching on `data["action"]` don't see a populated
-            // map only on Android. Defer the typed payload (action/
-            // permission_type) to SPEC-086 when runtime permission infra
-            // ships and gets explicit spec approval.
-            "permission" -> onNext(null)
+            // SPEC-421 — fire the real OS permission prompt (async), capture grant/deny safely,
+            // emit analytics + the delegate hook, store the result for next-step routing, then advance.
+            // Type source of truth = the step's `layout.permission_type` (the only console-authorable
+            // path). If absent/unsupported/undeclared the pipeline emits `permission_unavailable` +
+            // advances. Mirrors iOS `OnboardingRenderer.swift` `case "permission"`.
+            "permission" -> runPermissionPipeline()
             else -> onNext(null)
         }
     }
@@ -3447,8 +3557,37 @@ private fun BlockBasedStepView(
                 )
             }
         }
+
+        // SPEC-421 — settings fallback for a permanently-denied permission (opt-in via
+        // `show_settings_fallback_on_denied`). Both choices advance, mirroring the iOS alert.
+        permSettingsFallback?.let { fallback ->
+            AlertDialog(
+                onDismissRequest = {
+                    permSettingsFallback = null
+                    advancePermissionStep()
+                },
+                title = { Text("Permission needed") },
+                text = { Text("You can enable this in Settings.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        permissionManager.openAppSettings()
+                        permSettingsFallback = null
+                        advancePermissionStep()
+                    }) { Text(fallback.label) }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        permSettingsFallback = null
+                        advancePermissionStep()
+                    }) { Text("Continue") }
+                },
+            )
+        }
     }
 }
+
+/** SPEC-421 — identifies a pending "Open Settings" affordance for a denied permission. */
+private data class PermissionSettingsFallback(val type: String, val label: String)
 
 @Composable
 private fun WelcomeStep(config: StepConfig, onNext: (Map<String, Any>?) -> Unit) {

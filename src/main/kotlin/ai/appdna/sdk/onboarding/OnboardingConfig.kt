@@ -520,6 +520,17 @@ fun applyInteractionResult(result: ElementInteractionResult, inputValues: Map<St
     )
 }
 
+/**
+ * SPEC-421 — optional host override for an onboarding permission step. Returned from
+ * [AppDNAOnboardingDelegate.onPermissionRequest]. [HandledByHost] means the host already resolved the
+ * permission (or wants to inject a result) — the SDK writes the result + emits analytics uniformly and
+ * does NOT show the OS prompt. [Proceed] (or `null`) lets the SDK run the native OS flow.
+ */
+sealed class PermissionHandling {
+    object Proceed : PermissionHandling()
+    data class HandledByHost(val granted: Boolean) : PermissionHandling()
+}
+
 interface AppDNAOnboardingDelegate {
     // Observe-only callbacks (unchanged)
     fun onOnboardingStarted(flowId: String) {}
@@ -557,6 +568,13 @@ interface AppDNAOnboardingDelegate {
         value: String?,
         inputValues: Map<String, Any>,
     ): ElementInteractionResult? = null
+
+    // SPEC-421: Runtime permission hooks for onboarding permission steps.
+    // Optional pre-hook — return PermissionHandling.HandledByHost(granted) to short-circuit the OS
+    // prompt, or PermissionHandling.Proceed/null to let the SDK run the native flow.
+    suspend fun onPermissionRequest(permissionType: String): PermissionHandling? = null
+    // Observe-only result callback after the permission is resolved (host, status, or prompt).
+    fun onPermissionResult(flowId: String, stepId: String, permissionType: String, granted: Boolean) {}
 }
 
 // MARK: - Parsing helpers
