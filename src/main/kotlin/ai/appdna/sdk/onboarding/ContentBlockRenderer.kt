@@ -5605,6 +5605,16 @@ private fun StarBackgroundBlock(block: ContentBlock) {
 
 @Composable
 private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+    // SPEC-420 — opt-in measurement mode. When `field_config["measurement_type"]` is
+    // present AND the units[] resolve to a usable set, render the measurement variant
+    // (unit toggle + ruler/gauge/dial/wheel). Otherwise the legacy drum below is
+    // UNCHANGED. The measurement wrapper OWNS persistence (base + sibling keys).
+    val measurementConfig = parseMeasurementConfig(block)
+    if (measurementConfig != null) {
+        MeasurementWheelBlock(block, measurementConfig, inputValues)
+        return
+    }
+
     val minVal = block.min_value ?: 0.0
     // SPEC-419 — editor writes `max_value`/`default_value`; native canonical keys are
     // `max_value_picker`/`default_picker_value`. Read the picker key first, fall back to the editor
