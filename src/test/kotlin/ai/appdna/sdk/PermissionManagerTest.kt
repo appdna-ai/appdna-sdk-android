@@ -1,6 +1,7 @@
 package ai.appdna.sdk
 
 import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
+import ai.appdna.sdk.onboarding.OnboardingConfigParser
 import ai.appdna.sdk.onboarding.PermissionHandling
 import ai.appdna.sdk.onboarding.PermissionManager
 import ai.appdna.sdk.onboarding.PermissionRouteDecision
@@ -8,6 +9,7 @@ import ai.appdna.sdk.onboarding.PermissionStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -212,6 +214,63 @@ class PermissionManagerTest {
         assertEquals(PermissionHandling.Proceed, PermissionHandling.Proceed)
         assertEquals(PermissionHandling.HandledByHost(true), PermissionHandling.HandledByHost(true))
         assertFalse(PermissionHandling.HandledByHost(true) == PermissionHandling.HandledByHost(false))
+    }
+
+    // MARK: - SPEC-421 console-shape decode (permission_type at step-content TOP LEVEL)
+
+    /**
+     * Regression for the SPEC-421 contract bug: the console serializer writes `permission_type` /
+     * `show_settings_fallback_on_denied` / `settings_fallback_label` as SIBLINGS of `content_blocks`
+     * at the step-content top level (`step.layout = stepConfig`), NOT inside the inner `layout`
+     * sub-map. The SDK previously read them from the inner map → resolved null/"" → every authored
+     * permission step emitted `permission_unavailable` and advanced WITHOUT prompting. They must
+     * decode into first-class StepConfig fields.
+     */
+    @Test
+    fun permissionFieldsDecodeFromStepContentTopLevel() {
+        // `step.layout` = the whole content object; permission keys are siblings of content_blocks.
+        val step = mapOf(
+            "id" to "perm-step",
+            "type" to "custom",
+            "layout" to mapOf(
+                "permission_type" to "camera",
+                "show_settings_fallback_on_denied" to true,
+                "settings_fallback_label" to "Enable in Settings",
+                "content_blocks" to listOf(
+                    mapOf("type" to "text", "text" to "We need your camera"),
+                ),
+            ),
+        )
+        val parsed = OnboardingConfigParser.parseStepForTest(step)
+        assertNotNull(parsed)
+        val config = parsed!!.config
+        // Top-level permission fields must resolve — NOT from the inner `layout` sub-map.
+        assertEquals("camera", config.permission_type)
+        assertEquals(true, config.show_settings_fallback_on_denied)
+        assertEquals("Enable in Settings", config.settings_fallback_label)
+        // Sibling content_blocks still decode alongside.
+        assertEquals(1, config.content_blocks?.size)
+        // The resolved type is non-empty AND supported → the pipeline WILL prompt.
+        assertTrue(!config.permission_type.isNullOrEmpty())
+        assertTrue(PermissionManager.isSupported(config.permission_type ?: ""))
+    }
+
+    /**
+     * The `config`-keyed variant (some server paths write `step.config` instead of `step.layout`)
+     * must resolve the same top-level permission fields.
+     */
+    @Test
+    fun permissionFieldsDecodeFromConfigKey() {
+        val step = mapOf(
+            "id" to "s",
+            "type" to "custom",
+            "config" to mapOf(
+                "permission_type" to "notification",
+                "content_blocks" to emptyList<Any>(),
+            ),
+        )
+        val config = OnboardingConfigParser.parseStepForTest(step)?.config
+        assertEquals("notification", config?.permission_type)
     }
 
     // MARK: - Helpers (mirror the pipeline's per-decision store rule)

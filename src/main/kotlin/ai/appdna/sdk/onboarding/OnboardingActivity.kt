@@ -3030,8 +3030,10 @@ private fun BlockBasedStepView(
 
     // Present the opt-in "Open Settings" affordance (advance handled on the user's choice), or advance.
     fun maybeShowSettingsFallbackOrAdvance(type: String) {
-        val showFallback = (effectiveConfig.layout?.get("show_settings_fallback_on_denied") as? Boolean) == true
-        val label = (effectiveConfig.layout?.get("settings_fallback_label") as? String) ?: "Open Settings"
+        val showFallback = (effectiveConfig.show_settings_fallback_on_denied
+            ?: (effectiveConfig.layout?.get("show_settings_fallback_on_denied") as? Boolean)) == true
+        val label = effectiveConfig.settings_fallback_label
+            ?: (effectiveConfig.layout?.get("settings_fallback_label") as? String) ?: "Open Settings"
         if (showFallback) {
             permSettingsFallback = PermissionSettingsFallback(type = type, label = label)
         } else {
@@ -3046,7 +3048,8 @@ private fun BlockBasedStepView(
     // OnboardingRenderer.runPermissionPipeline.
     fun runPermissionPipeline() {
         // Type source of truth = the step's `layout.permission_type` (the only console-authorable path).
-        val type = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+        val type = effectiveConfig.permission_type
+            ?: (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
         interactionScope.launch {
             // 1. Optional host pre-hook — host may resolve without prompting.
             val handling = AppDNA.onboarding.listener?.onPermissionRequest(type)
@@ -3128,7 +3131,8 @@ private fun BlockBasedStepView(
         // iOS (OnboardingRenderer.swift `case "next"` short-circuits before `guard canAdvance`).
         // Permission steps skip required-field validation by design (the pipeline owns advance).
         if (rawAction == "next") {
-            val nextPermissionType = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+            val nextPermissionType = effectiveConfig.permission_type
+                ?: (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
             if (nextPermissionType.isNotEmpty() && PermissionManager.isSupported(nextPermissionType)) {
                 runPermissionPipeline()
                 return

@@ -226,7 +226,17 @@ data class StepConfig(
     // (F2) per-step `progress_color` override consulted by OnboardingActivity
     //      progress-bar theming (mirrors iOS OnboardingRenderer.swift:174-186).
     val next_step_rules: ImmutableList<NextStepRule>? = null,
-    val progress_color: String? = null
+    val progress_color: String? = null,
+
+    // SPEC-421 — permission-step contract. The console serializer writes these at the
+    // step-content TOP LEVEL (siblings of `content_blocks`), NOT under the inner `layout`
+    // sub-map. Previously only read from `layout[...]` → resolved null → every authored
+    // permission step emitted `permission_unavailable` and advanced without prompting.
+    // Decoded as first-class fields; OnboardingActivity prefers these, falling back to the
+    // inner `layout` map only for safety.
+    val permission_type: String? = null,
+    val show_settings_fallback_on_denied: Boolean? = null,
+    val settings_fallback_label: String? = null
 )
 
 @Immutable
@@ -984,6 +994,11 @@ internal object OnboardingConfigParser {
             localizations = localizations,
             default_locale = configMap["default_locale"] as? String,
             chat_config = parseChatConfig(configMap["chat_config"]),
+            // SPEC-421 — decoded from the SAME top level as content_blocks (console siblings),
+            // NOT from the inner `layout` sub-map.
+            permission_type = configMap["permission_type"] as? String,
+            show_settings_fallback_on_denied = configMap["show_settings_fallback_on_denied"] as? Boolean,
+            settings_fallback_label = configMap["settings_fallback_label"] as? String,
         )
 
         // SPEC-083 P1: Parse hook config
