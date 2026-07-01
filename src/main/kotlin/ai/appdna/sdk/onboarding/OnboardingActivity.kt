@@ -533,6 +533,10 @@ internal fun OnboardingFlowHost(
 
     // SPEC-083: Hook state
     var isProcessing by remember { mutableStateOf(false) }
+    // SPEC-419 STEP-2 — lightweight guard for in-flight element interactions (calendar tap, otp digit,
+    // memory flip, press-hold, wheel commit, footer toggle). Separate from the full-step `isProcessing`
+    // so an element fire never dims the whole step; overlapping fires are dropped.
+    var interactionInFlight by remember { mutableStateOf(false) }
     var loadingText by remember { mutableStateOf("Processing...") }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var showError by remember { mutableStateOf(false) }
@@ -561,6 +565,35 @@ internal fun OnboardingFlowHost(
         )
         props.putAll(extra)
         eventTracker?.track(event, props)
+    }
+
+    // SPEC-419 STEP-2 — flow-host half of the element-interaction wiring. Awaits the host delegate's
+    // onElementInteraction, then folds the ElementInteractionResult into an AppliedInteraction the STEP
+    // scope applies (inputValues + fieldConfigOverrides + advance). No advance logic here — the flow host
+    // can't see the step's blocks to validate; the step scope routes any advance through the required-
+    // field-gated handleAction("next"). Mirrors iOS OnboardingFlowHost.performInteraction.
+    suspend fun performInteraction(
+        blockId: String,
+        action: String,
+        value: String?,
+        inputValues: Map<String, Any>,
+    ): AppliedInteraction? {
+        if (interactionInFlight) return null
+        interactionInFlight = true
+        try {
+            val stepId = if (currentIndex < flow.steps.size) flow.steps[currentIndex].id else ""
+            val result = delegate?.onElementInteraction(
+                flowId = flow.id,
+                stepId = stepId,
+                blockId = blockId,
+                action = action,
+                value = value,
+                inputValues = inputValues,
+            ) ?: return null
+            return applyInteractionResult(result, inputValues)
+        } finally {
+            interactionInFlight = false
+        }
     }
 
     // SPEC-070-A finalization OB-7 — image preload at flow init.
@@ -1639,6 +1672,8 @@ internal fun OnboardingFlowHost(
                     step = step,
                     effectiveConfig = effectiveConfig,
                     flowId = flow.id,
+                    // SPEC-419 STEP-2 — flow-host interaction seam threaded to the step scope.
+                    performInteraction = ::performInteraction,
                     // SPEC-401-A R11 — pass accumulated responses (immutable
                     // snapshot of the host's SnapshotStateMap) so block-level
                     // `visibility_condition` operators evaluate against real
@@ -2258,6 +2293,9 @@ fun OnboardingStepView(
     // evaluator. iOS plumbs through OnboardingStepView → ThreeZoneStepLayout.
     accumulatedResponses: Map<String, Any> = emptyMap(),
     hookData: Map<String, Any>? = null,
+    // SPEC-419 STEP-2 — flow-host interaction seam (delegate round-trip + applyInteractionResult),
+    // threaded into BlockBasedStepView where the step scope owns advance + inputValues + overrides.
+    performInteraction: suspend (String, String, String?, Map<String, Any>) -> AppliedInteraction? = { _, _, _, _ -> null },
 ) {
     // SPEC-070-A finalization B4 P1 — pre-populate from savedResponses on
     // first composition. `step.id` keying the remember ensures a fresh
@@ -2269,8 +2307,11 @@ fun OnboardingStepView(
             }
         }
     }
+    // SPEC-419 STEP-2 — SnapshotStateMap (was mutableMapOf) so the step scope's handleInteract can
+    // clear()/putAll() host-pushed inputValue patches and have the tree recompose. It's a `val` — never
+    // reassign; mutate in place.
     val inputValues = remember(step.id) {
-        mutableMapOf<String, Any>().apply {
+        mutableStateMapOf<String, Any>().apply {
             savedResponses?.forEach { (k, v) ->
                 if (!k.startsWith("toggle_") && k != "action" && k != "selected" && k != "selection_mode") {
                     put(k, v)
@@ -2299,6 +2340,8 @@ fun OnboardingStepView(
             // SPEC-401-A R11 — identity for auth-action analytics emit.
             flowId = flowId,
             stepId = step.id,
+            // SPEC-419 STEP-2 — pass the flow-host interaction seam down to the step scope.
+            performInteraction = performInteraction,
         )
     } else {
         // Legacy rendering
@@ -2620,6 +2663,10 @@ private fun ThreeZoneBlockLayout(
     responses: Map<String, Any> = emptyMap(),
     hookData: Map<String, Any>? = null,
     modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier,
+    // SPEC-419 STEP-2 — interactive-element fire closure + per-block field_config override read-layer,
+    // threaded to every zone's ContentBlockRendererView.
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+    fieldConfigOverrides: Map<String, Map<String, Any>> = emptyMap(),
 ) {
     // SPEC-401-A R11 — apply `visibility_condition` BEFORE partitioning,
     // mirroring iOS at ThreeZoneStepLayout.swift:23-26. Previously Android
@@ -2702,6 +2749,8 @@ private fun ThreeZoneBlockLayout(
                     hookData = hookData,
                     currentStepIndex = currentStepIndex,
                     totalSteps = totalSteps,
+                    onInteract = onInteract,
+                    fieldConfigOverrides = fieldConfigOverrides,
                 )
             }
         } else {
@@ -2738,6 +2787,8 @@ private fun ThreeZoneBlockLayout(
                             hookData = hookData,
                             currentStepIndex = currentStepIndex,
                             totalSteps = totalSteps,
+                    onInteract = onInteract,
+                    fieldConfigOverrides = fieldConfigOverrides,
                         )
                     }
                 }
@@ -2755,6 +2806,8 @@ private fun ThreeZoneBlockLayout(
                             hookData = hookData,
                             currentStepIndex = currentStepIndex,
                             totalSteps = totalSteps,
+                    onInteract = onInteract,
+                    fieldConfigOverrides = fieldConfigOverrides,
                         )
                     }
                 }
@@ -2788,6 +2841,8 @@ private fun ThreeZoneBlockLayout(
                     hookData = hookData,
                     currentStepIndex = currentStepIndex,
                     totalSteps = totalSteps,
+                    onInteract = onInteract,
+                    fieldConfigOverrides = fieldConfigOverrides,
                 )
             }
         }
@@ -2889,8 +2944,16 @@ private fun BlockBasedStepView(
     // correct identity (matches iOS handleStepCompleted pre-gate emit).
     flowId: String = "",
     stepId: String = "",
+    // SPEC-419 STEP-2 — flow-host interaction seam. This is the STEP scope: it owns fieldConfigOverrides
+    // + handleInteract and routes any host-requested advance through the required-field-gated handleAction.
+    performInteraction: suspend (String, String, String?, Map<String, Any>) -> AppliedInteraction? = { _, _, _, _ -> null },
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
+
+    // SPEC-419 STEP-2 — per-block field_config overrides pushed by the host delegate (blockId -> key ->
+    // value). Snapshot-observable so a merged override recomposes the affected block. Reset per step.
+    val fieldConfigOverrides = remember(stepId) { mutableStateMapOf<String, Map<String, Any>>() }
+    val interactionScope = rememberCoroutineScope()
 
     // SPEC-401-A R35 — in-app validation pill (Lens C #4). iOS shows a
     // bottom-aligned styled pill `OnboardingRenderer.swift:1383-1402`
@@ -2920,38 +2983,11 @@ private fun BlockBasedStepView(
     // equivalent surface. Without this gate, the BlockBasedStepView's
     // "next" branch advanced unconditionally — required fields had a red
     // asterisk in the label but no actual gating.
-    fun canAdvance(): Pair<Boolean, String?> {
-        for (block in blocks) {
-            if (block.field_required != true) continue
-            val fieldId = block.field_id ?: block.id
-            val v = inputValues[fieldId]
-            // QA-R19 — add `is List<*>` branch so an empty multi-select
-            // (which the renderer stores as `inputValues[fieldId] = emptyList()`,
-            // see ContentBlockRenderer.kt:5299 `toggleMulti`) fails the required
-            // gate. Previously `List<*>` fell through to `else -> false` (i.e.
-            // "not empty"), so a `multi_select` block with `field_required: true`
-            // and zero options ticked advanced the user past the step with a
-            // `null`/empty `answer` payload — Mrozu's "pass-through with no
-            // selection" QA report.
-            //
-            // R51-era comment said iOS dropped the Collection branch; iOS does
-            // gate multi-select via a separate validator that runs at the
-            // multi-select renderer scope. Android's flat `canAdvance` is the
-            // only validator we run pre-advance, so adding the List branch
-            // closes the gap without changing iOS semantics.
-            val empty = when (v) {
-                null -> true
-                is String -> v.isEmpty()
-                is Map<*, *> -> v.isEmpty()
-                is List<*> -> v.isEmpty()
-                else -> false
-            }
-            if (empty) {
-                return false to (block.field_label ?: block.label ?: fieldId)
-            }
-        }
-        return true to null
-    }
+    // SPEC-419 STEP-2 — delegates to the pure, unit-testable RequiredFieldGate. The empty-check walk
+    // (including the QA-R19 `List<*>` empty-multi-select branch) moved there verbatim, so behavior is
+    // unchanged; extracting it proves an interaction-driven advance can NOT bypass required-field
+    // validation without a live host (see ElementInteractionWiringTest).
+    fun canAdvance(): Pair<Boolean, String?> = RequiredFieldGate.evaluate(blocks, inputValues)
 
     val activityCtx = androidx.compose.ui.platform.LocalContext.current
 
@@ -3086,6 +3122,26 @@ private fun BlockBasedStepView(
             // ships and gets explicit spec approval.
             "permission" -> onNext(null)
             else -> onNext(null)
+        }
+    }
+
+    // SPEC-419 STEP-2 — step-scope half of the interaction wiring. An interactive element calls this
+    // with (blockId, action, value); we await the flow-host delegate round-trip, then on a non-nil
+    // result apply inputValue patches (clear()/putAll() the SnapshotStateMap — it's a val, never
+    // reassigned), key-level-merge field_config overrides, and — if the host asked to advance — funnel
+    // through the EXISTING handleAction("next"), the ONLY entry that runs canAdvance (RequiredFieldGate)
+    // then onNext → onBeforeStepAdvance. Mirrors iOS OnboardingStepRouter.handleInteract.
+    fun handleInteract(blockId: String, action: String, value: String?) {
+        interactionScope.launch {
+            val applied = performInteraction(blockId, action, value, inputValues.toMap())
+            if (applied != null) {
+                inputValues.clear()
+                inputValues.putAll(applied.inputValues)
+                applied.fieldConfigOverrides.forEach { (id, patch) ->
+                    fieldConfigOverrides[id] = (fieldConfigOverrides[id] ?: emptyMap()) + patch
+                }
+                if (applied.advance) handleAction("next")
+            }
         }
     }
 
@@ -3279,7 +3335,7 @@ private fun BlockBasedStepView(
                             .padding(vertical = 20.dp), // SPEC-419 — horizontal owned by ThreeZoneBlockLayout (8%) so margins match iOS ~10.4% (was double-padded ~15% → headings wrapped more)
                     ) {
                         Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                            ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                            ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = ::handleInteract, fieldConfigOverrides = fieldConfigOverrides)
                         }
                     }
                 }
@@ -3299,7 +3355,7 @@ private fun BlockBasedStepView(
                             .weight(0.6f)
                             .padding(16.dp),
                     ) {
-                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                        ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = ::handleInteract, fieldConfigOverrides = fieldConfigOverrides)
                     }
                 }
             }
@@ -3310,7 +3366,7 @@ private fun BlockBasedStepView(
                         .fillMaxSize()
                         .padding(vertical = 20.dp), // SPEC-419 — horizontal owned by TZBL (8%) → margins match iOS ~10.4%
                 ) {
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = ::handleInteract, fieldConfigOverrides = fieldConfigOverrides)
                     Spacer(Modifier.height(16.dp))
                     ai.appdna.sdk.core.NetworkImage(
                         url = effectiveConfig.image_url,
@@ -3332,7 +3388,7 @@ private fun BlockBasedStepView(
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                     Spacer(Modifier.height(16.dp))
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = ::handleInteract, fieldConfigOverrides = fieldConfigOverrides)
                 }
             }
             else -> { // no_image
@@ -3342,7 +3398,7 @@ private fun BlockBasedStepView(
                         .fillMaxSize()
                         .padding(vertical = 20.dp), // SPEC-419 — horizontal owned by TZBL (8%) → margins match iOS ~10.4%
                 ) {
-                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    ThreeZoneBlockLayout(blocks = blocks, onAction = ::handleAction, toggleValues = toggleValues, inputValues = inputValues, loc = ::loc, responses = responses, hookData = hookData, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = ::handleInteract, fieldConfigOverrides = fieldConfigOverrides)
                 }
             }
         }

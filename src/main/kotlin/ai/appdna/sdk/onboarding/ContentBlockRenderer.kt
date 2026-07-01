@@ -53,6 +53,16 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.clickable
+// SPEC-419 STEP-2 — interactive EPIC-11 elements (otp keyboard, press-hold, calendar/memory taps).
+// NOTE: KeyboardOptions + pointerInput are already imported below (lines ~123/128); do not re-import.
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import kotlinx.coroutines.delay
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarHalf
@@ -1207,6 +1217,87 @@ fun Modifier.applyRelativeSizing(width: String?, height: String?, useMinHeight: 
     return mod
 }
 
+// MARK: - SPEC-419 STEP-2 — element-interaction wiring helpers (pure, unit-tested)
+
+/**
+ * Fold host-pushed per-block `field_config` overrides onto a block at READ TIME. ContentBlock is
+ * immutable, so we `copy(field_config = merged)` where `overrides[block.id]` wins key-by-key over the
+ * authored field_config. Empty/absent overrides → the block is returned unchanged. Applied
+ * UNCONDITIONALLY at the render call site (NOT inside resolveBlockBindings, whose early-return skips
+ * every EPIC-11 element that has no bindings). Mirrors iOS `resolvedFieldConfig`.
+ */
+fun resolvedFieldConfig(block: ContentBlock, overrides: Map<String, Map<String, Any>>): ContentBlock {
+    val patch = overrides[block.id]
+    if (patch.isNullOrEmpty()) return block
+    val merged = (block.field_config ?: emptyMap()) + patch
+    return block.copy(field_config = merged)
+}
+
+/**
+ * Key-level merge of new per-block `field_config` patches over existing overrides (override wins).
+ * Never blind-replaces a block's override bag — merges key by key. Mirrors iOS `mergeFieldConfigOverrides`.
+ */
+fun mergeFieldConfigOverrides(
+    current: Map<String, Map<String, Any>>,
+    patches: Map<String, Map<String, Any>>,
+): Map<String, Map<String, Any>> {
+    val out = current.toMutableMap()
+    for ((id, patch) in patches) {
+        out[id] = (out[id] ?: emptyMap()) + patch
+    }
+    return out
+}
+
+/**
+ * Pure required-field validation used by `handleAction("next")`. Extracted from BlockBasedStepView's
+ * `canAdvance` walk so the advance gate is unit-testable without a live host, proving an
+ * interaction-driven advance can NOT bypass validation. Returns the first missing block's label (for
+ * the validation pill copy) or null. Mirrors iOS `RequiredFieldGate` (Android keeps the extra
+ * `List<*>` branch so an empty multi-select still fails the gate — pre-existing behavior).
+ */
+object RequiredFieldGate {
+    fun evaluate(blocks: List<ContentBlock>, inputValues: Map<String, Any>): Pair<Boolean, String?> {
+        for (block in blocks) {
+            if (block.field_required != true) continue
+            val fieldId = block.field_id ?: block.id
+            val empty = when (val v = inputValues[fieldId]) {
+                null -> true
+                is String -> v.isEmpty()
+                is Map<*, *> -> v.isEmpty()
+                is List<*> -> v.isEmpty()
+                else -> false
+            }
+            if (empty) return false to (block.field_label ?: block.label ?: fieldId)
+        }
+        return true to null
+    }
+}
+
+/**
+ * Pure composition of the flow-host + step-scope interaction fold: awaits the delegate, applies the
+ * [ElementInteractionResult] to `inputValues`, key-level-merges field_config overrides, and reports
+ * whether an advance was requested. Production splits this across `OnboardingFlowHost.performInteraction`
+ * (delegate + [applyInteractionResult]) and `BlockBasedStepView.handleInteract` (merge + advance); this
+ * mirror exists so the composed seam is unit-testable without a live Compose host. Mirrors iOS
+ * `fireElementInteraction`.
+ */
+suspend fun fireElementInteraction(
+    delegate: AppDNAOnboardingDelegate?,
+    flowId: String,
+    stepId: String,
+    blockId: String,
+    action: String,
+    value: String?,
+    inputValues: Map<String, Any>,
+    overrides: Map<String, Map<String, Any>>,
+): Triple<Map<String, Any>, Map<String, Map<String, Any>>, Boolean> {
+    val result = delegate?.onElementInteraction(flowId, stepId, blockId, action, value, inputValues)
+        ?: return Triple(inputValues, overrides, false)
+    val applied = applyInteractionResult(result, inputValues)
+    val mergedOverrides = mergeFieldConfigOverrides(overrides, applied.fieldConfigOverrides)
+    return Triple(applied.inputValues, mergedOverrides, applied.advance)
+}
+
 // MARK: - Content Block Renderer
 
 @Composable
@@ -1220,6 +1311,10 @@ fun ContentBlockRendererView(
     hookData: Map<String, Any>? = null,
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
+    // SPEC-419 STEP-2 — interactive-element fire closure + per-block field_config override read-layer.
+    // Default no-op / empty so non-interactive call paths (previews, legacy) compile unchanged.
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+    fieldConfigOverrides: Map<String, Map<String, Any>> = emptyMap(),
 ) {
     // SPEC-089d §6.3: Filter blocks by visibility condition
     val visibleBlocks = blocks.filter { block ->
@@ -1237,7 +1332,13 @@ fun ContentBlockRendererView(
         var animationCount = 0
         visibleBlocks.forEach { rawBlock ->
             // AC-064/065/066: Resolve dynamic bindings and template strings
-            val block = resolveBlockBindings(rawBlock, hookData = hookData, responses = responses)
+            // SPEC-419 STEP-2 — fold host-pushed per-block field_config overrides UNCONDITIONALLY here,
+            // AFTER resolveBlockBindings (which early-returns raw blocks that have no bindings — i.e.
+            // every EPIC-11 element, so the merge can't live inside it). Empty overrides → no change.
+            val block = resolvedFieldConfig(
+                resolveBlockBindings(rawBlock, hookData = hookData, responses = responses),
+                fieldConfigOverrides,
+            )
 
             val shouldAnimate = block.entrance_animation != null
                 && block.entrance_animation.type != "none"
@@ -1264,13 +1365,13 @@ fun ContentBlockRendererView(
                 block.entrance_animation?.let { anim ->
                     EntranceAnimationWrapper(animation = anim) {
                         Box(modifier = sizingModifier) {
-                            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                            RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = onInteract)
                         }
                     }
                 }
             } else {
                 Box(modifier = sizingModifier) {
-                    RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps)
+                    RenderBlock(block = block, onAction = onAction, toggleValues = toggleValues, inputValues = inputValues, loc = loc, currentStepIndex = currentStepIndex, totalSteps = totalSteps, onInteract = onInteract)
                 }
             }
         }
@@ -1286,6 +1387,9 @@ internal fun RenderBlock(
     loc: ((String, String) -> String)? = null,
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
+    // SPEC-419 STEP-2 — interactive-element fire closure; default no-op so container recursions
+    // (carousel/section/stack/row) that don't thread it still compile.
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
 ) {
     // SPEC-089d: Wrap every block with block_style + 2D positioning modifiers
     val blockAlignment = if (block.horizontal_align != null || block.vertical_align != null) {
@@ -1317,12 +1421,12 @@ internal fun RenderBlock(
             contentAlignment = blockAlignment,
         ) {
             Box(modifier = contentModifier) {
-                RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps)
+                RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps, onInteract)
             }
         }
     } else {
         Box(modifier = contentModifier) {
-            RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps)
+            RenderBlockContent(block, onAction, toggleValues, inputValues, loc, currentStepIndex, totalSteps, onInteract)
         }
     }
 }
@@ -1336,6 +1440,8 @@ private fun RenderBlockContent(
     loc: ((String, String) -> String)? = null,
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
+    // SPEC-419 STEP-2 — interactive-element fire closure threaded to the 7 interactive elements.
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
 ) {
     when (block.type) {
         "heading" -> HeadingBlock(block, loc)
@@ -1344,17 +1450,17 @@ private fun RenderBlockContent(
         "media_gallery" -> MediaGalleryBlock(block)
         "section_background" -> SectionBackgroundBlock(block, onAction, toggleValues, inputValues, loc)
         "carousel" -> CarouselBlock(block, onAction, toggleValues, inputValues, loc)
-        "otp_input" -> OtpInputBlock(block, inputValues)
+        "otp_input" -> OtpInputBlock(block, inputValues, onInteract)
         "warning_banner" -> WarningBannerBlock(block, loc)
         "password_strength" -> PasswordStrengthBlock(block)
         "speech_bubble" -> SpeechBubbleBlock(block, loc)
         "feedback_panel" -> FeedbackPanelBlock(block, loc)
         "summary_screen" -> SummaryScreenBlock(block, loc)
-        "press_hold_confirm" -> PressHoldConfirmBlock(block, loc)
-        "health_connect" -> HealthConnectBlock(block, onAction, loc)
-        "settings_footer" -> SettingsFooterBlock(block, onAction)
-        "memory_match" -> MemoryMatchBlock(block, onAction)
-        "calendar_month" -> CalendarMonthBlock(block, onAction)
+        "press_hold_confirm" -> PressHoldConfirmBlock(block, inputValues, loc, onInteract)
+        "health_connect" -> HealthConnectBlock(block, onAction, loc, onInteract)
+        "settings_footer" -> SettingsFooterBlock(block, onAction, onInteract)
+        "memory_match" -> MemoryMatchBlock(block, onInteract)
+        "calendar_month" -> CalendarMonthBlock(block, inputValues, onInteract)
         "button" -> ButtonBlock(block, onAction, loc)
         "spacer" -> Spacer(modifier = Modifier.height((block.spacer_height ?: 24.0).dp)) // SPEC-419 pass-14 #11 — unset default 24 to match editor+preview (was 16)
         "list" -> ListBlock(block, loc)
@@ -1376,7 +1482,7 @@ private fun RenderBlockContent(
         "timeline" -> TimelineBlock(block, loc)
         "animated_loading" -> AnimatedLoadingBlock(block, onAction)
         // SPEC-089d Phase A: Implemented blocks
-        "wheel_picker" -> WheelPickerBlock(block, inputValues)
+        "wheel_picker" -> WheelPickerBlock(block, inputValues, onInteract)
         "pulsing_avatar" -> PulsingAvatarBlock(block)
         "star_background" -> StarBackgroundBlock(block)
         // SPEC-089d Phase F: Container & advanced block types
@@ -1980,33 +2086,68 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
  * lives in inputValues[field_id]; `field_config.otp_value` seeds a display value (used by snapshots/preview).
  * Filled boxes show the digit + accent border; the next empty box is the active box (accent border). */
 @Composable
-private fun OtpInputBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+private fun OtpInputBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     val length = (block.field_config?.get("otp_length") as? Number)?.toInt()?.coerceIn(2, 10) ?: 6
     val fieldId = block.field_id ?: block.id
-    val value = (inputValues[fieldId] as? String)
-        ?: (block.field_config?.get("otp_value") as? String)
-        ?: ""
     val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val boxBg = StyleEngine.parseColor(block.bg_color ?: "#1F2937")
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (i in 0 until length) {
-            val ch = value.getOrNull(i)
-            val isActive = i == value.length
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(boxBg)
-                    .border(
-                        width = if (isActive || ch != null) 2.dp else 1.dp,
-                        color = if (isActive) accent else if (ch != null) accent.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.35f),
-                        shape = RoundedCornerShape(10.dp),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (ch != null) {
-                    Text(ch.toString(), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+
+    // SPEC-419 STEP-2 — local editable state seeded from prior input / `otp_value` preview so re-entry +
+    // snapshots keep the code. A hidden BasicTextField captures the number keyboard; tapping the boxes
+    // focuses it; on reaching `otp_length` digits we write inputValues[fid] and fire ("otp_entered", code).
+    var entered by remember(fieldId) {
+        mutableStateOf(
+            (inputValues[fieldId] as? String)
+                ?: (block.field_config?.get("otp_value") as? String)
+                ?: "",
+        )
+    }
+    val focusRequester = remember { FocusRequester() }
+
+    Box(modifier = Modifier.fillMaxWidth()) {
+        // Hidden keyboard capture — 1dp + near-invisible so it never affects layout/snapshots.
+        BasicTextField(
+            value = entered,
+            onValueChange = { newVal ->
+                val filtered = newVal.filter { it.isDigit() }.take(length)
+                entered = filtered
+                if (filtered.length == length) {
+                    inputValues[fieldId] = filtered
+                    onInteract(block.id, "otp_entered", filtered)
+                }
+            },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+            modifier = Modifier.size(1.dp).alpha(0.01f).focusRequester(focusRequester),
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { focusRequester.requestFocus() },
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            for (i in 0 until length) {
+                val ch = entered.getOrNull(i)
+                val isActive = i == entered.length
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(boxBg)
+                        .border(
+                            width = if (isActive || ch != null) 2.dp else 1.dp,
+                            color = if (isActive) accent else if (ch != null) accent.copy(alpha = 0.5f) else Color.Gray.copy(alpha = 0.35f),
+                            shape = RoundedCornerShape(10.dp),
+                        ),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (ch != null) {
+                        Text(ch.toString(), fontSize = 22.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+                    }
                 }
             }
         }
@@ -2200,27 +2341,68 @@ private fun SummaryScreenBlock(block: ContentBlock, loc: ((String, String) -> St
 /** EPIC-11 — press-and-hold-to-confirm: a pill that fills left→right as the user holds. `field_config.
  * hold_progress` (0-1) is the static fill fraction (runtime animates it); active_color = fill color. */
 @Composable
-private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) -> String)? = null) {
-    val progress = ((block.field_config?.get("hold_progress") as? Number)?.toDouble() ?: 0.0)
-        .coerceIn(0.0, 1.0).toFloat()
+private fun PressHoldConfirmBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    loc: ((String, String) -> String)? = null,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val text = loc?.invoke("block.${block.id}.text", block.text ?: "Hold to confirm") ?: (block.text ?: "Hold to confirm")
+    val fieldId = block.field_id ?: block.id
+    val holdMs = 1200
+
+    // SPEC-419 STEP-2 — a pill that fills left→right while held. `pointerInput` sets `holding`; a
+    // LaunchedEffect drives the fill Animatable while held (and rewinds on early release). On a full
+    // hold we write inputValues[fid]=true and fire ("confirmed", null). `hold_progress` seeds the static
+    // preview fill; the seed is NOT auto-rewound until the user actually presses (parity with iOS).
+    val seeded = ((block.field_config?.get("hold_progress") as? Number)?.toDouble() ?: 0.0)
+        .coerceIn(0.0, 1.0).toFloat()
+    val progress = remember(fieldId) { Animatable(seeded) }
+    var holding by remember(fieldId) { mutableStateOf(false) }
+    var everHeld by remember(fieldId) { mutableStateOf(false) }
+    var confirmed by remember(fieldId) { mutableStateOf(false) }
+
+    LaunchedEffect(holding) {
+        if (confirmed) return@LaunchedEffect
+        if (holding) {
+            val remaining = ((1f - progress.value) * holdMs).toInt().coerceAtLeast(1)
+            progress.animateTo(1f, tween(remaining, easing = LinearEasing))
+            if (progress.value >= 1f) {
+                confirmed = true
+                inputValues[fieldId] = true
+                onInteract(block.id, "confirmed", null)
+            }
+        } else if (everHeld) {
+            progress.animateTo(0f, tween(200))
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(56.dp)
             .clip(RoundedCornerShape(28.dp))
-            .background(Color(0xFF1F2937)),
+            .background(Color(0xFF1F2937))
+            .pointerInput(confirmed) {
+                if (confirmed) return@pointerInput
+                detectTapGestures(onPress = {
+                    everHeld = true
+                    holding = true
+                    tryAwaitRelease()
+                    holding = false
+                })
+            },
         contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
-                .fillMaxWidth(progress)
+                .fillMaxWidth(progress.value)
                 .background(accent),
         )
-        Text(text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
+        Text(if (confirmed) "✓" else text, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White)
     }
 }
 
@@ -2229,7 +2411,12 @@ private fun PressHoldConfirmBlock(block: ContentBlock, loc: ((String, String) ->
  * `field_config.health_subtitle` sets the subtitle; `connected` shows a green check; the native connect flow is
  * host-driven via onAction("health_connect"). */
 @Composable
-private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((String, String) -> String)? = null) {
+private fun HealthConnectBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    loc: ((String, String) -> String)? = null,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     // EPIC-11 — provider is PLATFORM-FIXED: Android always shows Google Fit (Apple Health is iOS-only).
     val connected = (block.field_config?.get("connected") as? Boolean) ?: false
     val icon = "🏃"
@@ -2242,7 +2429,12 @@ private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, 
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp))
             .background(Color(0xFF1F2937))
-            .clickable { onAction("health_connect") }
+            // SPEC-419 STEP-2 — keep the host onAction("health_connect") for the native connect flow AND
+            // fire onInteract so the delegate can push backend state. Provider is "google_fit" (iOS: "apple_health").
+            .clickable {
+                onAction("health_connect")
+                onInteract(block.id, "health_connect", "google_fit")
+            }
             .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
@@ -2268,7 +2460,11 @@ private fun HealthConnectBlock(block: ContentBlock, onAction: (String) -> Unit, 
 /** EPIC-11 — interactive footer: a dark-mode capsule toggle + a language switcher pill. `field_config.dark_mode`
  * (bool) + `language` (label). Custom capsule switch (not the native widget) so both platforms pixel-match. */
 @Composable
-private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit) {
+private fun SettingsFooterBlock(
+    block: ContentBlock,
+    onAction: (String) -> Unit,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     val darkMode = (block.field_config?.get("dark_mode") as? Boolean) ?: false
     val language = (block.field_config?.get("language") as? String) ?: "English"
     val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
@@ -2285,7 +2481,11 @@ private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit)
                     .height(28.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(if (darkMode) accent else Color.White.copy(alpha = 0.22f))
-                    .clickable { onAction("toggle_dark_mode") },
+                    // SPEC-419 STEP-2 — value is the intended NEXT state (matches iOS String(!darkMode)).
+                    .clickable {
+                        onAction("toggle_dark_mode")
+                        onInteract(block.id, "toggle_dark_mode", (!darkMode).toString())
+                    },
                 contentAlignment = if (darkMode) Alignment.CenterEnd else Alignment.CenterStart,
             ) {
                 Box(modifier = Modifier.padding(3.dp).size(22.dp).clip(CircleShape).background(Color.White))
@@ -2295,7 +2495,10 @@ private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit)
             modifier = Modifier
                 .clip(RoundedCornerShape(20.dp))
                 .background(Color(0xFF1F2937))
-                .clickable { onAction("switch_language") }
+                .clickable {
+                    onAction("switch_language")
+                    onInteract(block.id, "switch_language", language)
+                }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
@@ -2311,18 +2514,58 @@ private fun SettingsFooterBlock(block: ContentBlock, onAction: (String) -> Unit)
  * face-up (white + symbol), or matched (green + symbol). `field_config.match_columns` + `match_cards`=
  * [{symbol, state: down|up|matched}]. */
 @Composable
-private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
+private fun MemoryMatchBlock(
+    block: ContentBlock,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     val cols = (block.field_config?.get("match_columns") as? Number)?.toInt()?.coerceIn(2, 5) ?: 3
     val cardsRaw = (block.field_config?.get("match_cards") as? List<*>) ?: emptyList<Any>()
-    val cards = cardsRaw.mapNotNull { it as? Map<*, *> }
+    val cards = remember(cardsRaw) { cardsRaw.mapNotNull { it as? Map<*, *> } }
     val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val matched = StyleEngine.parseColor("#10B981")
+
+    // SPEC-419 STEP-2 — local optimistic grid. Tap flips a face-down card; two up resolve to match (stay
+    // up, fire ("pair_matched", symbol)) or mismatch (flip back after ~0.7s). All matched → ("completed").
+    // Initial card `state`s seed the grid (preview parity). Replaces the old onAction("flip_card").
+    val symbols = remember(cards) { cards.map { (it["symbol"] as? String) ?: "" } }
+    val states = remember(cards) { cards.map { (it["state"] as? String) ?: "down" }.toMutableStateList() }
+    val flippedUp = remember(cards) { mutableStateListOf<Int>() }
+    var busy by remember(cards) { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+
+    fun flip(idx: Int) {
+        if (busy || idx >= states.size || states[idx] != "down") return
+        states[idx] = "up"
+        flippedUp.add(idx)
+        if (flippedUp.size < 2) return
+        val a = flippedUp[0]
+        val b = flippedUp[1]
+        if (a < symbols.size && b < symbols.size && symbols[a] == symbols[b]) {
+            states[a] = "matched"
+            states[b] = "matched"
+            flippedUp.clear()
+            onInteract(block.id, "pair_matched", symbols[a])
+            if (states.all { it == "matched" }) {
+                onInteract(block.id, "completed", null)
+            }
+        } else {
+            busy = true
+            scope.launch {
+                delay(700)
+                if (a < states.size) states[a] = "down"
+                if (b < states.size) states[b] = "down"
+                flippedUp.clear()
+                busy = false
+            }
+        }
+    }
+
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        cards.chunked(cols).forEach { rowCards ->
+        cards.indices.chunked(cols).forEach { rowIdxs ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                rowCards.forEach { m ->
-                    val symbol = (m["symbol"] as? String) ?: ""
-                    val state = (m["state"] as? String) ?: "down"
+                rowIdxs.forEach { idx ->
+                    val symbol = symbols.getOrElse(idx) { "" }
+                    val state = states.getOrElse(idx) { "down" }
                     val bg = when (state) {
                         "up" -> Color.White
                         "matched" -> matched.copy(alpha = 0.18f)
@@ -2340,7 +2583,7 @@ private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
                             .clip(RoundedCornerShape(12.dp))
                             .background(bg)
                             .border(2.dp, border, RoundedCornerShape(12.dp))
-                            .clickable { onAction("flip_card") },
+                            .clickable { flip(idx) },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (state == "down") {
@@ -2350,7 +2593,7 @@ private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
                         }
                     }
                 }
-                repeat(cols - rowCards.size) { Spacer(modifier = Modifier.weight(1f)) }
+                repeat(cols - rowIdxs.size) { Spacer(modifier = Modifier.weight(1f)) }
             }
         }
     }
@@ -2360,16 +2603,27 @@ private fun MemoryMatchBlock(block: ContentBlock, onAction: (String) -> Unit) {
  * start_offset (weekday of the 1st, 0=Sun), selected_days[], today. Selected = accent-filled circle; today =
  * accent ring. (Multi-month scroll is host-driven; this renders one month.) */
 @Composable
-private fun CalendarMonthBlock(block: ContentBlock, onAction: (String) -> Unit) {
+private fun CalendarMonthBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     val cfg = block.field_config
+    val fieldId = block.field_id ?: block.id
     val monthLabel = (cfg?.get("month_label") as? String) ?: "June 2026"
-    val daysInMonth = (cfg?.get("days_in_month") as? Number)?.toInt() ?: 30
+    val daysInMonth = ((cfg?.get("days_in_month") as? Number)?.toInt() ?: 30).coerceIn(0, 31)
     val startOffset = ((cfg?.get("start_offset") as? Number)?.toInt() ?: 0).coerceIn(0, 6)
     val selectedDays = (cfg?.get("selected_days") as? List<*>)?.mapNotNull { (it as? Number)?.toInt() } ?: emptyList()
     val today = (cfg?.get("today") as? Number)?.toInt() ?: -1
     val accent = StyleEngine.parseColor(block.active_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
     val weekdays = listOf("S", "M", "T", "W", "T", "F", "S")
     val rows = (startOffset + daysInMonth + 6) / 7
+
+    // SPEC-419 STEP-2 — tapping an in-month day highlights it, writes inputValues[fid]=day, and fires
+    // ("day_selected", String(day)). Config carries no month/year — the host derives the full date.
+    // `selected_days` still seed highlights (preview parity).
+    var selectedDay by remember(fieldId) { mutableStateOf<Int?>(null) }
+
     Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(monthLabel, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = Color.White, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
         Row(modifier = Modifier.fillMaxWidth()) {
@@ -2381,9 +2635,22 @@ private fun CalendarMonthBlock(block: ContentBlock, onAction: (String) -> Unit) 
             Row(modifier = Modifier.fillMaxWidth()) {
                 for (c in 0 until 7) {
                     val day = r * 7 + c - startOffset + 1
-                    Box(modifier = Modifier.weight(1f).height(42.dp), contentAlignment = Alignment.Center) {
-                        if (day in 1..daysInMonth) {
-                            val isSelected = day in selectedDays
+                    val inMonth = day in 1..daysInMonth
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(42.dp)
+                            .then(
+                                if (inMonth) Modifier.clickable {
+                                    selectedDay = day
+                                    inputValues[fieldId] = day
+                                    onInteract(block.id, "day_selected", day.toString())
+                                } else Modifier,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (inMonth) {
+                            val isSelected = day in selectedDays || day == selectedDay
                             val isToday = day == today
                             Box(
                                 modifier = Modifier
@@ -5604,14 +5871,19 @@ private fun StarBackgroundBlock(block: ContentBlock) {
 // MARK: - Wheel Picker Block (SPEC-089d AC-013)
 
 @Composable
-private fun WheelPickerBlock(block: ContentBlock, inputValues: MutableMap<String, Any>) {
+private fun WheelPickerBlock(
+    block: ContentBlock,
+    inputValues: MutableMap<String, Any>,
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
+) {
     // SPEC-420 — opt-in measurement mode. When `field_config["measurement_type"]` is
     // present AND the units[] resolve to a usable set, render the measurement variant
     // (unit toggle + ruler/gauge/dial/wheel). Otherwise the legacy drum below is
     // UNCHANGED. The measurement wrapper OWNS persistence (base + sibling keys).
     val measurementConfig = parseMeasurementConfig(block)
     if (measurementConfig != null) {
-        MeasurementWheelBlock(block, measurementConfig, inputValues)
+        // SPEC-419 STEP-2 — the measurement wrapper fires ("value_changed", base) on commit.
+        MeasurementWheelBlock(block, measurementConfig, inputValues, onInteract)
         return
     }
 

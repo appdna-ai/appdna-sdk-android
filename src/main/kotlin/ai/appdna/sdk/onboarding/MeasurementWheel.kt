@@ -320,6 +320,9 @@ internal fun MeasurementWheelBlock(
     block: ContentBlock,
     config: MeasurementConfig,
     inputValues: MutableMap<String, Any>,
+    // SPEC-419 STEP-2 — fired ("value_changed", base value) on a real user commit (pick / unit switch),
+    // NEVER on the pristine onAppear seed and never per-tick. Default no-op for the SPEC-420 test path.
+    onInteract: (String, String, String?) -> Unit = { _, _, _ -> },
 ) {
     val isDark = isSystemInDarkTheme()
     val fieldId = block.field_id ?: block.id
@@ -346,21 +349,22 @@ internal fun MeasurementWheelBlock(
     val accentColor = StyleEngine.parseColor(config.needleColorHex ?: block.highlight_color ?: "#6366F1")
     val toggleColor = StyleEngine.parseColor(config.toggleActiveColorHex ?: block.highlight_color ?: "#6366F1")
 
-    fun writeSnapshot() {
+    // SPEC-419 STEP-2 — persist + return the snapshot so callers can fire the delegate. The
+    // `onElementInteraction` payload = { value, display_value, unit }; `value` (base scalar) is the
+    // `value_changed` payload. The onAppear seed calls this WITHOUT firing onInteract (render-time seed).
+    fun writeSnapshot(): MeasurementSnapshot {
         val snap = measurementSnapshot(fieldId, holdBase, baseUnit, unitAt(unitIndex))
         for ((k, v) in snap.inputValues) inputValues[k] = v
-        // `onElementInteraction` payload = { value, display_value, unit }. Live host-fire
-        // wiring is a shared STEP-2 across EPIC-11 elements (deferred, matches iOS); the
-        // payload derivation is unit-tested via `measurementSnapshot`.
-        @Suppress("UNUSED_VARIABLE") val payload = snap.payload
+        return snap
     }
 
     // A pick from ANY style: convert the chosen display value → base, hold it, mark
-    // interaction, and perform the single wrapper-owned persist.
+    // interaction, and perform the single wrapper-owned persist + delegate fire (commit-level).
     fun pick(displayValue: Double) {
         hasUserInteracted = true
         holdBase = measurementToBase(displayValue, unitAt(unitIndex))
-        writeSnapshot()
+        val snap = writeSnapshot()
+        onInteract(block.id, "value_changed", snap.payload["value"]?.toString())
     }
 
     fun selectUnit(idx: Int) {
@@ -368,7 +372,8 @@ internal fun MeasurementWheelBlock(
         hasUserInteracted = true
         unitIndex = idx
         // Base held constant; display recomputes + re-clamps inside the snapshot.
-        writeSnapshot()
+        val snap = writeSnapshot()
+        onInteract(block.id, "value_changed", snap.payload["value"]?.toString())
     }
 
     LaunchedEffect(Unit) {
