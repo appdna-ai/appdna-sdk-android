@@ -478,6 +478,7 @@ class SharedFixtureTest(
             "reset_password_no_advance",
             "onboarding_completed_with_responses",
             "screen_view_emits_screen_field",
+            "wheel_measurement_emit",   // SPEC-420 onElementInteraction emission — driver not yet wired
         )
 
         /** Resolves the fixtures root or fails the entire suite. */
