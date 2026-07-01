@@ -3123,6 +3123,18 @@ private fun BlockBasedStepView(
             else -> action to null
         }
 
+        // SPEC-421 — a permission step whose CTA is authored as plain `action:"next"` runs the
+        // permission pipeline (prompt) BEFORE the required-field validation gate below, matching
+        // iOS (OnboardingRenderer.swift `case "next"` short-circuits before `guard canAdvance`).
+        // Permission steps skip required-field validation by design (the pipeline owns advance).
+        if (rawAction == "next") {
+            val nextPermissionType = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+            if (nextPermissionType.isNotEmpty() && PermissionManager.isSupported(nextPermissionType)) {
+                runPermissionPipeline()
+                return
+            }
+        }
+
         // OB-1 — actions that finalize/submit the step must pass validation.
         // Auth-class actions (login, register, request_otp, email_login, ...)
         // also gate on required fields because the host can't authenticate
@@ -3145,17 +3157,7 @@ private fun BlockBasedStepView(
 
         when (rawAction) {
             "next" -> {
-                // SPEC-421 — a permission step whose CTA is authored as plain `action:"next"`
-                // (instead of `action:"permission"`) must STILL honor the step's `permission_type`
-                // and run the permission pipeline rather than silently advancing. Reuse
-                // PermissionManager's own support check — do not invent a new list. Non-permission
-                // "next" steps (empty/unsupported type) fall through to the normal advance below.
-                // Mirrors iOS OnboardingRenderer.swift `case "next"`.
-                val nextPermissionType = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
-                if (nextPermissionType.isNotEmpty() && PermissionManager.isSupported(nextPermissionType)) {
-                    runPermissionPipeline()
-                    return
-                }
+                // (permission-step-via-"next" is handled above, before validation)
                 // SPEC-401-A R15 — match iOS OnboardingRenderer.swift:1518-1527.
                 // iOS prefixes every toggle key with `toggle_` so the namespaces
                 // never collide with form input keys; Android previously merged
