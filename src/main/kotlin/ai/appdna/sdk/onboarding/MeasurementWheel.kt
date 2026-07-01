@@ -25,12 +25,12 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -39,25 +39,23 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -65,7 +63,6 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -471,7 +468,13 @@ internal fun MeasurementWheelBlock(
     }
 }
 
-// MARK: - Ruler (horizontal tick tape + fixed center caret, LTR-locked)
+// MARK: - Ruler (fixed window of ticks CENTERED on the current value, LTR-locked)
+
+// A scrollable list can't be relied on to scroll-to-current in a static snapshot
+// (Robolectric) or reliably on device, so — mirroring iOS `rulerVisual` — we render
+// a FIXED WINDOW of ticks centered on the current value with a fixed center caret over
+// the middle tick. The current-value tick (off==0) sits directly under the caret.
+private const val MEASUREMENT_RULER_RADIUS = 10 // ~21 ticks
 
 @Composable
 private fun MeasurementRuler(
@@ -483,66 +486,75 @@ private fun MeasurementRuler(
     majorInterval: Int,
     onPick: (Double) -> Unit,
 ) {
-    val initialIndex = remember(values) { nearestMeasurementIndex(currentDisplay, values) }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    var interacted by remember { mutableStateOf(false) }
-    val centered by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val viewportCenter = info.viewportStartOffset +
-                (info.viewportEndOffset - info.viewportStartOffset) / 2
-            info.visibleItemsInfo.minByOrNull {
-                abs((it.offset + it.size / 2) - viewportCenter)
-            }?.index ?: listState.firstVisibleItemIndex
-        }
-    }
-    LaunchedEffect(centered) {
-        if (!interacted && listState.isScrollInProgress) interacted = true
-        if (interacted && centered in values.indices) onPick(values[centered])
-    }
+    val sel = nearestMeasurementIndex(currentDisplay, values)
+    val selState = rememberUpdatedState(sel)
+    val tickWidth = 16.dp
+    val major = maxOf(1, majorInterval)
 
     Box(
-        modifier = Modifier.fillMaxWidth().height(84.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(84.dp)
+            .clipToBounds()
+            .pointerInput(values) {
+                var acc = 0f
+                detectHorizontalDragGestures(onDragEnd = { acc = 0f }) { _, dragAmount ->
+                    acc += dragAmount
+                    val stepPx = 16f
+                    while (acc >= stepPx) {   // drag right → lower value
+                        val n = (selState.value - 1).coerceIn(0, values.lastIndex)
+                        onPick(values[n]); acc -= stepPx
+                    }
+                    while (acc <= -stepPx) {  // drag left → higher value
+                        val n = (selState.value + 1).coerceIn(0, values.lastIndex)
+                        onPick(values[n]); acc += stepPx
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-            val itemWidth = 14.dp
-            val sidePad = (LocalConfiguration.current.screenWidthDp.dp - itemWidth) / 2
-            LazyRow(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = sidePad),
-                verticalAlignment = Alignment.Bottom,
-                flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
-            ) {
-                items(values.size) { i ->
-                    val isMajor = i % maxOf(1, majorInterval) == 0
-                    val sel = centered == i
+            Row(verticalAlignment = Alignment.Bottom) {
+                for (off in -MEASUREMENT_RULER_RADIUS..MEASUREMENT_RULER_RADIUS) {
+                    val idx = sel + off
                     Column(
-                        modifier = Modifier.width(itemWidth),
+                        modifier = Modifier.width(tickWidth),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Bottom,
                     ) {
-                        if (isMajor) {
-                            Text(
-                                text = formatMeasurement(values[i], unit),
-                                fontSize = 10.sp,
-                                color = tickColor,
+                        if (idx in values.indices) {
+                            val isMajor = idx % major == 0
+                            val isCenter = off == 0
+                            if (isMajor) {
+                                // Full formatted value as ONE string (not split).
+                                Text(
+                                    text = formatMeasurement(values[idx], unit),
+                                    fontSize = 10.sp,
+                                    color = tickColor,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    modifier = Modifier.wrapContentWidth(unbounded = true),
+                                )
+                            } else {
+                                Spacer(Modifier.height(14.dp))
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .width(2.dp)
+                                    .height(if (isMajor) 32.dp else 18.dp)
+                                    .background(if (isCenter) accentColor else tickColor)
+                                    .clickable { onPick(values[idx]) },
                             )
                         } else {
+                            // Out-of-range placeholder keeps the current tick centered.
                             Spacer(Modifier.height(14.dp))
+                            Spacer(Modifier.width(2.dp).height(18.dp))
                         }
-                        Box(
-                            modifier = Modifier
-                                .width(2.dp)
-                                .height(if (isMajor) 32.dp else 18.dp)
-                                .background(if (sel) accentColor else tickColor),
-                        )
                     }
                 }
             }
         }
-        // Fixed center caret.
+        // Fixed center caret over the middle (current-value) tick.
         Box(
             modifier = Modifier
                 .width(2.dp)
@@ -554,6 +566,13 @@ private fun MeasurementRuler(
 
 // MARK: - Drum (wheel = flat; dial = perspective) — render-only, wrapper persists
 
+// Fixed window of rows CENTERED on the current value (mirrors iOS `drumVisual`): the
+// center row (off==0) sits on the track band, neighbors fade by |off|, and the `dial`
+// variant adds a per-row SCALE (center 1.0 → smaller outward) for the rotary feel — NOT
+// a per-row 3D rotation (which collapses layout). A scrollable list would not center in
+// a static snapshot or reliably on device.
+private const val MEASUREMENT_DRUM_RADIUS = 2 // 5 visible rows
+
 @Composable
 private fun MeasurementDrum(
     values: List<Double>,
@@ -564,35 +583,30 @@ private fun MeasurementDrum(
     perspective: Boolean,
     onPick: (Double) -> Unit,
 ) {
-    val initialIndex = remember(values) { nearestMeasurementIndex(currentDisplay, values) }
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
-    var interacted by remember { mutableStateOf(false) }
-    val centered by remember {
-        derivedStateOf {
-            val info = listState.layoutInfo
-            val viewportCenter = info.viewportStartOffset +
-                (info.viewportEndOffset - info.viewportStartOffset) / 2
-            info.visibleItemsInfo.minByOrNull {
-                abs((it.offset + it.size / 2) - viewportCenter)
-            }?.index ?: listState.firstVisibleItemIndex
-        }
-    }
-    LaunchedEffect(centered) {
-        if (!interacted && listState.isScrollInProgress) interacted = true
-        if (interacted && centered in values.indices) onPick(values[centered])
-    }
+    val sel = nearestMeasurementIndex(currentDisplay, values)
+    val selState = rememberUpdatedState(sel)
+    val rowHeight = 30.dp
 
     Box(
         modifier = Modifier
             .fillMaxWidth()
             .height(150.dp)
-            .then(
-                // Perspective tilt for the "dial" style (mirrors iOS rotation3DEffect).
-                if (perspective) Modifier.graphicsLayer {
-                    rotationX = 12f
-                    cameraDistance = 8f * density
-                } else Modifier,
-            ),
+            .clipToBounds()
+            .pointerInput(values) {
+                var acc = 0f
+                detectVerticalDragGestures(onDragEnd = { acc = 0f }) { _, dragAmount ->
+                    acc += dragAmount
+                    val stepPx = 30f
+                    while (acc >= stepPx) {   // drag down → lower value
+                        val n = (selState.value - 1).coerceIn(0, values.lastIndex)
+                        onPick(values[n]); acc -= stepPx
+                    }
+                    while (acc <= -stepPx) {  // drag up → higher value
+                        val n = (selState.value + 1).coerceIn(0, values.lastIndex)
+                        onPick(values[n]); acc += stepPx
+                    }
+                }
+            },
         contentAlignment = Alignment.Center,
     ) {
         // Center highlight band (track).
@@ -602,23 +616,36 @@ private fun MeasurementDrum(
                 .height(40.dp)
                 .background(trackColor.copy(alpha = 0.6f), RoundedCornerShape(8.dp)),
         )
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 55.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            flingBehavior = rememberSnapFlingBehavior(lazyListState = listState),
-        ) {
-            items(values.size) { i ->
-                val sel = centered == i
-                Text(
-                    text = formatMeasurement(values[i], unit),
-                    fontSize = if (sel) 22.sp else 16.sp,
-                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Normal,
-                    color = if (sel) accentColor else accentColor.copy(alpha = 0.45f),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                )
+        // Fixed window of rows centered on the current value.
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            for (off in -MEASUREMENT_DRUM_RADIUS..MEASUREMENT_DRUM_RADIUS) {
+                val idx = sel + off
+                val a = abs(off)
+                if (idx in values.indices) {
+                    val isCenter = off == 0
+                    val scale = if (perspective) (1f - 0.16f * a).coerceAtLeast(0.62f) else 1f
+                    Box(
+                        modifier = Modifier
+                            .height(rowHeight)
+                            .then(
+                                if (perspective) Modifier.graphicsLayer { scaleX = scale; scaleY = scale }
+                                else Modifier,
+                            ),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = formatMeasurement(values[idx], unit),
+                            fontSize = if (isCenter) 22.sp else 16.sp,
+                            fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isCenter) accentColor
+                            else accentColor.copy(alpha = (0.6f - 0.16f * a).coerceAtLeast(0.25f)),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.clickable { onPick(values[idx]) },
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.height(rowHeight))
+                }
             }
         }
     }
