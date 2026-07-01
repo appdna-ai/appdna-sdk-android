@@ -3145,6 +3145,17 @@ private fun BlockBasedStepView(
 
         when (rawAction) {
             "next" -> {
+                // SPEC-421 — a permission step whose CTA is authored as plain `action:"next"`
+                // (instead of `action:"permission"`) must STILL honor the step's `permission_type`
+                // and run the permission pipeline rather than silently advancing. Reuse
+                // PermissionManager's own support check — do not invent a new list. Non-permission
+                // "next" steps (empty/unsupported type) fall through to the normal advance below.
+                // Mirrors iOS OnboardingRenderer.swift `case "next"`.
+                val nextPermissionType = (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+                if (nextPermissionType.isNotEmpty() && PermissionManager.isSupported(nextPermissionType)) {
+                    runPermissionPipeline()
+                    return
+                }
                 // SPEC-401-A R15 — match iOS OnboardingRenderer.swift:1518-1527.
                 // iOS prefixes every toggle key with `toggle_` so the namespaces
                 // never collide with form input keys; Android previously merged
