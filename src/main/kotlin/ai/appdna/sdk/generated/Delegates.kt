@@ -2,20 +2,9 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: b80b4bc4f9b6bd1a1a87d94624d18e050a2ce760
+// Last codegen commit: 9b514e667c4204268ef456415a60d2f7a7f59a9b
 
 package ai.appdna.sdk.generated
-
-/** Onboarding flow lifecycle observer. Observe-only — no return values, no async, no blocking. */
-interface AppDNAOnboardingDelegate {
-    fun onOnboardingStarted(flowId: String) = Unit
-
-    fun onOnboardingStepChanged(flowId: String, stepId: String, stepIndex: Int, totalSteps: Int) = Unit
-
-    fun onOnboardingCompleted(flowId: String, responses: Map<String, Any?>) = Unit
-
-    fun onOnboardingDismissed(flowId: String, atStep: Int) = Unit
-}
 
 /** 13 paywall lifecycle methods incl. purchase, restore lifecycle (started/completed/failed), post-purchase deep-link/next-step. */
 interface AppDNAPaywallDelegate {
@@ -43,6 +32,11 @@ interface AppDNAPaywallDelegate {
 interface AppDNASurveyDelegate {
     fun onSurveyPresented(surveyId: String) = Unit
 
+    /** Survey completed. responses = list of SurveyResponse maps (native emits this; SPEC-070-C §3.9). */
+    fun onSurveyCompleted(surveyId: String, responses: List<Map<String, Any?>>) = Unit
+
+    /** DEPRECATED (1.0.5) — native never emitted this; use onSurveyCompleted. Non-breaking forwarding shim. */
+    @Deprecated("Use onSurveyCompleted instead.", ReplaceWith("onSurveyCompleted"))
     fun onSurveySubmitted(surveyId: String, response: Map<String, Any?>) = Unit
 
     fun onSurveyDismissed(surveyId: String) = Unit
@@ -50,6 +44,11 @@ interface AppDNASurveyDelegate {
 
 /** In-app message lifecycle + show veto. */
 interface AppDNAInAppMessageDelegate {
+    /** Message shown with its trigger event (native emits this; SPEC-070-C §3.10). */
+    fun onMessageShown(messageId: String, trigger: String) = Unit
+
+    /** DEPRECATED (1.0.5) — native never emitted this; use onMessageShown. Non-breaking forwarding shim. */
+    @Deprecated("Use onMessageShown instead.", ReplaceWith("onMessageShown"))
     fun onMessagePresented(messageId: String) = Unit
 
     fun onMessageAction(messageId: String, action: String) = Unit
