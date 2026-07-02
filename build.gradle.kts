@@ -160,10 +160,13 @@ afterEvaluate {
     signing {
         val signingKey = System.getenv("GPG_SIGNING_KEY")
         val signingPassword = System.getenv("GPG_SIGNING_PASSWORD")
+        // SPEC-070-C: only sign when keys are present (the CI publish path). Locally —
+        // e.g. `publishToMavenLocal` for on-branch plugin verification of the D10 seams —
+        // there are no keys, so skip signing rather than fail on a missing `.asc`.
         if (signingKey != null && signingPassword != null) {
             useInMemoryPgpKeys(signingKey, signingPassword)
+            sign(publishing.publications["release"])
         }
-        sign(publishing.publications["release"])
     }
 }
 
