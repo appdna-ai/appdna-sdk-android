@@ -267,6 +267,11 @@ object AppDNA {
     @JvmStatic var currentBundleVersion: Int = 0
         internal set
 
+    /** SPEC-070-C D4 — the configured SDK-wrapper framework tag (native|flutter|
+     * react_native); tagged on every event's device context. Defaults to "native". */
+    @JvmStatic
+    val framework: String get() = options.framework
+
     /**
      * Firestore instance used by the SDK.
      * Uses a secondary Firebase app ("appdna") if google-services-appdna.json is found in assets,

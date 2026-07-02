@@ -65,6 +65,8 @@ internal object EventSchema {
 
             put("device", JSONObject().apply {
                 put("platform", "android")
+                // SPEC-070-C D4: SDK-wrapper attribution (native|flutter|react_native).
+                put("framework", ai.appdna.sdk.AppDNA.framework)
                 // SPEC-070-A G.15: emit `device.os` as a 3-part dotted string so it
                 // matches the iOS shape `"<major>.<minor>.<patch>"`. Android
                 // `Build.VERSION.RELEASE` is just the major (e.g. "14") on most

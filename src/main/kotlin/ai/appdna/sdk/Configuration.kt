@@ -57,7 +57,13 @@ data class AppDNAOptions(
      * android:name="com.google.firebase.messaging.default_notification_icon">`
      * and finally `applicationInfo.icon`.
      */
-    val notificationIcon: Int = 0
+    val notificationIcon: Int = 0,
+    /**
+     * SPEC-070-C D4 — SDK-wrapper attribution (`native` | `flutter` | `react_native`),
+     * tagged on every event's device context (→ BigQuery `framework` column). Defaults
+     * to `native`; the Flutter/RN wrappers pass their identity via configure().
+     */
+    val framework: String = "native"
 )
 
 /**
