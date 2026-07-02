@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-codegen/dto-registry.ts
 // Generator: scripts/sdk-codegen/emit-dtos.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 9b514e667c4204268ef456415a60d2f7a7f59a9b
+// Last codegen commit: 85473b173a44db0d2ed1488f176c3c76ceb5a27a
 
 package ai.appdna.sdk.generated
 
@@ -44,6 +44,51 @@ data class AppDNAEnvironment(
                 rolloutPercentage = (map["rollout_percentage"] as? Double),
                 region = AppDNAEnvironmentRegion.fromRaw(map["region"] as? String)!!,
                 featureFlags = (map["feature_flags"] as? List<*>)?.filterIsInstance<String>() ?: emptyList(),
+        )
+    }
+}
+
+/** AppDNAPushAction — one structured notification action button on a push payload (SPEC-070-A push section; matches push_payload/action_buttons_parse fixture). */
+data class AppDNAPushAction(
+    /** Stable action identifier — registers the notification button and echoes back on tap. */
+    val id: String,
+    /** Button label shown in the notification tray (may be template-interpolated). */
+    val label: String,
+    /** Action kind, e.g. "deep_link" | "dismiss" | "show_screen". */
+    val actionType: String,
+    /** Action target (deep-link URL / screen id); absent for actions like "dismiss". */
+    val actionValue: String?
+) {
+    companion object {
+        fun fromMap(map: Map<String, Any?>): AppDNAPushAction = AppDNAPushAction(
+                id = (map["id"] as? String)!!,
+                label = (map["label"] as? String)!!,
+                actionType = (map["action_type"] as? String)!!,
+                actionValue = (map["action_value"] as? String),
+        )
+    }
+}
+
+/** AppDNAPushPayload — a delivered push notification the SDK surfaces to the host app (SPEC-070-A push section; matches push_payload/action_buttons_parse fixture). */
+data class AppDNAPushPayload(
+    /** Server-assigned push campaign/message id; echoed on push_received / push_tapped events. */
+    val pushId: String,
+    /** Notification title (post template interpolation). */
+    val title: String,
+    /** Notification body text; optional for data-only / title-only pushes. */
+    val body: String?,
+    /** Optional rich-media image URL for the expanded notification. */
+    val imageUrl: String?,
+    /** Structured notification action buttons registered for this push. */
+    val actions: List<AppDNAPushAction>?
+) {
+    companion object {
+        fun fromMap(map: Map<String, Any?>): AppDNAPushPayload = AppDNAPushPayload(
+                pushId = (map["push_id"] as? String)!!,
+                title = (map["title"] as? String)!!,
+                body = (map["body"] as? String),
+                imageUrl = (map["image_url"] as? String),
+                actions = (map["actions"] as? List<*>)?.mapNotNull { e -> (e as? Map<String, Any?>)?.let { AppDNAPushAction.fromMap(it) } },
         )
     }
 }
