@@ -7,6 +7,10 @@ import java.util.concurrent.locks.ReentrantLock
 // SPEC-070-A J.22 — ScreenConfig.sections is ImmutableList<ScreenSection> for
 // Compose stability; override-merging needs to re-wrap after .map { ... }.
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 // SPEC-070-A B.6 — visibility relaxed from `internal` to public so hosts can
 // register an `AppDNAScreenDelegate` via `ScreenManager.shared.setDelegate(...)`.
@@ -32,10 +36,26 @@ class ScreenManager private constructor() {
      */
     @Volatile private var screenDelegate: AppDNAScreenDelegate? = null
 
+    /**
+     * SPEC-070-C D10 — OPTIONAL async `onScreenAction` wrapper-veto. Set by a
+     * cross-platform wrapper (the Flutter plugin) that can only answer a veto
+     * asynchronously. Consulted by [dispatchScreenAction] in ADDITION to the
+     * synchronous [handleScreenAction] veto; either can block the action. Null
+     * for native hosts → the action is performed synchronously and inline
+     * exactly as before.
+     */
+    @Volatile var asyncOnScreenAction: (suspend (String, Map<String, Any?>) -> Boolean)? = null
+
     /** SPEC-070-A B.6 — register the host's screen delegate. */
     fun setDelegate(delegate: AppDNAScreenDelegate?) {
         screenDelegate = delegate
     }
+
+    /**
+     * SPEC-070-C D10 — main-thread scope for awaiting the async wrapper-veto.
+     * Only used when [asyncOnScreenAction] is set.
+     */
+    private val vetoScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
     internal fun updateIndex(index: ScreenIndex) { lock.lock(); try { screenIndex = index } finally { lock.unlock() } }
     internal fun cacheScreen(id: String, config: ScreenConfig) { lock.lock(); try { screenCache[id] = config } finally { lock.unlock() } }
@@ -405,6 +425,38 @@ class ScreenManager private constructor() {
             delegate.onScreenAction(screenId, action)
         } catch (_: Throwable) {
             true
+        }
+    }
+
+    /**
+     * SPEC-070-C D10 — full veto gate for a screen action. Runs the synchronous
+     * [handleScreenAction] veto (which also emits the `screen_action` analytics)
+     * exactly as before; if it allows AND an async wrapper-veto
+     * ([asyncOnScreenAction]) is registered, awaits it too. [perform] runs only
+     * when BOTH vetoes allow.
+     *
+     * When no async veto is set (every native host), [perform] runs
+     * synchronously inline so the host's action dispatch ordering is
+     * byte-identical to before this seam existed. When an async veto is set,
+     * [perform] runs on the main thread once the awaited decision resolves.
+     */
+    fun dispatchScreenAction(screenId: String, action: Map<String, Any?>, perform: () -> Unit) {
+        // (1) synchronous gate — unchanged; false → block (and no analytics
+        // change since handleScreenAction still emits screen_action).
+        if (!handleScreenAction(screenId, action)) return
+        // (2) async wrapper-veto — only when registered.
+        val asyncVeto = asyncOnScreenAction
+        if (asyncVeto == null) {
+            perform()
+            return
+        }
+        vetoScope.launch {
+            val allow = try {
+                asyncVeto(screenId, action)
+            } catch (_: Throwable) {
+                true
+            }
+            if (allow) perform()
         }
     }
 

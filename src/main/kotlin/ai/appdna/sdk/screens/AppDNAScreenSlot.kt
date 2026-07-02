@@ -132,32 +132,35 @@ fun AppDNAScreenSlot(name: String) {
             val activityContext = LocalContext.current
             val context = SectionContext(
                 screenId = config.id,
-                onAction = onAction@{ action ->
+                onAction = { action ->
                     val payload = mapOf<String, Any?>(
                         "type" to (action::class.simpleName ?: "unknown")
                     )
-                    val allow = ScreenManager.shared.handleScreenAction(config.id, payload)
-                    if (!allow) return@onAction
-                    when (action) {
-                        is SectionAction.OpenURL -> {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                activityContext.startActivity(intent)
-                            } catch (_: Throwable) { /* best-effort */ }
+                    // SPEC-070-C D10 — route through dispatchScreenAction so the
+                    // sync delegate veto AND the optional async wrapper-veto both
+                    // gate the action. Native hosts (no async veto) run inline.
+                    ScreenManager.shared.dispatchScreenAction(config.id, payload) {
+                        when (action) {
+                            is SectionAction.OpenURL -> {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    activityContext.startActivity(intent)
+                                } catch (_: Throwable) { /* best-effort */ }
+                            }
+                            is SectionAction.DeepLink -> {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
+                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    activityContext.startActivity(intent)
+                                } catch (_: Throwable) { /* best-effort */ }
+                            }
+                            is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
+                            is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
+                            is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
+                            is SectionAction.Dismiss -> { /* slot can't dismiss inline content */ }
+                            else -> {}
                         }
-                        is SectionAction.DeepLink -> {
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                activityContext.startActivity(intent)
-                            } catch (_: Throwable) { /* best-effort */ }
-                        }
-                        is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
-                        is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
-                        is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
-                        is SectionAction.Dismiss -> { /* slot can't dismiss inline content */ }
-                        else -> {}
                     }
                 },
             )

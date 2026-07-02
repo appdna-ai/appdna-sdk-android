@@ -300,32 +300,36 @@ private fun ScreenHostBody(
     // so host delegates can intercept actions on the full-screen surface too.
     val sectionContext = SectionContext(
         screenId = config.id,
-        onAction = onActionLabel@{ action ->
+        onAction = { action ->
             val payload = mapOf<String, Any?>(
                 "type" to (action::class.simpleName ?: "unknown")
             )
-            val allow = ScreenManager.shared.handleScreenAction(config.id, payload)
-            if (!allow) return@onActionLabel
-            when (action) {
-                is SectionAction.OpenURL -> {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(action.url))
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        activityContext.startActivity(intent)
-                    } catch (_: Throwable) { /* best-effort */ }
+            // SPEC-070-C D10 — route through dispatchScreenAction so BOTH the
+            // synchronous delegate veto AND the optional async wrapper-veto are
+            // consulted before the action is performed. With no async veto
+            // registered (native hosts) the `perform` lambda runs inline.
+            ScreenManager.shared.dispatchScreenAction(config.id, payload) {
+                when (action) {
+                    is SectionAction.OpenURL -> {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(action.url))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            activityContext.startActivity(intent)
+                        } catch (_: Throwable) { /* best-effort */ }
+                    }
+                    is SectionAction.DeepLink -> {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(action.url))
+                            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            activityContext.startActivity(intent)
+                        } catch (_: Throwable) { /* best-effort */ }
+                    }
+                    is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
+                    is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
+                    is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
+                    is SectionAction.Dismiss -> onDismiss()
+                    else -> {}
                 }
-                is SectionAction.DeepLink -> {
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, android.net.Uri.parse(action.url))
-                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                        activityContext.startActivity(intent)
-                    } catch (_: Throwable) { /* best-effort */ }
-                }
-                is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
-                is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
-                is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
-                is SectionAction.Dismiss -> onDismiss()
-                else -> {}
             }
         },
     )

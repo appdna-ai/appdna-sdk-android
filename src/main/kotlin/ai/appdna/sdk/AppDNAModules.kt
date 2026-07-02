@@ -517,6 +517,15 @@ class InAppMessagesModule internal constructor() {
         this.delegate = delegate
         AppDNA.messageManager?.delegate = delegate
     }
+
+    /**
+     * SPEC-070-C D10 — set the OPTIONAL async `shouldShowMessage` wrapper-veto.
+     * Forwards to `MessageManager.asyncShouldShowMessage`, which awaits it (in
+     * addition to the sync delegate veto) before presenting. Null clears it.
+     */
+    fun setAsyncShouldShowMessage(veto: (suspend (String) -> Boolean)?) {
+        AppDNA.messageManager?.asyncShouldShowMessage = veto
+    }
 }
 
 /**
@@ -546,6 +555,19 @@ class DeepLinksModule internal constructor() {
     private var listener: AppDNADeepLinkDelegate? = null
 
     /**
+     * SPEC-070-C D10 — OPTIONAL async `shouldOpen` wrapper-veto. This is a
+     * NET-NEW decision point (no native deep-link veto existed). When set (the
+     * Flutter plugin), [handleURL] awaits it before dispatching the deep link;
+     * a `false` reply skips processing entirely. Null for native hosts →
+     * dispatch synchronously exactly as before.
+     */
+    @Volatile
+    var asyncShouldOpen: (suspend (String, Map<String, String>) -> Boolean)? = null
+
+    /** SPEC-070-C D10 — main-thread scope for awaiting the async veto. */
+    private val vetoScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
+
+    /**
      * Handle an incoming deep link URL.
      * Parses the URL, extracts parameters, and notifies the listener.
      *
@@ -560,6 +582,26 @@ class DeepLinksModule internal constructor() {
                 uri.getQueryParameter(key)?.let { value ->
                     params[key] = value
                 }
+            }
+            // SPEC-070-C D10 — NET-NEW async `shouldOpen` veto. When set, await
+            // it before processing; a `false` reply skips onDeepLinkReceived +
+            // the deep_link_handled event. When null, process synchronously.
+            val asyncVeto = asyncShouldOpen
+            if (asyncVeto != null) {
+                vetoScope.launch {
+                    val allow = try {
+                        asyncVeto(url, params)
+                    } catch (_: Throwable) {
+                        true
+                    }
+                    if (!allow) {
+                        Log.debug("DeepLinksModule: URL vetoed by host asyncShouldOpen: $url")
+                        return@launch
+                    }
+                    listener?.onDeepLinkReceived(url, params)
+                    AppDNA.track("deep_link_handled", mapOf("url" to url))
+                }
+                return
             }
             listener?.onDeepLinkReceived(url, params)
             AppDNA.track("deep_link_handled", mapOf("url" to url))

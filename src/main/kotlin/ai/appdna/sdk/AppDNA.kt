@@ -196,6 +196,18 @@ object AppDNA {
         get() = _screenDelegate
         set(value) { _screenDelegate = value; ai.appdna.sdk.screens.ScreenManager.shared.setDelegate(value) }
 
+    private var _asyncOnScreenAction: (suspend (String, Map<String, Any?>) -> Boolean)? = null
+    /**
+     * SPEC-070-C D10 — top-level proxy for `ScreenManager.shared.asyncOnScreenAction`.
+     * Set by a cross-platform wrapper (the Flutter plugin) so the async
+     * `onScreenAction` wrapper-veto is consulted alongside the sync delegate
+     * veto. Null for native hosts → synchronous action dispatch unchanged.
+     */
+    @JvmStatic
+    var asyncOnScreenAction: (suspend (String, Map<String, Any?>) -> Boolean)?
+        get() = _asyncOnScreenAction
+        set(value) { _asyncOnScreenAction = value; ai.appdna.sdk.screens.ScreenManager.shared.asyncOnScreenAction = value }
+
     // SPEC-070-A finalization B6 P1 — top-level config-update broadcast.
     // Mirrors iOS `AppDNA.configUpdated = Notification.Name(...)`. RN/Flutter
     // wrappers + RemoteConfigModule observers collect on this Flow to react

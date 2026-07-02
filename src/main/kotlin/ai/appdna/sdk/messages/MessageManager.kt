@@ -33,6 +33,10 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * SPEC-070-A A.9 — Manages in-app message trigger evaluation, frequency
@@ -78,10 +82,28 @@ class MessageManager internal constructor(
     @Volatile
     var delegate: AppDNAInAppMessageDelegate? = null
 
+    /**
+     * SPEC-070-C D10 — OPTIONAL async wrapper-veto. Set by a cross-platform
+     * wrapper (the Flutter plugin) that can only answer a veto asynchronously
+     * (round-trip to Dart). Awaited by [present] in ADDITION to the synchronous
+     * [AppDNAInAppMessageDelegate.shouldShowMessage]; both can suppress. Null
+     * for native hosts → no behavior change (presentation stays synchronous).
+     * The wrapper is responsible for the timeout / default-allow.
+     */
+    @Volatile
+    var asyncShouldShowMessage: (suspend (String) -> Boolean)? = null
+
     private val isPresenting = AtomicBoolean(false)
     private val suppress = AtomicBoolean(false)
     private val frequencyTracker = MessageFrequencyTracker(context)
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * SPEC-070-C D10 — main-thread scope for awaiting the async wrapper-veto.
+     * Only used when [asyncShouldShowMessage] is set; [presentBody] then runs
+     * on the main thread after the awaited decision resolves.
+     */
+    private val vetoScope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
 
     /**
      * Evaluate every active message against an event. Called from
@@ -232,6 +254,39 @@ class MessageManager internal constructor(
             return
         }
 
+        // SPEC-070-C D10 — OPTIONAL async wrapper-veto, awaited in ADDITION to
+        // the synchronous veto above. When set (Flutter host), suspend on the
+        // main scope; a `false` reply releases the presenting gate and aborts.
+        // When null (every native host), fall through to synchronous rendering
+        // exactly as before — no behavior change.
+        val asyncVeto = asyncShouldShowMessage
+        if (asyncVeto != null) {
+            vetoScope.launch {
+                val allow = try {
+                    asyncVeto(messageId)
+                } catch (t: Throwable) {
+                    true
+                }
+                if (!allow) {
+                    Log.debug("[Messages] $messageId vetoed by host asyncShouldShowMessage")
+                    isPresenting.set(false)
+                    return@launch
+                }
+                presentBody(messageId, config, triggerEvent)
+            }
+            return
+        }
+
+        presentBody(messageId, config, triggerEvent)
+    }
+
+    /**
+     * Presentation remainder, extracted so the D10 async wrapper-veto can gate
+     * it behind an awaited decision. Runs on the main thread; [config] is the
+     * experiment-resolved config computed by [present]. The [isPresenting] gate
+     * has already been claimed by the caller.
+     */
+    private fun presentBody(messageId: String, config: MessageConfig, triggerEvent: String) {
         val activity = currentActivity()
         if (activity == null) {
             Log.warning("[Messages] No foreground activity for $messageId")
