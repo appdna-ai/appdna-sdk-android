@@ -286,6 +286,11 @@ fun SurveyScreen(
         derivedStateOf {
             config.questions.filter { q ->
                 val showIf = q.showIf ?: return@filter true
+                // A show_if whose questionId is blank references no real question
+                // (half-configured condition, or one left on the first question
+                // where nothing precedes it) — treat as no condition and SHOW,
+                // else the survey silently renders with no visible questions.
+                if (showIf.questionId.isNullOrBlank()) return@filter true
                 val prev = answers[showIf.questionId] ?: return@filter false
                 showIf.answerIn.any { "${prev.answer}" == "$it" }
             }
