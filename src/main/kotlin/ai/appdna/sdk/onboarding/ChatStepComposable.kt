@@ -659,7 +659,12 @@ fun ChatStepComposable(
         }
 
         // Input or CTA
-        if (isCompleted || (turnsRemaining <= 0 && chatConfig.isHardLimit)) {
+        // R5/R6 — show the completion CTA once the turn limit is reached for BOTH
+        // hard AND soft limits (was `&& isHardLimit`, so soft-limit chats kept the
+        // input showing forever → max never honored + CTA never shown). The inner
+        // LaunchedEffect still AUTO-completes only on a hard limit; a soft limit
+        // shows the CTA and lets the user tap it. Matches the iOS fix.
+        if (isCompleted || turnsRemaining <= 0) {
             // SPEC-401-A R3 — fire chat_completed (reason=max_turns) the
             // first time the hard-limit branch triggers. iOS does this in
             // ChatStepView.swift:107-109 via `.onAppear { completeChat(...) }`
