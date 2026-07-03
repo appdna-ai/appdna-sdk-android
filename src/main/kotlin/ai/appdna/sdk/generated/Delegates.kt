@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: f1033e35139be0976713db9167326590caafab72
+// Last codegen commit: f9e9991f374b737bd8194a252550db6051687a0f
 
 package ai.appdna.sdk.generated
 
@@ -60,7 +60,8 @@ interface AppDNAInAppMessageDelegate {
     @Deprecated("Use onMessageShown instead.", ReplaceWith("onMessageShown"))
     fun onMessagePresented(messageId: String) = Unit
 
-    fun onMessageAction(messageId: String, action: String) = Unit
+    /** Message action tapped. data = optional action payload map (native emits this; SPEC-070-C §3.10). */
+    fun onMessageAction(messageId: String, action: String, data: Map<String, Any?>?) = Unit
 
     fun onMessageDismissed(messageId: String) = Unit
 
