@@ -1124,7 +1124,10 @@ object AppDNA {
         sb.appendLine("environment: ${environment.name.lowercase()}")
         sb.appendLine("base_url: ${environment.baseUrl}")
         sb.appendLine("api_key: ${if (apiKey.isNullOrBlank()) "<unset>" else "${apiKey?.take(8)}…"}")
-        sb.appendLine("sdk_version: $sdkVersion")
+        val fw = options.framework
+        val reportVersion = if (fw != "native" && !options.frameworkVersion.isNullOrBlank()) options.frameworkVersion else sdkVersion
+        sb.appendLine("sdk_version: $reportVersion")
+        if (fw != "native") sb.appendLine("platform: $fw wrapper (native core v$sdkVersion)")
         sb.appendLine("bundle_version: $currentBundleVersion")
         sb.appendLine("anon_id: ${identity?.anonId ?: "<unset>"}")
         sb.appendLine("user_id: ${identity?.userId ?: "<unset>"}")

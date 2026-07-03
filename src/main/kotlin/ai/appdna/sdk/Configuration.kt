@@ -63,7 +63,12 @@ data class AppDNAOptions(
      * tagged on every event's device context (→ BigQuery `framework` column). Defaults
      * to `native`; the Flutter/RN wrappers pass their identity via configure().
      */
-    val framework: String = "native"
+    val framework: String = "native",
+    /**
+     * SPEC-070-C — the wrapper SDK's OWN published version (e.g. Flutter "1.0.5"),
+     * so diagnose() reports the wrapper version per platform. null for native hosts.
+     */
+    val frameworkVersion: String? = null
 )
 
 /**
