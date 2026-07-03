@@ -4,6 +4,14 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.40] — 2026-07-03
+
+Version bump keeping the native SDK aligned with the expanded surface used by the
+Flutter and React Native wrappers (host-approval callbacks, inline screen slots,
+brand/runtime/session reads). `AppDNA.diagnose()` now also reports the wrapper's
+version and platform when the SDK is driven through a wrapper; native Android callers
+are unchanged.
+
 ## [1.0.38] — 2026-05-30
 
 SPEC-036-H — per-item remote-config serving (read side). Feature flags and
