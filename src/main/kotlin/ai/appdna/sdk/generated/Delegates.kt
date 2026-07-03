@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 85473b173a44db0d2ed1488f176c3c76ceb5a27a
+// Last codegen commit: f1033e35139be0976713db9167326590caafab72
 
 package ai.appdna.sdk.generated
 
@@ -26,6 +26,15 @@ interface AppDNAPaywallDelegate {
     fun onPaywallRestoreFailed(paywallId: String, error: Throwable) = Unit
 
     fun onPaywallDismissed(paywallId: String) = Unit
+
+    /** Validate a user-entered promo code. Return true to accept, false to reject. Routed via sync_callbacks; defaults to reject on no-delegate/timeout (SPEC-070-C §3.7). */
+    suspend fun onPromoCodeSubmit(paywallId: String, code: String): Boolean = true
+
+    /** Post-purchase: the SDK asks the host to open a deep-link URL. */
+    fun onPostPurchaseDeepLink(paywallId: String, url: String) = Unit
+
+    /** Post-purchase: the SDK asks the host to continue to the next onboarding step. */
+    fun onPostPurchaseNextStep(paywallId: String) = Unit
 }
 
 /** Survey lifecycle observer. */
@@ -74,9 +83,13 @@ interface AppDNABillingDelegate {
 
     fun onPurchaseFailed(productId: String, error: Throwable) = Unit
 
-    fun onEntitlementsChanged(entitlements: List<String>) = Unit
+    /** Entitlements changed. Each map is an Entitlement (productId/store/status/expiresAt/isTrial/offerType) — parse via Entitlement.fromMap (SPEC-070-C §3.8). */
+    fun onEntitlementsChanged(entitlements: List<Map<String, Any?>>) = Unit
 
     fun onRestoreCompleted(restoredProductIds: List<String>) = Unit
+
+    /** Fires when billing is permanently unavailable (Play Services missing/broken). Android-only — never fires on iOS (SPEC-070-C §3.8/§3.14). Hide paywalls / disable purchase UI. */
+    fun onBillingUnavailable() = Unit
 }
 
 /** Deep link receiver with optional veto. */

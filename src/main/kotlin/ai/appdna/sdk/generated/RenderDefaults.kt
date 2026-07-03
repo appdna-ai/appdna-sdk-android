@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-codegen/render-defaults-registry.ts
 // Generator: scripts/sdk-codegen/emit-render-defaults.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: 85473b173a44db0d2ed1488f176c3c76ceb5a27a
+// Last codegen commit: f1033e35139be0976713db9167326590caafab72
 
 package ai.appdna.sdk.generated
 
