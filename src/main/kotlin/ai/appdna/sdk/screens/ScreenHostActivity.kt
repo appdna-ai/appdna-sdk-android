@@ -301,9 +301,9 @@ private fun ScreenHostBody(
     val sectionContext = SectionContext(
         screenId = config.id,
         onAction = { action ->
-            val payload = mapOf<String, Any?>(
-                "type" to (action::class.simpleName ?: "unknown")
-            )
+            // SPEC-070-C — rich, iOS-parity action payload (`{type, <fields>}`)
+            // so the cross-platform veto host reads `type` + payload fields.
+            val payload = action.toActionMap()
             // SPEC-070-C D10 — route through dispatchScreenAction so BOTH the
             // synchronous delegate veto AND the optional async wrapper-veto are
             // consulted before the action is performed. With no async veto

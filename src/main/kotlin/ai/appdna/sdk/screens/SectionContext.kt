@@ -62,3 +62,43 @@ sealed class SectionAction {
     data class Purchase(val productId: String) : SectionAction()
     data object Restore : SectionAction()
 }
+
+/**
+ * SPEC-070-C — encode a [SectionAction] as a `{type, <payload fields>}` map,
+ * matching iOS `AppdnaPlugin.sectionActionToMap` 1:1 (lowercase discriminator
+ * + identical field names) so the cross-platform screen-action veto payload is
+ * byte-identical on both platforms. Host veto logic reads `action["type"]` and
+ * the type-specific payload fields (e.g. `action["url"]`).
+ *
+ * The 16 base verbs mirror iOS's `SectionAction` cases exactly. The 9 extended
+ * FlowManager verbs (I.2) have no iOS `SectionAction` counterpart; they use
+ * lowerCamelCase discriminators + native field names for exhaustiveness.
+ */
+fun SectionAction.toActionMap(): Map<String, Any?> = when (this) {
+    is SectionAction.Next -> mapOf("type" to "next")
+    is SectionAction.Back -> mapOf("type" to "back")
+    is SectionAction.Dismiss -> mapOf("type" to "dismiss")
+    is SectionAction.Navigate -> mapOf("type" to "navigate", "screenId" to screenId)
+    is SectionAction.OpenURL -> mapOf("type" to "openURL", "url" to url)
+    is SectionAction.OpenWebview -> mapOf("type" to "openWebview", "url" to url)
+    is SectionAction.OpenAppSettings -> mapOf("type" to "openAppSettings")
+    is SectionAction.Share -> mapOf("type" to "share", "text" to text)
+    is SectionAction.DeepLink -> mapOf("type" to "deepLink", "url" to url)
+    is SectionAction.ShowPaywall -> mapOf("type" to "showPaywall", "id" to id)
+    is SectionAction.ShowSurvey -> mapOf("type" to "showSurvey", "id" to id)
+    is SectionAction.ShowScreen -> mapOf("type" to "showScreen", "id" to id)
+    is SectionAction.SubmitForm -> mapOf("type" to "submitForm", "data" to data)
+    is SectionAction.Track -> mapOf("type" to "track", "event" to event, "properties" to properties)
+    is SectionAction.Haptic -> mapOf("type" to "haptic", "hapticType" to type)
+    is SectionAction.Custom -> mapOf("type" to "custom", "customType" to type, "value" to value)
+    // Extended FlowManager verbs (no iOS SectionAction counterpart).
+    is SectionAction.Restart -> mapOf("type" to "restart")
+    is SectionAction.Complete -> mapOf("type" to "complete")
+    is SectionAction.SetResponse -> mapOf("type" to "setResponse", "key" to key, "value" to value)
+    is SectionAction.PresentPaywall -> mapOf("type" to "presentPaywall", "id" to id)
+    is SectionAction.DismissPaywall -> mapOf("type" to "dismissPaywall")
+    is SectionAction.ShowMessage -> mapOf("type" to "showMessage", "id" to id)
+    is SectionAction.SetUserProperty -> mapOf("type" to "setUserProperty", "key" to key, "value" to value)
+    is SectionAction.Purchase -> mapOf("type" to "purchase", "productId" to productId)
+    is SectionAction.Restore -> mapOf("type" to "restore")
+}

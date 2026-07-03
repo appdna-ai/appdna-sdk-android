@@ -133,9 +133,10 @@ fun AppDNAScreenSlot(name: String) {
             val context = SectionContext(
                 screenId = config.id,
                 onAction = { action ->
-                    val payload = mapOf<String, Any?>(
-                        "type" to (action::class.simpleName ?: "unknown")
-                    )
+                    // SPEC-070-C — rich, iOS-parity action payload
+                    // (`{type, <fields>}`) so the cross-platform veto host reads
+                    // `type` + payload fields.
+                    val payload = action.toActionMap()
                     // SPEC-070-C D10 — route through dispatchScreenAction so the
                     // sync delegate veto AND the optional async wrapper-veto both
                     // gate the action. Native hosts (no async veto) run inline.
