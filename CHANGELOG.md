@@ -4,6 +4,12 @@ All notable changes to the AppDNA Android SDK are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 the project uses [Semantic Versioning](https://semver.org/).
 
+## [1.0.41] — 2026-07-06
+
+Revoking analytics consent (`AppDNA.setConsent(analytics = false)`) now purges any
+queued-but-unsent events from both the in-memory queue and on-disk storage, so events
+captured before consent was revoked are never uploaded.
+
 ## [1.0.40] — 2026-07-03
 
 Version bump keeping the native SDK aligned with the expanded surface used by the

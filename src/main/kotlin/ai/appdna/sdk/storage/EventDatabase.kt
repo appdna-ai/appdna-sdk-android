@@ -148,6 +148,18 @@ internal class EventDatabase(context: Context) :
     }
 
     /**
+     * SPEC-424 STEP-1a (CL-7): purge ALL persisted events WITHOUT uploading — analytics consent was
+     * revoked, so queued-but-unsent events must never be transmitted.
+     */
+    fun clearAll() {
+        try {
+            writableDatabase.delete(TABLE_EVENTS, null, null)
+        } catch (e: Exception) {
+            Log.error("Failed to clear events: ${e.message}")
+        }
+    }
+
+    /**
      * Get the count of pending events.
      */
     fun count(): Int {

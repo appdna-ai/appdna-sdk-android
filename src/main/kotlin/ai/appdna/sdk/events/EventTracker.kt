@@ -76,6 +76,12 @@ internal class EventTracker(
 
     fun setConsent(analytics: Boolean) {
         analyticsConsent = analytics
+        // SPEC-424 STEP-1a (CL-7): revoking consent MUST purge any queued-but-unsent events (memory
+        // + on-disk) WITHOUT uploading — else the server-side consent gate is defeated by a later
+        // flush of events captured while consent was true.
+        if (!analytics) {
+            eventQueue?.clear()
+        }
     }
 
     /** Whether analytics consent is currently granted. */

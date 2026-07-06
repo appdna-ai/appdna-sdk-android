@@ -131,6 +131,18 @@ internal class EventQueue(
         }
     }
 
+    /**
+     * SPEC-424 STEP-1a (CL-7): purge ALL pending events (in-memory + on-disk) WITHOUT uploading —
+     * called when analytics consent is revoked so queued-but-unsent events are never transmitted.
+     * A server-side consent gate is defeated if the SDK later flushes events captured while consent
+     * was true, so revoke must drop them at the source.
+     */
+    fun clear() {
+        queue.clear()
+        eventDatabase.clearAll()
+        Log.info("Event queue purged — analytics consent revoked")
+    }
+
     /** SPEC-070-A A.18: Public hook for foreground events to retry the queue. */
     internal fun onAppForeground() {
         // Reset the pause gate on foreground (matches iOS "until next session" semantics).
