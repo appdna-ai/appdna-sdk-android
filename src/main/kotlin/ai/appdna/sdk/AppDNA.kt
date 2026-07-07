@@ -412,6 +412,9 @@ object AppDNA {
             // (`firestoreDB?.collection(...)`), so the lazy init is safe.
 
             this.appContext = context.applicationContext
+            // SPEC-428 CL-3/D6: init the monotonic seq counter BEFORE draining the pre-init buffer,
+            // so drained + post-configure events all draw from the persisted (restart-surviving) counter.
+            ai.appdna.sdk.events.ClientSeqCounter.init(context)
             val appContext = this.appContext ?: run {
                 Log.error("AppDNA not initialized — call configure() with valid context")
                 return

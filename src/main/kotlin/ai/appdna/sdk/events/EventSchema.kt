@@ -86,6 +86,9 @@ internal object EventSchema {
 
             put("context", JSONObject().apply {
                 put("session_id", sessionId)
+                // SPEC-428 CL-3/D6: per-device monotonic sequence, drawn at the single buildEnvelope
+                // choke point. ts_ms stays but is no longer the ordering key.
+                put("client_seq", ClientSeqCounter.next())
                 // SPEC-070-A G.17: optional screen name for zero-code attribution.
                 if (screen != null) {
                     put("screen", screen)
@@ -158,3 +161,33 @@ internal data class ExperimentExposure(
     val experimentId: String,
     val variantId: String
 )
+
+/**
+ * SPEC-428 CL-3/D6 — device-wide MONOTONIC sequence counter, persisted in a FACADE-available store
+ * (SharedPreferences), never the EventDatabase/EventQueue (which are built inside configure()).
+ * Initialized at configure() when the app Context arrives; the single increment site is
+ * EventSchema.buildEnvelope. Survives restart, independent of wall-clock.
+ */
+internal object ClientSeqCounter {
+    private const val PREFS = "appdna_client_seq"
+    private const val KEY = "client_seq"
+    private var prefs: android.content.SharedPreferences? = null
+    private val lock = Any()
+
+    fun init(context: android.content.Context) {
+        synchronized(lock) {
+            if (prefs == null) {
+                prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            }
+        }
+    }
+
+    fun next(): Long {
+        synchronized(lock) {
+            val p = prefs ?: return 0L
+            val next = p.getLong(KEY, 0L) + 1
+            p.edit().putLong(KEY, next).apply()
+            return next
+        }
+    }
+}
