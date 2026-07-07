@@ -191,3 +191,41 @@ internal object ClientSeqCounter {
         }
     }
 }
+
+/**
+ * SPEC-428 CL-1/D2 — durable counter of events dropped by a cap/quota eviction, persisted in
+ * SharedPreferences (survives restart). Drained by the tracker into a `_sdk_events_dropped`
+ * meta-event so the loss is SERVER-VISIBLE, not a silent Log.warning.
+ */
+internal object DroppedEventsCounter {
+    private const val PREFS = "appdna_dropped_events"
+    private const val KEY = "dropped"
+    private var prefs: android.content.SharedPreferences? = null
+    private val lock = Any()
+
+    fun init(context: android.content.Context) {
+        synchronized(lock) {
+            if (prefs == null) {
+                prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            }
+        }
+    }
+
+    fun increment(n: Int) {
+        if (n <= 0) return
+        synchronized(lock) {
+            val p = prefs ?: return
+            p.edit().putInt(KEY, p.getInt(KEY, 0) + n).apply()
+        }
+    }
+
+    /** Atomically read + reset; the caller emits the meta-event with the returned count. */
+    fun getAndReset(): Int {
+        synchronized(lock) {
+            val p = prefs ?: return 0
+            val c = p.getInt(KEY, 0)
+            if (c > 0) p.edit().putInt(KEY, 0).apply()
+            return c
+        }
+    }
+}

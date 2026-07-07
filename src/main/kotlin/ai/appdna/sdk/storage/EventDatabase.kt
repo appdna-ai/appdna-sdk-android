@@ -15,6 +15,11 @@ import org.json.JSONObject
 internal class EventDatabase(context: Context) :
     SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
 
+    init {
+        // SPEC-428 CL-1/D2: wire the dropped-events counter to this app context.
+        ai.appdna.sdk.events.DroppedEventsCounter.init(context)
+    }
+
     companion object {
         private const val DATABASE_NAME = "appdna_events.db"
         private const val DATABASE_VERSION = 1
@@ -229,6 +234,7 @@ internal class EventDatabase(context: Context) :
                     SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $excess
                 )
             """.trimIndent())
+            ai.appdna.sdk.events.DroppedEventsCounter.increment(excess) // SPEC-428 CL-1/D2
             Log.warning("Event database overflow: dropped $excess oldest events (count cap)")
         }
 
@@ -243,6 +249,7 @@ internal class EventDatabase(context: Context) :
                     SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $dropCount
                 )
             """.trimIndent())
+            ai.appdna.sdk.events.DroppedEventsCounter.increment(dropCount) // SPEC-428 CL-1/D2
             Log.warning("Event database disk quota enforced: dropped $dropCount events (${MAX_DISK_BYTES / 1024}KB limit)")
         }
     }

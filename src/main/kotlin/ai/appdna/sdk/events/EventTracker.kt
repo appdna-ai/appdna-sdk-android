@@ -96,6 +96,13 @@ internal class EventTracker(
             return
         }
 
+        // SPEC-428 CL-1/D2: surface any silently-dropped events (cap/quota evictions) as a
+        // _sdk_events_dropped meta-event so the loss is SERVER-VISIBLE. Guard against re-entry.
+        if (event != "_sdk_events_dropped") {
+            val dropped = DroppedEventsCounter.getAndReset()
+            if (dropped > 0) emitDroppedMeta(dropped)
+        }
+
         val exposures = try {
             exposureProvider?.invoke()
         } catch (e: Exception) {
@@ -134,5 +141,21 @@ internal class EventTracker(
 
         eventQueue?.enqueue(envelope)
         Log.debug { "Tracked event: $event" }
+    }
+
+    /** SPEC-428 CL-1/D2: build + enqueue the _sdk_events_dropped meta-event directly (NOT via track(),
+     * to avoid re-entrancy). Count = events evicted since the last drain. */
+    private fun emitDroppedMeta(count: Int) {
+        val envelope = EventSchema.buildEnvelope(
+            eventName = "_sdk_events_dropped",
+            properties = mapOf("count" to count),
+            identity = identityManager.currentIdentity,
+            sessionId = identityManager.sessionId,
+            appVersion = appVersion,
+            analyticsConsent = analyticsConsent,
+            environment = environmentTag
+        )
+        eventQueue?.enqueue(envelope)
+        Log.debug { "Emitted _sdk_events_dropped meta-event (count=$count)" }
     }
 }
