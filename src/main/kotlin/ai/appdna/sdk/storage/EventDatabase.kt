@@ -32,7 +32,7 @@ internal class EventDatabase(context: Context) :
             CREATE TABLE $TABLE_EVENTS (
                 $COL_ID INTEGER PRIMARY KEY AUTOINCREMENT,
                 $COL_EVENT_JSON TEXT NOT NULL,
-                $COL_CREATED_AT INTEGER NOT NULL DEFAULT (strftime('%s', 'now'))
+                $COL_CREATED_AT INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
             )
         """.trimIndent())
         db.execSQL("CREATE INDEX idx_events_created_at ON $TABLE_EVENTS($COL_CREATED_AT)")
@@ -51,7 +51,7 @@ internal class EventDatabase(context: Context) :
             val db = writableDatabase
             val values = ContentValues().apply {
                 put(COL_EVENT_JSON, eventJson)
-                put(COL_CREATED_AT, System.currentTimeMillis() / 1000)
+                put(COL_CREATED_AT, System.currentTimeMillis()) // SPEC-428 CL-6: milliseconds, not seconds
             }
             db.insert(TABLE_EVENTS, null, values)
             enforceQuotas(db)
@@ -72,7 +72,7 @@ internal class EventDatabase(context: Context) :
                 for (eventJson in events) {
                     val values = ContentValues().apply {
                         put(COL_EVENT_JSON, eventJson)
-                        put(COL_CREATED_AT, System.currentTimeMillis() / 1000)
+                        put(COL_CREATED_AT, System.currentTimeMillis()) // SPEC-428 CL-6: milliseconds, not seconds
                     }
                     db.insert(TABLE_EVENTS, null, values)
                 }
@@ -96,7 +96,7 @@ internal class EventDatabase(context: Context) :
             val cursor = db.query(
                 TABLE_EVENTS, arrayOf(COL_EVENT_JSON),
                 null, null, null, null,
-                "$COL_CREATED_AT ASC"
+                "$COL_CREATED_AT ASC, $COL_ID ASC"
             )
             cursor.use {
                 while (it.moveToNext()) {
@@ -119,7 +119,7 @@ internal class EventDatabase(context: Context) :
             val cursor = db.query(
                 TABLE_EVENTS, arrayOf(COL_ID, COL_EVENT_JSON),
                 null, null, null, null,
-                "$COL_CREATED_AT ASC",
+                "$COL_CREATED_AT ASC, $COL_ID ASC",
                 limit.toString()
             )
             cursor.use {
@@ -226,7 +226,7 @@ internal class EventDatabase(context: Context) :
             val excess = currentCount - MAX_EVENTS
             db.execSQL("""
                 DELETE FROM $TABLE_EVENTS WHERE $COL_ID IN (
-                    SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC LIMIT $excess
+                    SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $excess
                 )
             """.trimIndent())
             Log.warning("Event database overflow: dropped $excess oldest events (count cap)")
@@ -240,7 +240,7 @@ internal class EventDatabase(context: Context) :
             val dropCount = (count() * 0.1).toInt().coerceAtLeast(1)
             db.execSQL("""
                 DELETE FROM $TABLE_EVENTS WHERE $COL_ID IN (
-                    SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC LIMIT $dropCount
+                    SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $dropCount
                 )
             """.trimIndent())
             Log.warning("Event database disk quota enforced: dropped $dropCount events (${MAX_DISK_BYTES / 1024}KB limit)")
