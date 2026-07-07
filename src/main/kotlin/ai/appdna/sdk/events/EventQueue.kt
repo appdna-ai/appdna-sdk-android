@@ -199,6 +199,14 @@ internal class EventQueue(
             return
         }
 
+        // SPEC-428 CL-9/D4: single upload owner — skip if the background Worker holds the claim, so
+        // the same rows are never POSTed by both paths concurrently. Released in the finally below.
+        if (!EventUploadCoordinator.tryAcquire()) {
+            Log.debug("Flush deferred — background uploader is active")
+            return
+        }
+        try {
+
         val takeCount = currentBatchSize.coerceAtMost(queue.size)
         val batch = ArrayList(queue.take(takeCount))
         val batchArray = JSONArray()
@@ -248,6 +256,9 @@ internal class EventQueue(
                     delay(jittered.coerceAtLeast(0L))
                 }
             }
+        }
+        } finally {
+            EventUploadCoordinator.release() // SPEC-428 CL-9: release the cross-path upload claim
         }
     }
 
@@ -346,4 +357,16 @@ internal class EventQueue(
  */
 internal interface BackgroundUploadScheduler {
     fun scheduleIfNeeded()
+}
+
+/**
+ * SPEC-428 CL-9/D4 — process-wide single upload owner. The in-process flush (EventQueue) and the
+ * background WorkManager uploader (EventUploadWorker) must be mutually exclusive, else both POST the
+ * same rows concurrently (DUP). flushMutex is instance-scoped and does NOT guard the Worker; this
+ * process-wide claim does. Non-blocking: whoever wins uploads, the other skips this cycle.
+ */
+internal object EventUploadCoordinator {
+    private val uploading = java.util.concurrent.atomic.AtomicBoolean(false)
+    fun tryAcquire(): Boolean = uploading.compareAndSet(false, true)
+    fun release() { uploading.set(false) }
 }

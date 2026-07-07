@@ -38,6 +38,13 @@ internal class EventUploadWorker(
     }
 
     private suspend fun doUploadInner(eventDatabase: EventDatabase): Result {
+        // SPEC-428 CL-9/D4: single upload owner — if the in-process flush holds the claim, skip so
+        // the same rows are never POSTed by both paths. Released in the finally below.
+        if (!ai.appdna.sdk.events.EventUploadCoordinator.tryAcquire()) {
+            Log.debug("Background upload skipped — in-process flush is active")
+            return Result.success()
+        }
+        try {
         val pendingCount = eventDatabase.count()
         if (pendingCount == 0) {
             Log.debug("No pending events for background upload")
@@ -118,6 +125,9 @@ internal class EventUploadWorker(
         } catch (e: Exception) {
             Log.error("Background upload error: ${e.message}")
             return Result.retry()
+        }
+        } finally {
+            ai.appdna.sdk.events.EventUploadCoordinator.release() // SPEC-428 CL-9
         }
     }
 
