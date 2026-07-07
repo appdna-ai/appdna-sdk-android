@@ -356,6 +356,10 @@ object AppDNA {
     // Cap = 200; on overflow we log + drop the OLDEST so the most recent action
     // (e.g. a deep-link tap that triggered the configure call) survives.
     private const val PRE_INIT_BUFFER_CAP = 200
+    // SPEC-428 CL-10/CL-1: pre-init overflow drops can't touch the persisted DroppedEventsCounter yet
+    // (no app Context before configure()), so accrue them in memory and fold into the durable counter
+    // once configure() initializes it.
+    private val preInitDroppedCount = java.util.concurrent.atomic.AtomicInteger(0)
     private data class PreInitEvent(val name: String, val properties: Map<String, Any>?)
     private val preInitBuffer = java.util.concurrent.LinkedBlockingQueue<PreInitEvent>(PRE_INIT_BUFFER_CAP)
 
@@ -415,6 +419,10 @@ object AppDNA {
             // SPEC-428 CL-3/D6: init the monotonic seq counter BEFORE draining the pre-init buffer,
             // so drained + post-configure events all draw from the persisted (restart-surviving) counter.
             ai.appdna.sdk.events.ClientSeqCounter.init(context)
+            // SPEC-428 CL-1/CL-10: init the durable dropped-events counter + fold in any pre-init
+            // overflow drops accrued before the Context was available.
+            ai.appdna.sdk.events.DroppedEventsCounter.init(context)
+            ai.appdna.sdk.events.DroppedEventsCounter.increment(preInitDroppedCount.getAndSet(0))
             val appContext = this.appContext ?: run {
                 Log.error("AppDNA not initialized — call configure() with valid context")
                 return
@@ -820,6 +828,8 @@ object AppDNA {
             if (!preInitBuffer.offer(entry)) {
                 // Queue full — pop oldest, push new.
                 preInitBuffer.poll()
+                // SPEC-428 CL-10/CL-1: count the overflow drop (was an uncounted Log.warning).
+                preInitDroppedCount.incrementAndGet()
                 if (!preInitBuffer.offer(entry)) {
                     Log.warning { "Pre-init event buffer full; dropping '$event'" }
                 } else {
