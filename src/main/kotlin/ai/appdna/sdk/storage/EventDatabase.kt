@@ -148,6 +148,30 @@ internal class EventDatabase(context: Context) :
     }
 
     /**
+     * SPEC-428 CL-4/D3 — CONTENT-ADDRESSED removal: delete exactly the rows whose event's `event_id`
+     * was in the UPLOADED batch, never a re-derived "globally-oldest N". After a CL-1 in-memory
+     * eviction the in-mem batch diverges from the DB's oldest N, so deleting the oldest N would drop
+     * never-uploaded rows (LOSS) and leave the uploaded rows behind (DUP on the next flush).
+     */
+    fun removeByEventIds(eventIds: Set<String>) {
+        if (eventIds.isEmpty()) return
+        try {
+            val db = writableDatabase
+            val toDelete = mutableListOf<Long>()
+            val cursor = db.query(TABLE_EVENTS, arrayOf(COL_ID, COL_EVENT_JSON), null, null, null, null, null)
+            cursor.use {
+                while (it.moveToNext()) {
+                    val eid = runCatching { org.json.JSONObject(it.getString(1)).getString("event_id") }.getOrNull()
+                    if (eid != null && eid in eventIds) toDelete.add(it.getLong(0))
+                }
+            }
+            removeByIds(toDelete)
+        } catch (e: Exception) {
+            Log.error("Failed to remove events by event_id: ${e.message}")
+        }
+    }
+
+    /**
      * SPEC-424 STEP-1a (CL-7): purge ALL persisted events WITHOUT uploading — analytics consent was
      * revoked, so queued-but-unsent events must never be transmitted.
      */

@@ -184,9 +184,10 @@ internal class EventQueue(
         val batchArray = JSONArray()
         for (event in batch) batchArray.put(event)
 
-        // Snapshot SQLite IDs BEFORE upload to avoid TOCTOU race
-        val dbBatch = eventDatabase.loadBatch(batch.size)
-        val dbIds = dbBatch.map { it.first }
+        // SPEC-428 CL-4/D3: remove exactly the UPLOADED events by event_id (content-addressed), never
+        // the DB's globally-oldest N — after a CL-1 in-mem eviction the in-mem batch diverges from the
+        // oldest N, so deleting the oldest N drops never-uploaded rows (LOSS) + resends uploaded (DUP).
+        val batchEventIds = batch.mapNotNull { runCatching { (it as JSONObject).getString("event_id") }.getOrNull() }.toSet()
 
         val body = JSONObject().apply { put("batch", batchArray) }.toString()
 
@@ -198,7 +199,7 @@ internal class EventQueue(
             when (result) {
                 is EventUploadResult.Success -> {
                     queue.removeAll(batch.toSet())
-                    eventDatabase.removeByIds(dbIds)
+                    eventDatabase.removeByEventIds(batchEventIds)
                     consecutiveFailures = 0
                     Log.debug("Flushed ${batch.size} events (deflate compressed)")
                     return
@@ -208,7 +209,7 @@ internal class EventQueue(
                     // so the queue doesn't loop forever.
                     Log.error("Dropping batch of ${batch.size} events after HTTP ${result.statusCode} (4xx — retry won't help)")
                     queue.removeAll(batch.toSet())
-                    eventDatabase.removeByIds(dbIds)
+                    eventDatabase.removeByEventIds(batchEventIds)
                     // 4xx is a permanent failure, not a transient one — count toward pause
                     bumpFailureCounter()
                     return
