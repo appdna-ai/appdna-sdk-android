@@ -44,6 +44,10 @@ internal class EventQueue(
 
     /** SPEC-070-A A.16: Track in-flight retry/backoff state. */
     private val flushMutex = Mutex()
+
+    // SPEC-428 CL-2/D5: client redelivery horizon — never re-send an event older than this (past the
+    // server dedup window it would double-count). Compiled default 7d, tracking SPEC-426's horizon.
+    private val redeliveryHorizonMs = 7L * 24 * 60 * 60 * 1000
     @Volatile private var consecutiveFailures = 0
     @Volatile private var paused = false
 
@@ -166,11 +170,27 @@ internal class EventQueue(
         }
     }
 
+    /**
+     * SPEC-428 CL-2/D5: drop events past the redelivery horizon before flush — re-sending them past
+     * the server dedup window would double-count. The drop is counted (CL-1).
+     */
+    private fun pruneStaleEvents() {
+        val nowMs = System.currentTimeMillis()
+        val stale = queue.filter { nowMs - it.optLong("ts_ms", nowMs) > redeliveryHorizonMs }
+        if (stale.isEmpty()) return
+        val staleIds = stale.mapNotNull { runCatching { it.getString("event_id") }.getOrNull() }.toSet()
+        queue.removeAll(stale.toSet())
+        eventDatabase.removeByEventIds(staleIds)
+        DroppedEventsCounter.increment(stale.size)
+        Log.warning("Dropped ${stale.size} events past the redelivery horizon (would double-count past server dedup)")
+    }
+
     private suspend fun performFlushLocked() {
         if (paused) {
             Log.debug("Event flush paused after $consecutiveFailures consecutive failures — waiting for next foreground/manual flush")
             return
         }
+        pruneStaleEvents()
         if (queue.isEmpty()) return
 
         val currentBatchSize = effectiveBatchSize
