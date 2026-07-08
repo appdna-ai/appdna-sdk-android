@@ -513,10 +513,12 @@ class SharedFixtureTest(
                     val platforms = json.optJSONArray("platforms") ?: JSONArray()
                     val applies = (0 until platforms.length())
                         .any { platforms.getString(it) == "android" }
-                    // `render`-category fixtures drive the structural/visual parity
-                    // harness and carry no `action` — they must NOT be loaded by this
-                    // behavioral runner (which requires `action.kind`).
-                    val isRender = json.optString("category", "") == "render"
+                    // `render`-category fixtures drive the structural/visual parity harness and
+                    // `events`-category fixtures drive the SPEC-428 event-pipeline harness
+                    // (EventPipelineFixtureTest) — both carry no `action`, so they must NOT be loaded
+                    // by this behavioral runner (which requires `action.kind`).
+                    val cat = json.optString("category", "")
+                    val isRender = cat == "render" || cat == "events"
                     if (applies && !isRender) {
                         val name = file.name.removeSuffix(".fixture.json")
                         out.add(arrayOf(name, json))

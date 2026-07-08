@@ -12,8 +12,13 @@ import org.json.JSONObject
  * Provides atomic row-level operations that survive process kills.
  * Enforces both event count cap (10K) and disk quota (5 MB).
  */
-internal class EventDatabase(context: Context) :
-    SQLiteOpenHelper(context, DATABASE_NAME, null, DATABASE_VERSION) {
+internal class EventDatabase(
+    context: Context,
+    // SPEC-428: injectable so the shared behavioral fixtures (events/ category) drive eviction at a
+    // small cap with an isolated db. Production callers use the defaults.
+    private val maxEvents: Int = MAX_EVENTS,
+    dbName: String = DATABASE_NAME,
+) : SQLiteOpenHelper(context, dbName, null, DATABASE_VERSION) {
 
     init {
         // SPEC-428 CL-1/D2: wire the dropped-events counter to this app context.
@@ -227,8 +232,8 @@ internal class EventDatabase(context: Context) :
     private fun enforceQuotas(db: SQLiteDatabase) {
         // 1. Count cap
         val currentCount = count()
-        if (currentCount > MAX_EVENTS) {
-            val excess = currentCount - MAX_EVENTS
+        if (currentCount > maxEvents) {
+            val excess = currentCount - maxEvents
             db.execSQL("""
                 DELETE FROM $TABLE_EVENTS WHERE $COL_ID IN (
                     SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $excess
