@@ -100,7 +100,7 @@ internal class EventQueue(
     /**
      * Add an event to the queue.
      */
-    fun enqueue(event: JSONObject) {
+    fun enqueue(event: JSONObject, onPersisted: (() -> Unit)? = null) {
         // SPEC-070-A A.17: Cap in-memory queue. Disk persistence happens regardless,
         // so evicted events are not lost — just dropped from RAM.
         if (queue.size >= MAX_IN_MEMORY_EVENTS) {
@@ -114,6 +114,9 @@ internal class EventQueue(
         queue.add(event)
         // SPEC-067: Persist to SQLite (truth-of-record; survives process death)
         eventDatabase.insertEvent(event.toString())
+        // SPEC-428 STEP-4: insertEvent is synchronous, so the event is durable here — safe to run the
+        // dropped-meta counter decrement (only decrement after the meta is on disk, never a zero-reset).
+        onPersisted?.invoke()
 
         // SPEC-067: Check adaptive threshold
         val currentBatchSize = effectiveBatchSize

@@ -99,7 +99,9 @@ internal class EventTracker(
         // SPEC-428 CL-1/D2: surface any silently-dropped events (cap/quota evictions) as a
         // _sdk_events_dropped meta-event so the loss is SERVER-VISIBLE. Guard against re-entry.
         if (event != "_sdk_events_dropped") {
-            val dropped = DroppedEventsCounter.getAndReset()
+            // SPEC-428 STEP-4: PEEK (don't reset) — the count is decremented only after the meta is durable
+            // (in emitDroppedMeta's onPersisted), so a crash before the meta lands re-emits it (no under-count).
+            val dropped = DroppedEventsCounter.peek()
             if (dropped > 0) emitDroppedMeta(dropped)
         }
 
@@ -156,7 +158,9 @@ internal class EventTracker(
             analyticsConsent = analyticsConsent,
             environment = environmentTag
         )
-        eventQueue?.enqueue(envelope)
+        // SPEC-428 STEP-4: decrement by exactly `count` ONLY after the meta is durably persisted (never a
+        // zero-reset). Crash before persist → counter keeps `count` → re-emit (no under-count).
+        eventQueue?.enqueue(envelope) { DroppedEventsCounter.subtract(count) }
         Log.debug { "Emitted _sdk_events_dropped meta-event (count=$count)" }
     }
 }

@@ -239,13 +239,35 @@ internal object DroppedEventsCounter {
         }
     }
 
-    /** Atomically read + reset; the caller emits the meta-event with the returned count. */
+    /** Atomically read + reset. Test helper; production uses peek()+subtract() (STEP-4). */
     fun getAndReset(): Int {
         synchronized(lock) {
             val p = prefs ?: return 0
             val c = p.getInt(KEY, 0)
             if (c > 0) p.edit().putInt(KEY, 0).apply()
             return c
+        }
+    }
+
+    /**
+     * SPEC-428 STEP-4: read WITHOUT resetting. The count is removed (subtract) ONLY after the
+     * `_sdk_events_dropped` meta carrying it is DURABLY persisted, so a hard kill before the meta lands
+     * re-emits it (never an UNDER-count, which STEP-4 forbids). A concurrent peek may double-emit
+     * (over-count, direction-safe — the spec prioritizes never-under-count).
+     */
+    fun peek(): Int {
+        synchronized(lock) {
+            val p = prefs ?: return 0
+            return p.getInt(KEY, 0)
+        }
+    }
+
+    /** SPEC-428 STEP-4: atomic DECREMENT-by-N (floored at 0), called once the meta carrying N is durable. */
+    fun subtract(n: Int) {
+        if (n <= 0) return
+        synchronized(lock) {
+            val p = prefs ?: return
+            p.edit().putInt(KEY, maxOf(0, p.getInt(KEY, 0) - n)).apply()
         }
     }
 }
