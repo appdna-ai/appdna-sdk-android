@@ -79,14 +79,19 @@ class EventPipelineFixtureTest {
         var online = true
         val ingestedIds = mutableSetOf<String>()
         val ingested = mutableListOf<JSONObject>()
+        var rawSent = 0
+        var hadRedeliver = false
 
         fun flush() {
             if (!online) return
             val pending = db.loadAll().map { JSONObject(it) }
+            rawSent += pending.size // EVERY send, including redeliveries of still-unacked events
             for (e in pending) {
-                if (ingestedIds.add(e.getString("event_id"))) ingested.add(e) // server dedups by event_id
+                if (ingestedIds.add(e.getString("event_id"))) ingested.add(e) // server dedups by STABLE event_id
             }
-            db.removeByEventIds(pending.map { it.getString("event_id") }.toSet())
+            // Deliberately do NOT removeByEventIds — the queue stays "unacked" so a `redeliver` step
+            // re-sends the SAME stored events (same event_id). If event_id were regenerated on resend,
+            // the sink would fail to dedup → ingested_count would exceed the expected → the test fails.
         }
 
         for (s in f.steps) {
@@ -100,7 +105,7 @@ class EventPipelineFixtureTest {
                 "go_offline" -> online = false
                 "go_online" -> online = true
                 "restart" -> db = EventDatabase(ctx, cap, dbName) // persistence survives (SQLite + prefs)
-                "redeliver" -> flush()
+                "redeliver" -> { hadRedeliver = true; flush() }
                 "advance_time_ms" -> {}
                 else -> fail("[${f.id}] unknown pipeline op: ${s.op}")
             }
@@ -117,10 +122,16 @@ class EventPipelineFixtureTest {
         if (f.expect.monotonic) {
             val seqs = ingested.map { it.getJSONObject("context").getLong("client_seq") }
             assertEquals("[${f.id}] every ingested event carries a client_seq", ingested.size, seqs.size)
-            val sorted = seqs.sorted()
-            for (i in 1 until sorted.size) {
-                assertTrue("[${f.id}] client_seq strictly increasing (no equal/inversion)", sorted[i] > sorted[i - 1])
+            // Assert the INGESTED (returned) order is ALREADY ascending by client_seq — do NOT sort.
+            // This is what `ingested_order_key: client_seq` promises: the store returns events in
+            // client_seq order, never wall-clock. A CL-6 intra-second reorder regression fails here.
+            for (i in 1 until seqs.size) {
+                assertTrue("[${f.id}] ingested client_seq strictly increasing IN RETURNED ORDER (index $i)", seqs[i] > seqs[i - 1])
             }
+        }
+        // A `redeliver` step MUST actually re-send unacked events (else idempotency is never exercised).
+        if (hadRedeliver) {
+            assertTrue("[${f.id}] redeliver must re-send unacked events (raw $rawSent vs ingested ${ingested.size})", rawSent > ingested.size)
         }
 
         db.clearAll()
