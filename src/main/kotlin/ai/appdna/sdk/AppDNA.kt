@@ -495,8 +495,14 @@ object AppDNA {
             preInitBuffer.drainTo(drained)
             if (drained.isNotEmpty()) {
                 Log.info { "Draining ${drained.size} pre-init buffered event(s) into tracker" }
-                for (entry in drained) {
-                    tracker.track(entry.name, entry.properties)
+                // SPEC-428 STEP-9/§4.E: RESERVE a contiguous client_seq block for the pre-init events FIRST
+                // (ClientSeqCounter is init'd above), in tracking order, BEFORE processing them — so they
+                // keep their reserved (lower) block and a post-configure track() minting during the drain
+                // window can't get a lower seq than an earlier pre-init event. (Android can't stamp
+                // pre-configure: no Context/prefs before configure(); iOS stamps at buffer time.)
+                val reserved = LongArray(drained.size) { ai.appdna.sdk.events.ClientSeqCounter.next() }
+                for ((i, entry) in drained.withIndex()) {
+                    tracker.track(entry.name, entry.properties, reserved[i])
                 }
             }
 

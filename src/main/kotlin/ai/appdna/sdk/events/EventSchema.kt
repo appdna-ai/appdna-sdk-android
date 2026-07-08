@@ -45,7 +45,10 @@ internal object EventSchema {
         experimentExposures: List<ExperimentExposure>? = null,
         environment: String? = null,
         screen: String? = null,
-        pushId: String? = null
+        pushId: String? = null,
+        // SPEC-428 STEP-9/§4.E: a PRE-STAMPED client_seq for a drained pre-init event — used verbatim,
+        // never re-minted, so the pre-init events keep their reserved (lower) block below post-configure ones.
+        clientSeq: Long? = null
     ): JSONObject {
         return JSONObject().apply {
             put("schema_version", SCHEMA_VERSION)
@@ -88,7 +91,7 @@ internal object EventSchema {
                 put("session_id", sessionId)
                 // SPEC-428 CL-3/D6: per-device monotonic sequence, drawn at the single buildEnvelope
                 // choke point. ts_ms stays but is no longer the ordering key.
-                put("client_seq", ClientSeqCounter.next())
+                put("client_seq", clientSeq ?: ClientSeqCounter.next())
                 // SPEC-070-A G.17: optional screen name for zero-code attribution.
                 if (screen != null) {
                     put("screen", screen)

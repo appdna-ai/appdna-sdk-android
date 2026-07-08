@@ -229,18 +229,38 @@ internal class EventDatabase(
     /**
      * Enforce event count cap and disk quota.
      */
+    // SPEC-428 STEP-4: sum the TRUE loss over the oldest `limit` rows (the eviction set) — count 1 per
+    // normal event, but the carried N for a `_sdk_events_dropped` META event, so evicting the meta before
+    // delivery re-adds (and re-emits) the N drops it represented instead of under-counting them to 1.
+    private fun evictionLoss(db: SQLiteDatabase, limit: Int): Int {
+        var loss = 0
+        db.query(TABLE_EVENTS, arrayOf(COL_EVENT_JSON), null, null, null, null,
+            "$COL_CREATED_AT ASC, $COL_ID ASC", limit.toString()).use { c ->
+            while (c.moveToNext()) {
+                loss += try {
+                    val obj = org.json.JSONObject(c.getString(0))
+                    if (obj.optString("event_name") == "_sdk_events_dropped")
+                        obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                    else 1
+                } catch (e: Exception) { 1 }
+            }
+        }
+        return loss
+    }
+
     private fun enforceQuotas(db: SQLiteDatabase) {
         // 1. Count cap
         val currentCount = count()
         if (currentCount > maxEvents) {
             val excess = currentCount - maxEvents
+            val loss = evictionLoss(db, excess) // recover meta-carried drops BEFORE the DELETE
             db.execSQL("""
                 DELETE FROM $TABLE_EVENTS WHERE $COL_ID IN (
                     SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $excess
                 )
             """.trimIndent())
-            ai.appdna.sdk.events.DroppedEventsCounter.increment(excess) // SPEC-428 CL-1/D2
-            Log.warning("Event database overflow: dropped $excess oldest events (count cap)")
+            ai.appdna.sdk.events.DroppedEventsCounter.increment(loss) // SPEC-428 CL-1/D2/STEP-4
+            Log.warning("Event database overflow: dropped $excess oldest events (count cap; loss metric +$loss)")
         }
 
         // 2. Disk quota
@@ -249,13 +269,14 @@ internal class EventDatabase(
         if (diskSize > MAX_DISK_BYTES) {
             // Drop 10% of oldest events
             val dropCount = (count() * 0.1).toInt().coerceAtLeast(1)
+            val loss = evictionLoss(db, dropCount)
             db.execSQL("""
                 DELETE FROM $TABLE_EVENTS WHERE $COL_ID IN (
                     SELECT $COL_ID FROM $TABLE_EVENTS ORDER BY $COL_CREATED_AT ASC, $COL_ID ASC LIMIT $dropCount
                 )
             """.trimIndent())
-            ai.appdna.sdk.events.DroppedEventsCounter.increment(dropCount) // SPEC-428 CL-1/D2
-            Log.warning("Event database disk quota enforced: dropped $dropCount events (${MAX_DISK_BYTES / 1024}KB limit)")
+            ai.appdna.sdk.events.DroppedEventsCounter.increment(loss) // SPEC-428 CL-1/D2/STEP-4
+            Log.warning("Event database disk quota enforced: dropped $dropCount events (${MAX_DISK_BYTES / 1024}KB limit; loss +$loss)")
         }
     }
 }

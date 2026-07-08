@@ -138,6 +138,39 @@ class EventPipelineFixtureTest {
         resetCounters()
     }
 
+    /**
+     * SPEC-428 STEP-9/§4.E — a pre-init event stamps its client_seq at track() time and carries it through
+     * the drain, used VERBATIM: even though it's BUILT after a later post-configure event, its reserved
+     * (earlier-stamped) seq stays lower → the configure-window inversion is fixed.
+     */
+    @Test
+    fun preInitClientSeqCarry() {
+        ClientSeqCounter.init(ctx)
+        resetCounters()
+        val id = DeviceIdentity("spec428-anon", null, null)
+        val preInitSeq = ClientSeqCounter.next() // stamp before configure, in tracking order
+        val post = EventSchema.buildEnvelope("post", null, id, "s", "1.0", true)
+        val pre = EventSchema.buildEnvelope("pre", null, id, "s", "1.0", true, clientSeq = preInitSeq)
+        assertEquals("carried seq used verbatim", preInitSeq, pre.getJSONObject("context").getLong("client_seq"))
+        assertTrue("pre-init keeps its reserved LOWER seq despite being built after the post event",
+            pre.getJSONObject("context").getLong("client_seq") < post.getJSONObject("context").getLong("client_seq"))
+        resetCounters()
+    }
+
+    /** D6 — client_seq is persistence-backed: it continues from the persisted value across a (re-init'd) restart. */
+    @Test
+    fun clientSeqPersistsAcrossRestart() {
+        ClientSeqCounter.init(ctx)
+        resetCounters()
+        val a = ClientSeqCounter.next()
+        val b = ClientSeqCounter.next()
+        assertEquals(a + 1, b)
+        ClientSeqCounter.init(ctx) // simulate a cold restart — re-init reads the PERSISTED value
+        val c = ClientSeqCounter.next()
+        assertEquals("client_seq continues from the persisted value across restart, never resets", b + 1, c)
+        resetCounters()
+    }
+
     private fun loadEventFixtures(): List<Fixture> {
         val eventsDir = fixturesRoot()?.let { File(it, "events") }
             ?: error("Could not locate packages/sdk-shared-fixtures/events")

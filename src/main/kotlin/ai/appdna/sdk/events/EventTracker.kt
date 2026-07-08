@@ -90,7 +90,7 @@ internal class EventTracker(
     /**
      * Track an event. If consent is false, the event is silently dropped.
      */
-    fun track(event: String, properties: Map<String, Any>? = null) {
+    fun track(event: String, properties: Map<String, Any>? = null, clientSeq: Long? = null) {
         if (!analyticsConsent) {
             Log.debug { "Event '$event' dropped — analytics consent is false" }
             return
@@ -136,7 +136,8 @@ internal class EventTracker(
             experimentExposures = exposures,
             environment = environmentTag,
             screen = screen,
-            pushId = pushId
+            pushId = pushId,
+            clientSeq = clientSeq // SPEC-428 STEP-9: a drained pre-init event carries its reserved seq
         )
 
         eventQueue?.enqueue(envelope)
