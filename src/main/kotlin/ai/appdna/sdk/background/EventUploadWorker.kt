@@ -120,18 +120,19 @@ internal class EventUploadWorker(
                     return Result.retry()
                 } else if (code in 400..499) {
                     Log.error("Background upload rejected (HTTP $code) — dropping batch (retry won't help)")
-                    // SPEC-428 STEP-4: a dropped batch may carry a _sdk_events_dropped meta — re-add its
-                    // carried N so the loss metric isn't under-counted on a background 4xx drop (a FRESH meta
-                    // re-emits it later, no loop). Mirrors EventQueue's in-process 4xx recovery.
-                    var recovered = 0
+                    // SPEC-428 D2/STEP-4: the WHOLE dropped batch is a loss — count EVERY normal event (+1)
+                    // AND re-add any _sdk_events_dropped meta's carried N, so nothing is silently lost on a
+                    // background 4xx drop. A FRESH meta re-emits the total later. Mirrors EventQueue.
+                    var loss = 0
                     for ((_, json) in batch) {
                         runCatching {
                             val obj = org.json.JSONObject(json)
-                            if (obj.optString("event_name") == "_sdk_events_dropped")
-                                recovered += obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                            loss += if (obj.optString("event_name") == "_sdk_events_dropped")
+                                obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                            else 1
                         }
                     }
-                    if (recovered > 0) ai.appdna.sdk.events.DroppedEventsCounter.increment(recovered)
+                    if (loss > 0) ai.appdna.sdk.events.DroppedEventsCounter.increment(loss)
                     eventDatabase.removeByIds(batch.map { it.first })
                     return Result.failure()
                 } else {

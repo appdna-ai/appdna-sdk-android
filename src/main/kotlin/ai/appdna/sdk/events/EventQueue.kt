@@ -235,16 +235,18 @@ internal class EventQueue(
                     // 4xx (except 429): payload/auth is broken — don't retry, drop the batch
                     // so the queue doesn't loop forever.
                     Log.error("Dropping batch of ${batch.size} events after HTTP ${result.statusCode} (4xx — retry won't help)")
-                    // SPEC-428 STEP-4: a dropped batch may carry a _sdk_events_dropped meta — RE-ADD its
-                    // carried N to the counter (it was zeroed at compose) so the loss metric isn't
-                    // under-counted on a 4xx drop; a FRESH meta (new event_id) re-emits it later, so this
-                    // does not loop on the same bad payload.
-                    var recovered = 0
+                    // SPEC-428 D2/STEP-4: the WHOLE dropped batch is a loss (a 401 drops valid events; a
+                    // 400 drops malformed ones) — count EVERY normal event (+1) AND re-add any
+                    // _sdk_events_dropped meta's carried N, so NOTHING is silently lost. A fresh meta
+                    // (new event_id) re-emits the total when uploads resume; bumpFailureCounter pauses,
+                    // bounding any retry.
+                    var loss = 0
                     for (e in batch) {
-                        if (e.optString("event_name") == "_sdk_events_dropped")
-                            recovered += e.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                        loss += if (e.optString("event_name") == "_sdk_events_dropped")
+                            e.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                        else 1
                     }
-                    if (recovered > 0) DroppedEventsCounter.increment(recovered)
+                    if (loss > 0) DroppedEventsCounter.increment(loss)
                     queue.removeAll(batch.toSet())
                     eventDatabase.removeByEventIds(batchEventIds)
                     // 4xx is a permanent failure, not a transient one — count toward pause
