@@ -287,7 +287,10 @@ object AppDNA {
 
     private var apiClient: ApiClient? = null
     private var identityManager: IdentityManager? = null
-    private var eventTracker: EventTracker? = null
+    // @Volatile so track()'s double-checked-locking fast path (below) sees the configure() publish; the
+    // reserve-pre-init-seq-block + publish happen together under preInitLock (SPEC-428 STEP-9).
+    @Volatile private var eventTracker: EventTracker? = null
+    private val preInitLock = Any()
     private var eventQueue: EventQueue? = null
     private var remoteConfigManager: RemoteConfigManager? = null
     private var featureFlagManager: FeatureFlagManager? = null
@@ -451,7 +454,7 @@ object AppDNA {
             // test-key traffic to the sandbox dataset.
             val envTag = environment.name.lowercase()
             val tracker = EventTracker(identityMgr, appVersion, envTag)
-            this.eventTracker = tracker
+            // NB: eventTracker is published LATER, atomically with the pre-init seq reservation (STEP-9).
 
             // SPEC-067: Initialize EventDatabase (SQLite) and ConnectivityMonitor
             val eventDb = ai.appdna.sdk.storage.EventDatabase(appContext)
@@ -488,19 +491,22 @@ object AppDNA {
             this.eventQueue = eq
             tracker.setEventQueue(eq)
 
-            // SPEC-070-A G.18: drain any track() calls that arrived before the
-            // EventTracker was wired up. We snapshot+drain so concurrent
-            // late-arriving calls won't block on the lock.
-            val drained = ArrayList<PreInitEvent>(preInitBuffer.size)
-            preInitBuffer.drainTo(drained)
+            // SPEC-428 STEP-9/§4.E + SPEC-070-A G.18: drain the pre-init buffer, RESERVE a contiguous
+            // client_seq block for those events, AND publish eventTracker — all ATOMICALLY under
+            // preInitLock. This closes the window: a concurrent track() (which takes the same lock on its
+            // slow path) either buffered BEFORE (→ included in `drained`) or, once eventTracker is visible,
+            // mints a seq AFTER the reserved block. It can NEVER mint DURING the reserve and land below an
+            // earlier pre-init event. (Android can't stamp pre-configure — no Context/prefs before
+            // configure(); iOS stamps at facade track() time instead.)
+            val drained = ArrayList<PreInitEvent>()
+            val reserved: LongArray
+            synchronized(preInitLock) {
+                preInitBuffer.drainTo(drained)
+                reserved = LongArray(drained.size) { ai.appdna.sdk.events.ClientSeqCounter.next() }
+                this.eventTracker = tracker // publish LAST, holding the lock — post-configure mints now follow the block
+            }
             if (drained.isNotEmpty()) {
                 Log.info { "Draining ${drained.size} pre-init buffered event(s) into tracker" }
-                // SPEC-428 STEP-9/§4.E: RESERVE a contiguous client_seq block for the pre-init events FIRST
-                // (ClientSeqCounter is init'd above), in tracking order, BEFORE processing them — so they
-                // keep their reserved (lower) block and a post-configure track() minting during the drain
-                // window can't get a lower seq than an earlier pre-init event. (Android can't stamp
-                // pre-configure: no Context/prefs before configure(); iOS stamps at buffer time.)
-                val reserved = LongArray(drained.size) { ai.appdna.sdk.events.ClientSeqCounter.next() }
                 for ((i, entry) in drained.withIndex()) {
                     tracker.track(entry.name, entry.properties, reserved[i])
                 }
@@ -824,27 +830,31 @@ object AppDNA {
     }
 
     fun track(event: String, properties: Map<String, Any>? = null) {
-        val tracker = eventTracker
+        // SPEC-428 STEP-9: double-checked locking. Fast path (post-configure) reads the @Volatile
+        // eventTracker with no lock. If null, take preInitLock (which configure() holds while it reserves
+        // the pre-init seq block + publishes eventTracker) and RE-CHECK: still null → buffer (pre-configure);
+        // set → fall through to mint a seq AFTER configure's reserved block (no inversion, no lost event).
+        var tracker = eventTracker
         if (tracker == null) {
-            // SPEC-070-A G.18: pre-init buffer. Tracks issued before configure()
-            // wires the EventTracker land here and are drained on first
-            // setEventQueue call. Cap = 200; on overflow we drop the OLDEST so
-            // the most recent action survives.
-            val entry = PreInitEvent(event, properties)
-            if (!preInitBuffer.offer(entry)) {
-                // Queue full — pop oldest, push new.
-                preInitBuffer.poll()
-                // SPEC-428 CL-10/CL-1: count the overflow drop (was an uncounted Log.warning).
-                preInitDroppedCount.incrementAndGet()
-                if (!preInitBuffer.offer(entry)) {
-                    Log.warning { "Pre-init event buffer full; dropping '$event'" }
-                } else {
-                    Log.warning { "Pre-init event buffer full; dropping oldest" }
+            synchronized(preInitLock) {
+                tracker = eventTracker
+                if (tracker == null) {
+                    // SPEC-070-A G.18: pre-init buffer. Cap = 200; on overflow drop the OLDEST.
+                    val entry = PreInitEvent(event, properties)
+                    if (!preInitBuffer.offer(entry)) {
+                        preInitBuffer.poll()
+                        preInitDroppedCount.incrementAndGet() // SPEC-428 CL-10/CL-1: count the overflow drop
+                        if (!preInitBuffer.offer(entry)) {
+                            Log.warning { "Pre-init event buffer full; dropping '$event'" }
+                        } else {
+                            Log.warning { "Pre-init event buffer full; dropping oldest" }
+                        }
+                    }
+                    return
                 }
             }
-            return
         }
-        tracker.track(event, properties)
+        tracker!!.track(event, properties)
         // SPEC-401-A R85 (Lens B F1) — message-then-survey order matches iOS
         // AppDNA.swift:265-267. The first surface to call show() wins via the
         // global isPresenting guard, so reverse-order Android was producing
