@@ -422,10 +422,10 @@ object AppDNA {
             // SPEC-428 CL-3/D6: init the monotonic seq counter BEFORE draining the pre-init buffer,
             // so drained + post-configure events all draw from the persisted (restart-surviving) counter.
             ai.appdna.sdk.events.ClientSeqCounter.init(context)
-            // SPEC-428 CL-1/CL-10: init the durable dropped-events counter + fold in any pre-init
-            // overflow drops accrued before the Context was available.
+            // SPEC-428 CL-1/CL-10: init the durable dropped-events counter. The pre-init overflow fold is
+            // deferred to the atomic publish block below (under preInitLock) so overflow drops that occur
+            // DURING configure() — before eventTracker is published — are captured, not lost.
             ai.appdna.sdk.events.DroppedEventsCounter.init(context)
-            ai.appdna.sdk.events.DroppedEventsCounter.increment(preInitDroppedCount.getAndSet(0))
             val appContext = this.appContext ?: run {
                 Log.error("AppDNA not initialized — call configure() with valid context")
                 return
@@ -503,6 +503,10 @@ object AppDNA {
             synchronized(preInitLock) {
                 preInitBuffer.drainTo(drained)
                 reserved = LongArray(drained.size) { ai.appdna.sdk.events.ClientSeqCounter.next() }
+                // SPEC-428 CL-10 (#2): fold ALL pre-init overflow drops now, still under the lock — every
+                // overflow increment happened in track()'s buffer path under this same lock, so this
+                // captures the ones accrued DURING configure() (the early fold missed them).
+                ai.appdna.sdk.events.DroppedEventsCounter.increment(preInitDroppedCount.getAndSet(0))
                 this.eventTracker = tracker // publish LAST, holding the lock — post-configure mints now follow the block
             }
             if (drained.isNotEmpty()) {

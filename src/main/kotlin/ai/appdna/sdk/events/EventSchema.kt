@@ -172,25 +172,39 @@ internal data class ExperimentExposure(
  * EventSchema.buildEnvelope. Survives restart, independent of wall-clock.
  */
 internal object ClientSeqCounter {
+    // SPEC-428 CL-3/STEP-6: KEY persists the RESERVED CEILING (>= every seq handed out). We hand out from
+    // an in-memory block and WRITE only when the block is exhausted — persisting the ceiling ABOVE the
+    // handed-out values — so a hard kill between the async apply() and its disk flush yields a GAP, never
+    // a REUSE. Also O(1) amortized (one write every BLOCK, not per event).
     private const val PREFS = "appdna_client_seq"
     private const val KEY = "client_seq"
+    private const val BLOCK = 100L
     private var prefs: android.content.SharedPreferences? = null
+    private var current = 0L
+    private var ceiling = 0L
+    private var loaded = false
     private val lock = Any()
 
     fun init(context: android.content.Context) {
         synchronized(lock) {
-            if (prefs == null) {
-                prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
-            }
+            prefs = context.applicationContext.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE)
+            loaded = false // re-read the persisted ceiling on next() (also simulates a cold restart in tests)
         }
     }
 
     fun next(): Long {
         synchronized(lock) {
-            val p = prefs ?: return 0L
-            val next = p.getLong(KEY, 0L) + 1
-            p.edit().putLong(KEY, next).apply()
-            return next
+            val p = prefs ?: return ++current // pre-init fallback (no Context yet) — in-memory monotonic
+            if (!loaded) {
+                val persisted = p.getLong(KEY, 0L) // >= every seq handed out before a crash
+                current = persisted; ceiling = persisted; loaded = true
+            }
+            current += 1
+            if (current > ceiling) {
+                ceiling = current + BLOCK
+                p.edit().putLong(KEY, ceiling).apply() // persist ceiling ABOVE handed-out → crash = gap, not reuse
+            }
+            return current
         }
     }
 }

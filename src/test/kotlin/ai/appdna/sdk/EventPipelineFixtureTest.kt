@@ -165,9 +165,26 @@ class EventPipelineFixtureTest {
         val a = ClientSeqCounter.next()
         val b = ClientSeqCounter.next()
         assertEquals(a + 1, b)
-        ClientSeqCounter.init(ctx) // simulate a cold restart — re-init reads the PERSISTED value
+        ClientSeqCounter.init(ctx) // simulate a cold restart — re-init resumes from the persisted CEILING
         val c = ClientSeqCounter.next()
-        assertEquals("client_seq continues from the persisted value across restart, never resets", b + 1, c)
+        // Reserve-block (STEP-6): after restart the sequence resumes ABOVE the reserved ceiling — a GAP is
+        // expected (never a reuse/reset), so c is strictly greater than b, not necessarily b+1.
+        assertTrue("client_seq resumes monotonically across restart (gap OK, never reuse/reset)", c > b)
+        resetCounters()
+    }
+
+    /** R14 / §6 — concurrent next() from many threads must NEVER hand out a duplicate client_seq. */
+    @Test
+    fun clientSeqConcurrentEmitUnique() {
+        ClientSeqCounter.init(ctx)
+        resetCounters()
+        val perThread = 100
+        val threadCount = 8
+        val seqs = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
+        val threads = (0 until threadCount).map { Thread { repeat(perThread) { seqs.add(ClientSeqCounter.next()) } } }
+        threads.forEach { it.start() }
+        threads.forEach { it.join() }
+        assertEquals("R14: concurrent next() must hand out no duplicate client_seq", threadCount * perThread, seqs.size)
         resetCounters()
     }
 

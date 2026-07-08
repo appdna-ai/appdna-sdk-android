@@ -35,6 +35,8 @@ internal class EventDatabase(
 
         const val MAX_EVENTS = 10_000
         const val MAX_DISK_BYTES = 5 * 1024 * 1024 // 5 MB
+        // SPEC-428 CL-2/D5: client redelivery horizon (7d, tracking SPEC-426's server dedup window).
+        const val REDELIVERY_HORIZON_MS = 7L * 24 * 60 * 60 * 1000
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -179,6 +181,34 @@ internal class EventDatabase(
         } catch (e: Exception) {
             Log.error("Failed to remove events by event_id: ${e.message}")
         }
+    }
+
+    /**
+     * SPEC-428 CL-2/D5: drop events past the redelivery horizon so NO consumer — the in-process flush OR
+     * the WorkManager uploader that fires hours/days later — re-sends an event past the server dedup window
+     * (double-count). This lives at the STORE so both paths are covered. Counted (CL-1). Returns # dropped.
+     */
+    fun pruneStale(horizonMs: Long = REDELIVERY_HORIZON_MS): Int {
+        val now = System.currentTimeMillis()
+        val staleIds = mutableSetOf<String>()
+        try {
+            readableDatabase.query(TABLE_EVENTS, arrayOf(COL_EVENT_JSON), null, null, null, null, null).use { c ->
+                while (c.moveToNext()) {
+                    runCatching {
+                        val obj = org.json.JSONObject(c.getString(0))
+                        if (now - obj.optLong("ts_ms", now) > horizonMs) staleIds.add(obj.getString("event_id"))
+                    }
+                }
+            }
+            if (staleIds.isNotEmpty()) {
+                removeByEventIds(staleIds)
+                ai.appdna.sdk.events.DroppedEventsCounter.increment(staleIds.size)
+                Log.warning("Pruned ${staleIds.size} events past the redelivery horizon (double-count guard)")
+            }
+        } catch (e: Exception) {
+            Log.error("pruneStale failed: ${e.message}")
+        }
+        return staleIds.size
     }
 
     /**

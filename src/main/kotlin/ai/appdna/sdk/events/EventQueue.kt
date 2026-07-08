@@ -236,6 +236,16 @@ internal class EventQueue(
                     // 4xx (except 429): payload/auth is broken — don't retry, drop the batch
                     // so the queue doesn't loop forever.
                     Log.error("Dropping batch of ${batch.size} events after HTTP ${result.statusCode} (4xx — retry won't help)")
+                    // SPEC-428 STEP-4: a dropped batch may carry a _sdk_events_dropped meta — RE-ADD its
+                    // carried N to the counter (it was zeroed at compose) so the loss metric isn't
+                    // under-counted on a 4xx drop; a FRESH meta (new event_id) re-emits it later, so this
+                    // does not loop on the same bad payload.
+                    var recovered = 0
+                    for (e in batch) {
+                        if (e.optString("event_name") == "_sdk_events_dropped")
+                            recovered += e.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                    }
+                    if (recovered > 0) DroppedEventsCounter.increment(recovered)
                     queue.removeAll(batch.toSet())
                     eventDatabase.removeByEventIds(batchEventIds)
                     // 4xx is a permanent failure, not a transient one — count toward pause

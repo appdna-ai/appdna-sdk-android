@@ -51,6 +51,11 @@ internal class EventUploadWorker(
             return Result.success()
         }
 
+        // SPEC-428 CL-2/D5: WorkManager can run hours/days after the events were queued — prune past the
+        // redelivery horizon BEFORE upload so a stale event isn't re-sent past the server dedup window
+        // (double-count). The in-process EventQueue prunes too; the store method covers both paths.
+        eventDatabase.pruneStale(ai.appdna.sdk.storage.EventDatabase.REDELIVERY_HORIZON_MS)
+
         // Load a batch from SQLite
         val batch = eventDatabase.loadBatch(100)
         if (batch.isEmpty()) {
