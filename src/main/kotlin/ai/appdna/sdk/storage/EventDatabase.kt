@@ -194,32 +194,45 @@ internal class EventDatabase(
      */
     fun pruneStale(horizonMs: Long = REDELIVERY_HORIZON_MS): Int {
         val now = System.currentTimeMillis()
-        val staleIds = mutableSetOf<String>()
+        var pruned = 0
         var lost = 0
         try {
-            readableDatabase.query(TABLE_EVENTS, arrayOf(COL_EVENT_JSON), null, null, null, null, null).use { c ->
-                while (c.moveToNext()) {
-                    runCatching {
-                        val obj = org.json.JSONObject(c.getString(0))
-                        if (now - obj.optLong("ts_ms", now) > horizonMs) {
-                            staleIds.add(obj.getString("event_id"))
-                            // SPEC-428 STEP-4: meta-aware — a stale `_sdk_events_dropped` carries N drops.
-                            lost += if (obj.optString("event_name") == "_sdk_events_dropped")
-                                obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
-                            else 1
+            val db = writableDatabase
+            // Wrap the scan+delete in ONE transaction so concurrent prunes SERIALIZE: the in-process flush
+            // and the background Worker hold SEPARATE EventDatabase handles on the same file, so without this
+            // both could count the same 7-day-stale rows. beginTransaction takes the write lock — the second
+            // caller blocks until the first commits, then its scan sees the rows gone and counts 0. This is
+            // what makes pruneStale the true SINGLE count source on Android (as it already is on iOS).
+            db.beginTransaction()
+            try {
+                val delIds = mutableListOf<Long>()
+                db.query(TABLE_EVENTS, arrayOf(COL_ID, COL_EVENT_JSON), null, null, null, null, null).use { c ->
+                    while (c.moveToNext()) {
+                        runCatching {
+                            val obj = org.json.JSONObject(c.getString(1))
+                            if (now - obj.optLong("ts_ms", now) > horizonMs) {
+                                delIds.add(c.getLong(0))
+                                // SPEC-428 STEP-4: meta-aware — a stale `_sdk_events_dropped` carries N drops.
+                                lost += if (obj.optString("event_name") == "_sdk_events_dropped")
+                                    obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                                else 1
+                            }
                         }
                     }
                 }
+                if (delIds.isNotEmpty()) { removeByIds(delIds); pruned = delIds.size }
+                db.setTransactionSuccessful()
+            } finally {
+                db.endTransaction()
             }
-            if (staleIds.isNotEmpty()) {
-                removeByEventIds(staleIds)
+            if (pruned > 0) {
                 ai.appdna.sdk.events.DroppedEventsCounter.increment(lost)
-                Log.warning("Pruned ${staleIds.size} events past the redelivery horizon (loss metric +$lost)")
+                Log.warning("Pruned $pruned events past the redelivery horizon (loss metric +$lost)")
             }
         } catch (e: Exception) {
             Log.error("pruneStale failed: ${e.message}")
         }
-        return staleIds.size
+        return pruned
     }
 
     /**
