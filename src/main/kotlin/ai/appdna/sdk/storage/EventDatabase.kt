@@ -27,7 +27,7 @@ internal class EventDatabase(
 
     companion object {
         private const val DATABASE_NAME = "appdna_events.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2 // SPEC-428 STEP-7: v2 adds idx_events_created_at on upgrade
         private const val TABLE_EVENTS = "pending_events"
         private const val COL_ID = "_id"
         private const val COL_EVENT_JSON = "event_json"
@@ -47,11 +47,15 @@ internal class EventDatabase(
                 $COL_CREATED_AT INTEGER NOT NULL DEFAULT (strftime('%s', 'now') * 1000)
             )
         """.trimIndent())
-        db.execSQL("CREATE INDEX idx_events_created_at ON $TABLE_EVENTS($COL_CREATED_AT)")
+        db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_created_at ON $TABLE_EVENTS($COL_CREATED_AT)")
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
-        // Future migrations go here
+        // SPEC-428 STEP-7: v1 installs never ran onCreate again, so they lack idx_events_created_at → a
+        // full-scan on the ORDER BY created_at, _id ordering query. Create it idempotently on upgrade.
+        if (oldVersion < 2) {
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_events_created_at ON $TABLE_EVENTS($COL_CREATED_AT)")
+        }
     }
 
     /**
@@ -191,19 +195,26 @@ internal class EventDatabase(
     fun pruneStale(horizonMs: Long = REDELIVERY_HORIZON_MS): Int {
         val now = System.currentTimeMillis()
         val staleIds = mutableSetOf<String>()
+        var lost = 0
         try {
             readableDatabase.query(TABLE_EVENTS, arrayOf(COL_EVENT_JSON), null, null, null, null, null).use { c ->
                 while (c.moveToNext()) {
                     runCatching {
                         val obj = org.json.JSONObject(c.getString(0))
-                        if (now - obj.optLong("ts_ms", now) > horizonMs) staleIds.add(obj.getString("event_id"))
+                        if (now - obj.optLong("ts_ms", now) > horizonMs) {
+                            staleIds.add(obj.getString("event_id"))
+                            // SPEC-428 STEP-4: meta-aware — a stale `_sdk_events_dropped` carries N drops.
+                            lost += if (obj.optString("event_name") == "_sdk_events_dropped")
+                                obj.optJSONObject("properties")?.optInt("count", 0) ?: 0
+                            else 1
+                        }
                     }
                 }
             }
             if (staleIds.isNotEmpty()) {
                 removeByEventIds(staleIds)
-                ai.appdna.sdk.events.DroppedEventsCounter.increment(staleIds.size)
-                Log.warning("Pruned ${staleIds.size} events past the redelivery horizon (double-count guard)")
+                ai.appdna.sdk.events.DroppedEventsCounter.increment(lost)
+                Log.warning("Pruned ${staleIds.size} events past the redelivery horizon (loss metric +$lost)")
             }
         } catch (e: Exception) {
             Log.error("pruneStale failed: ${e.message}")

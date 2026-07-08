@@ -176,13 +176,12 @@ internal class EventQueue(
      */
     private fun pruneStaleEvents() {
         val nowMs = System.currentTimeMillis()
+        // Remove stale from the in-memory working set only (NO count here); eventDatabase.pruneStale is the
+        // SINGLE, meta-aware count source (these events' persisted copies live on disk), so the loss metric
+        // can't be double-incremented by the in-process flush AND the background upload both pruning.
         val stale = queue.filter { nowMs - it.optLong("ts_ms", nowMs) > redeliveryHorizonMs }
-        if (stale.isEmpty()) return
-        val staleIds = stale.mapNotNull { runCatching { it.getString("event_id") }.getOrNull() }.toSet()
-        queue.removeAll(stale.toSet())
-        eventDatabase.removeByEventIds(staleIds)
-        DroppedEventsCounter.increment(stale.size)
-        Log.warning("Dropped ${stale.size} events past the redelivery horizon (would double-count past server dedup)")
+        if (stale.isNotEmpty()) queue.removeAll(stale.toSet())
+        eventDatabase.pruneStale(redeliveryHorizonMs)
     }
 
     private suspend fun performFlushLocked() {

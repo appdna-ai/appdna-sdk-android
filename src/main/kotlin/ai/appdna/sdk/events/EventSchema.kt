@@ -202,7 +202,10 @@ internal object ClientSeqCounter {
             current += 1
             if (current > ceiling) {
                 ceiling = current + BLOCK
-                p.edit().putLong(KEY, ceiling).apply() // persist ceiling ABOVE handed-out → crash = gap, not reuse
+                // SYNC commit() at the (rare) block boundary so the ceiling is DURABLE before we hand out a
+                // seq from the new block — a hard kill then yields a gap, NEVER a reuse. Only ~1 in BLOCK
+                // events pays the sync write, so the CL-8 hot-path budget still holds.
+                p.edit().putLong(KEY, ceiling).commit()
             }
             return current
         }
