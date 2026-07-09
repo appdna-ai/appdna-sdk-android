@@ -37,7 +37,7 @@ import androidx.compose.runtime.Composable
 object AppDNA {
 
     /** SDK version string. */
-    const val sdkVersion = "1.0.41"
+    const val sdkVersion = "1.0.42"
 
     /**
      * SPEC-419 brand-threading — the app's brand accent hex (from `/settings/brand`,
@@ -1911,6 +1911,12 @@ object AppDNA {
                 billing.manager?.destroy()
             } catch (e: Throwable) {
                 Log.warning("NativeBillingManager.destroy threw: ${e.message}")
+            } finally {
+                // Must null the handle, not just destroy it. `initBillingModuleIfNeeded`
+                // early-returns on a non-null manager, so leaving a destroyed instance
+                // here makes a later configure() skip re-init — killing billing and
+                // entitlements for the rest of the process.
+                billing.manager = null
             }
             try {
                 billing.shutdown()
