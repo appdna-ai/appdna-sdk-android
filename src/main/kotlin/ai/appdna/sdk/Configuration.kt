@@ -39,6 +39,67 @@ enum class ForcedTheme {
 }
 
 /**
+ * SPEC-070-B PN row 6 (N1) — the billing backend the SDK dispatches purchases through.
+ *
+ * iOS has carried `BillingProvider` since SPEC-027 (`Configuration.swift:23`); Android auto-detected
+ * from the classpath, which left Adapty's `apiKey` with nowhere to live. The case names are iOS's,
+ * deliberately: they are the wire tags pinned by the `billing_provider_adapty_tagged_map` shared
+ * fixture, and a cross-platform wrapper must encode the same string on both platforms.
+ *
+ * On Android [StoreKit2] means Google Play Billing — the platform's own store. The name is a
+ * cross-platform tag, not a claim about which framework is linked.
+ *
+ * The value-less cases cross the wrapper channel as bare strings; [Adapty] crosses as the tagged map
+ * `{"type":"adapty","apiKey":"..."}`.
+ */
+sealed class BillingProvider(val type: String) {
+    /** The platform store: Google Play Billing on Android, StoreKit 2 on iOS. */
+    object StoreKit2 : BillingProvider("storeKit2")
+    object RevenueCat : BillingProvider("revenueCat")
+    /** Adapty, with the publishable SDK key it needs to start. */
+    data class Adapty(val apiKey: String) : BillingProvider("adapty")
+    /** No billing. Purchases and entitlement reads fail fast rather than silently no-op. */
+    object None : BillingProvider("none")
+
+    companion object {
+        /**
+         * Decode the wrapper wire form: a bare string for the value-less cases, or a tagged map for
+         * [Adapty]. Returns null on anything else, so a caller can decide between a default and an
+         * error rather than having one chosen for it.
+         */
+        @JvmStatic
+        fun fromWire(value: Any?): BillingProvider? = when (value) {
+            is BillingProvider -> value
+            is String -> when (value) {
+                "storeKit2" -> StoreKit2
+                "revenueCat" -> RevenueCat
+                "none" -> None
+                // A bare "adapty" carries no apiKey, so it cannot be honored.
+                else -> null
+            }
+            is Map<*, *> -> {
+                val type = value["type"] as? String
+                val apiKey = value["apiKey"] as? String
+                when {
+                    type == "adapty" && !apiKey.isNullOrEmpty() -> Adapty(apiKey)
+                    type == "storeKit2" -> StoreKit2
+                    type == "revenueCat" -> RevenueCat
+                    type == "none" -> None
+                    else -> null
+                }
+            }
+            else -> null
+        }
+    }
+
+    /** Re-encode to the wire form. Lossless round-trip with [fromWire]. */
+    fun toWire(): Any = when (this) {
+        is Adapty -> mapOf("type" to "adapty", "apiKey" to apiKey)
+        else -> type
+    }
+}
+
+/**
  * Configuration options for the AppDNA SDK.
  */
 data class AppDNAOptions(
@@ -68,7 +129,26 @@ data class AppDNAOptions(
      * SPEC-070-C — the wrapper SDK's OWN published version (e.g. Flutter "1.0.5"),
      * so diagnose() reports the wrapper version per platform. null for native hosts.
      */
-    val frameworkVersion: String? = null
+    val frameworkVersion: String? = null,
+    /**
+     * SPEC-070-B PN row 6 (N1) — billing backend. Defaults to [BillingProvider.StoreKit2]
+     * (Google Play Billing on Android), matching iOS's `.storeKit2` default.
+     */
+    val billingProvider: BillingProvider = BillingProvider.StoreKit2,
+    /**
+     * SPEC-070-B PN row 14 (AC-36) — when true, analytics stay OFF until the host calls
+     * `setConsent(analytics)`, and no event (including `sdk_initialized`) is emitted before that
+     * decision. When false — the default, preserving today's behavior — analytics are opt-out.
+     *
+     * Either way the decision is now **persisted**: `setConsent(false)` used to be silently undone
+     * by the next cold start.
+     */
+    val requireConsent: Boolean = false,
+    /**
+     * SPEC-070-B PN row 16 (W12) — how long a wrapper waits for a host veto (seconds) before
+     * applying the hook's default. Surfaced through `diagnose()`.
+     */
+    val vetoTimeout: Long = 5L
 )
 
 /**

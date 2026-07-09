@@ -96,6 +96,22 @@ internal class EventDatabase(
         const val MAX_DISK_BYTES = 5 * 1024 * 1024 // 5 MB
         // SPEC-428 CL-2/D5: client redelivery horizon (7d, tracking SPEC-426's server dedup window).
         const val REDELIVERY_HORIZON_MS = 7L * 24 * 60 * 60 * 1000
+
+        /**
+         * SPEC-070-B PN row 19 (W14) — an age past this is not a stale event, it is a broken clock.
+         * The horizon compares wall clocks, so a forward clock jump makes every queued event look
+         * older than 7 days at once and prunes it **unsent**. Beyond this bound, and for any negative
+         * age (the clock moved backwards), we keep the event: a retained event costs a retry, a pruned
+         * one is gone. 30 days is ~4x the horizon.
+         */
+        const val IMPLAUSIBLE_AGE_MS: Long = 30L * 24 * 60 * 60 * 1000
+
+        /** True when the event is genuinely past the horizon, as opposed to a victim of a clock jump. */
+        @JvmStatic
+        fun isStale(tsMs: Long, nowMs: Long, horizonMs: Long): Boolean {
+            val age = nowMs - tsMs
+            return age > horizonMs && age <= IMPLAUSIBLE_AGE_MS
+        }
     }
 
     override fun onCreate(db: SQLiteDatabase) {
@@ -269,7 +285,7 @@ internal class EventDatabase(
                     while (c.moveToNext()) {
                         runCatching {
                             val obj = org.json.JSONObject(c.getString(1))
-                            if (now - obj.optLong("ts_ms", now) > horizonMs) {
+                            if (isStale(obj.optLong("ts_ms", now), now, horizonMs)) {
                                 delIds.add(c.getLong(0))
                                 // SPEC-428 STEP-4: meta-aware — a stale `_sdk_events_dropped` carries N drops.
                                 lost += if (obj.optString("event_name") == "_sdk_events_dropped")

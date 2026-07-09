@@ -142,19 +142,24 @@ fun AppDNAScreenSlot(name: String) {
                     // gate the action. Native hosts (no async veto) run inline.
                     ScreenManager.shared.dispatchScreenAction(config.id, payload) {
                         when (action) {
+                            // SPEC-070-B PN row 18 (W11): config-driven URLs — scheme-checked first.
                             is SectionAction.OpenURL -> {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    activityContext.startActivity(intent)
-                                } catch (_: Throwable) { /* best-effort */ }
+                                ai.appdna.sdk.core.URLSafety.sanitized(action.url, activityContext)?.let { uri ->
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, uri)
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        activityContext.startActivity(intent)
+                                    } catch (_: Throwable) { /* best-effort */ }
+                                }
                             }
                             is SectionAction.DeepLink -> {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(action.url))
-                                    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    activityContext.startActivity(intent)
-                                } catch (_: Throwable) { /* best-effort */ }
+                                ai.appdna.sdk.core.URLSafety.sanitized(action.url, activityContext)?.let { uri ->
+                                    try {
+                                        val intent = Intent(Intent.ACTION_VIEW, uri)
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        activityContext.startActivity(intent)
+                                    } catch (_: Throwable) { /* best-effort */ }
+                                }
                             }
                             is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
                             is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }

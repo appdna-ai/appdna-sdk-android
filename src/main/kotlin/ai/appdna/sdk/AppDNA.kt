@@ -285,6 +285,13 @@ object AppDNA {
     private var environment: Environment = Environment.PRODUCTION
     private var options: AppDNAOptions = AppDNAOptions()
 
+    /**
+     * SPEC-070-B PN row 6 — retained so the Adapty bridge (and its delegate) outlive
+     * [initBillingModuleIfNeeded]. Null unless `billingProvider` is [BillingProvider.Adapty].
+     */
+    @Volatile
+    internal var adaptyBridge: ai.appdna.sdk.integrations.AdaptyBridge? = null
+
     private var apiClient: ApiClient? = null
     private var identityManager: IdentityManager? = null
     // @Volatile so track()'s double-checked-locking fast path (below) sees the configure() publish; the
@@ -454,6 +461,12 @@ object AppDNA {
             // test-key traffic to the sandbox dataset.
             val envTag = environment.name.lowercase()
             val tracker = EventTracker(identityMgr, appVersion, envTag)
+            // SPEC-070-B PN row 14 (AC-36): resolve consent from the PERSISTED decision before
+            // anything can be tracked — including the pre-init buffer drain and `sdk_initialized`.
+            // A denied user used to be silently re-opted-in on every cold start.
+            tracker.setInitialConsent(
+                ai.appdna.sdk.storage.ConsentStore.effectiveConsent(appContext, options.requireConsent)
+            )
             // NB: eventTracker is published LATER, atomically with the pre-init seq reservation (STEP-9).
 
             // SPEC-067: Initialize EventDatabase (SQLite) and ConnectivityMonitor
@@ -1167,6 +1180,16 @@ object AppDNA {
         sb.appendLine("org_id: ${bootstrapOrgId ?: "<unset>"}")
         sb.appendLine("app_id: ${bootstrapAppId ?: "<unset>"}")
         sb.appendLine("consent.analytics: ${eventTracker?.isConsentGranted ?: true}")
+        // SPEC-070-B PN rows 14 + 16: the settings whose effect is invisible until something goes
+        // wrong — a silently opted-out user, and a veto that timed out into its default.
+        val consentDecision = appContext?.let { ai.appdna.sdk.storage.ConsentStore.decision(it) }
+        sb.appendLine(
+            "consent.persisted: ${consentDecision?.toString() ?: "no decision yet"} " +
+                "(requireConsent=${options.requireConsent})"
+        )
+        sb.appendLine("veto.timeout_seconds: ${options.vetoTimeout}")
+        sb.appendLine("veto.timeouts_observed: ${ai.appdna.sdk.core.VetoTimeoutCounter.count}")
+        sb.appendLine("init.last_error: ${lastInitError?.message ?: "<none>"}")
         sb.appendLine("=== end ===")
         return sb.toString()
     }
@@ -1431,6 +1454,9 @@ object AppDNA {
      * Set analytics consent. When false, events are silently dropped.
      */
     fun setConsent(analytics: Boolean) {
+        // SPEC-070-B PN row 14 (AC-36): persist FIRST. A crash before the write would lose a
+        // revocation, and the next launch would re-enable analytics for a user who opted out.
+        appContext?.let { ai.appdna.sdk.storage.ConsentStore.setDecision(it, analytics) }
         eventTracker?.setConsent(analytics)
         Log.info("Consent updated: analytics=$analytics")
     }
@@ -1840,6 +1866,16 @@ object AppDNA {
     ) {
         if (billing.manager != null) return
         val ctx = appContext ?: return
+
+        // SPEC-070-B PN row 6 (N1): honor the configured provider. Before this, Android ignored the
+        // host's choice entirely and Adapty's apiKey had nowhere to live — AdaptyBridge had zero
+        // call sites.
+        val provider = options.billingProvider
+        if (provider is BillingProvider.None) {
+            Log.info("BillingModule: billingProvider = none — billing disabled")
+            return
+        }
+
         val storage = LocalStorage(ctx)
         try {
             val verifier = ai.appdna.sdk.billing.ReceiptVerifier(client)
@@ -1861,9 +1897,26 @@ object AppDNA {
             if (orgId != null && appId != null && userId != null) {
                 cache.startObserving(orgId, appId, userId)
             }
-            Log.info("BillingModule: NativeBillingManager initialized")
+
+            when (provider) {
+                is BillingProvider.Adapty -> {
+                    val bridge = ai.appdna.sdk.integrations.AdaptyBridge()
+                    bridge.configure(provider.apiKey)
+                    adaptyBridge = bridge
+                }
+                is BillingProvider.RevenueCat ->
+                    // Matches iOS: the `.revenueCat` case carries no key, because the host configures
+                    // Purchases itself and forwards results. We only note the choice.
+                    Log.info("BillingModule: billingProvider = revenueCat — host is expected to call Purchases.configure()")
+                else -> Unit
+            }
+
+            Log.info("BillingModule: NativeBillingManager initialized (provider=${provider.type})")
         } catch (e: Exception) {
             Log.error("BillingModule init failed: ${e.message}")
+            // SPEC-070-B PN row 17 (W13/AC-31(b)): billing is not analytics. A failed billing init is a
+            // degraded SDK, not a dead one — events keep flowing.
+            reportInitDegraded(e)
         }
     }
 
@@ -1949,6 +2002,10 @@ object AppDNA {
             // SDK has been told to shut down.
             try { messageManager?.shutdown() } catch (_: Throwable) {}
 
+            // SPEC-070-B PN row 7: cancel the configTTL refresh timer, or it fires against a
+            // torn-down Firestore handle after shutdown.
+            try { remoteConfigManager?.shutdown() } catch (_: Throwable) {}
+
             // SPEC-070-A H.24: close the SQLite handle. EventDatabase extends
             // SQLiteOpenHelper, so close() releases the underlying db file
             // without losing pending rows (they live on disk until uploaded).
@@ -1982,6 +2039,16 @@ object AppDNA {
             bootstrapOrgId = null
             bootstrapAppId = null
             apiKey = null
+            adaptyBridge = null
+
+            // SPEC-070-B PN row 10: these three are OBJECT-scoped statics, so nulling the managers
+            // above leaves them holding the previous run's values. A re-configure()d SDK then renders
+            // with a stale brand color, attributes its first events to the old screen, and can present
+            // a message from a config that is no longer live.
+            brandAccentHex = null
+            lastScreenName = null
+            activeMessages = emptyMap()
+            lastInitError = null
 
             // SPEC-070-A final audit pass H F1 — release the registered
             // NavigationInterceptor lifecycle callbacks so a re-`configure()`

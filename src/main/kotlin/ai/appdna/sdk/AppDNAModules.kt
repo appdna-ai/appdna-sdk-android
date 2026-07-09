@@ -358,6 +358,20 @@ class BillingModule internal constructor() {
     }
 
     /**
+     * SPEC-070-B PN row 5 (E3): remove a callback registered by [onEntitlementsChanged].
+     * [EntitlementCache.removeChangeListener] has always existed but was never exposed, so a wrapper
+     * that re-`configure()`s (a React Native reload does) accumulated listeners and delivered every
+     * change N-fold.
+     *
+     * Removal is by **reference identity** — pass the same lambda instance you registered. Storing it
+     * in a `val` is the only way; `::method` references and lambda literals allocate a fresh object
+     * on every evaluation and will silently fail to remove anything.
+     */
+    fun removeEntitlementsChangedListener(callback: (List<Entitlement>) -> Unit) {
+        manager?.entitlementCache?.removeChangeListener(callback)
+    }
+
+    /**
      * Set a delegate to receive billing lifecycle callbacks (purchases, failures, restores).
      */
     fun setDelegate(delegate: AppDNABillingDelegate?) {

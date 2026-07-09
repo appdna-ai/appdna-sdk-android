@@ -131,14 +131,20 @@ internal class PaywallManager(
             }
         }
 
-        // Track view event
-        eventTracker.track(
-            "paywall_view",
-            mapOf(
-                "paywall_id" to id,
-                "placement" to (context?.placement ?: "unknown"),
-            ),
+        // Track view event. SPEC-070-B PN row 4 (D-s): `customData` is merged in here — this is its
+        // only consumer, and a parameter with no consumer is a parameter that does nothing.
+        val viewProps = mutableMapOf<String, Any>(
+            "paywall_id" to id,
+            "placement" to (context?.placement ?: "unknown"),
         )
+        context?.customData?.forEach { (key, value) ->
+            if (key in PaywallContext.RESERVED_EVENT_KEYS) {
+                Log.warning("PaywallContext.customData key '$key' is reserved and was dropped")
+            } else {
+                viewProps[key] = value
+            }
+        }
+        eventTracker.track("paywall_view", viewProps)
 
         // SPEC-401-A R78 (Lens A P1) — prefetch all paywall image URLs
         // before launching Activity, mirroring iOS PaywallManager.swift

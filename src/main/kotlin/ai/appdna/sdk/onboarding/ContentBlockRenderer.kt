@@ -1899,10 +1899,12 @@ private fun ButtonBlock(block: ContentBlock, onAction: (String) -> Unit, loc: ((
                 // Tabs would be a polish followup once androidx.browser dep
                 // is added).
                 block.action_value?.let { url ->
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                        context.startActivity(intent)
-                    } catch (_: Exception) {}
+                    // SPEC-070-B PN row 18 (W11): config-driven URL — scheme-checked before the OS sees it.
+                    ai.appdna.sdk.core.URLSafety.sanitized(url, context)?.let { uri ->
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        } catch (_: Exception) {}
+                    }
                 }
                 // No auto-advance — mirrors iOS InAppBrowser.present semantics.
             }
@@ -3794,11 +3796,13 @@ private fun RichTextBlock(block: ContentBlock, loc: ((String, String) -> String)
         onClick = { offset ->
             annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
                 .firstOrNull()?.let { annotation ->
-                    try {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(annotation.item))
-                        context.startActivity(intent)
-                    } catch (_: Exception) {
-                        // Malformed URL or no browser — silently ignore
+                    // SPEC-070-B PN row 18 (W11): a link inside authored rich text is config-driven too.
+                    ai.appdna.sdk.core.URLSafety.sanitized(annotation.item, context)?.let { uri ->
+                        try {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, uri))
+                        } catch (_: Exception) {
+                            // No browser — silently ignore
+                        }
                     }
                 }
         },

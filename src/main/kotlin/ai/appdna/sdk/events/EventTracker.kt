@@ -74,6 +74,15 @@ internal class EventTracker(
         this.pushIdProvider = provider
     }
 
+    /**
+     * SPEC-070-B PN row 14 (AC-36): apply the persisted consent decision at `configure()` time.
+     * Unlike [setConsent], this does NOT purge the queue — events persisted during an earlier,
+     * consented session are not a revocation, and startup is not the moment to delete them.
+     */
+    fun setInitialConsent(analytics: Boolean) {
+        analyticsConsent = analytics
+    }
+
     fun setConsent(analytics: Boolean) {
         analyticsConsent = analytics
         // SPEC-424 STEP-1a (CL-7): revoking consent MUST purge any queued-but-unsent events (memory

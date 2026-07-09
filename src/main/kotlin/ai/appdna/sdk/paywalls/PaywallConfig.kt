@@ -510,8 +510,22 @@ data class PostPurchaseFailureConfig(
 data class PaywallContext(
     val placement: String,
     val experiment: String? = null,
-    val variant: String? = null
-)
+    val variant: String? = null,
+    /**
+     * SPEC-070-B PN row 4 (D-s) — arbitrary per-presentation attributes. Merged into the
+     * `paywall_view` event's properties, so they are queryable in the warehouse alongside
+     * `paywall_id` and `placement`. Keys colliding with a reserved property are dropped and warned
+     * about, never silently overwritten.
+     *
+     * This does NOT feed the `{{custom.*}}` template namespace — that path is deferred.
+     */
+    val customData: Map<String, Any>? = null
+) {
+    companion object {
+        /** Reserved `paywall_view` property names. [customData] may not shadow them. */
+        internal val RESERVED_EVENT_KEYS = setOf("paywall_id", "placement")
+    }
+}
 
 /**
  * Reason a paywall was dismissed.

@@ -1,0 +1,52 @@
+package ai.appdna.sdk.storage
+
+import android.content.Context
+
+/**
+ * SPEC-070-B PN row 14 (AC-36 / W8) — the persisted analytics-consent decision.
+ *
+ * Consent used to live only in `EventTracker.analyticsConsent`, an in-memory `Boolean` initialised
+ * to `true`. So `setConsent(false)` held for the life of the process and was silently undone by the
+ * next cold start: an opted-out user was opted back in on every launch. That is a bug, not a missing
+ * feature, which is why the fix lands here rather than waiting for the full multi-purpose consent
+ * store (SPEC-424).
+ *
+ * A dedicated `SharedPreferences` file — not [LocalStorage] — because the decision must be readable
+ * before `configure()` wires the pipeline, and because it must never land in the encrypted store's
+ * silent-plaintext-fallback path. It is not PII: it is a single boolean about the user's choice.
+ *
+ * Three states, and the third is load-bearing:
+ *   - `true`  — granted
+ *   - `false` — denied
+ *   - `null`  — **no decision yet**. `AppDNAOptions.requireConsent` decides what that means.
+ */
+internal object ConsentStore {
+    private const val PREFS_NAME = "ai.appdna.sdk.consent"
+    private const val KEY = "analytics_consent"
+
+    /** The persisted decision, or null if the user has never been asked. */
+    fun decision(context: Context): Boolean? {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return if (prefs.contains(KEY)) prefs.getBoolean(KEY, false) else null
+    }
+
+    /** Persist a decision. Committed synchronously: a lost revocation re-enables analytics. */
+    fun setDecision(context: Context, granted: Boolean) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean(KEY, granted)
+            .commit()
+    }
+
+    /**
+     * Resolve the decision `configure()` should start with.
+     * When [requireConsent] is true, the absence of a decision means **denied** (opt-in).
+     */
+    fun effectiveConsent(context: Context, requireConsent: Boolean): Boolean =
+        decision(context) ?: !requireConsent
+
+    /** Test seam. Not part of the public surface. */
+    fun reset(context: Context) {
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().remove(KEY).commit()
+    }
+}

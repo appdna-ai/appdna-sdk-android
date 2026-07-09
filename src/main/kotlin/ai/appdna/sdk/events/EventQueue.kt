@@ -182,7 +182,13 @@ internal class EventQueue(
         // Remove stale from the in-memory working set only (NO count here); eventDatabase.pruneStale is the
         // SINGLE, meta-aware count source (these events' persisted copies live on disk), so the loss metric
         // can't be double-incremented by the in-process flush AND the background upload both pruning.
-        val stale = queue.filter { nowMs - it.optLong("ts_ms", nowMs) > redeliveryHorizonMs }
+        // SPEC-070-B PN row 19 (W14): the same clock-jump clamp the database uses — otherwise the
+        // in-memory set and the disk set disagree about what is stale.
+        val stale = queue.filter {
+            ai.appdna.sdk.storage.EventDatabase.isStale(
+                it.optLong("ts_ms", nowMs), nowMs, redeliveryHorizonMs
+            )
+        }
         if (stale.isNotEmpty()) queue.removeAll(stale.toSet())
         eventDatabase.pruneStale(redeliveryHorizonMs)
     }

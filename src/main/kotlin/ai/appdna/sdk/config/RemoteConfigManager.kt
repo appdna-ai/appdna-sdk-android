@@ -11,6 +11,14 @@ import ai.appdna.sdk.AppDNA
 import org.json.JSONObject
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * Manages remote config from Firestore with local caching.
@@ -18,8 +26,34 @@ import java.util.concurrent.atomic.AtomicInteger
 internal class RemoteConfigManager(
     firestorePath: String?,
     private val storage: LocalStorage,
-    private val configTTL: Long
+    private val configTTL: Long,
+    /**
+     * SPEC-070-B PN row 7 — injectable so a Robolectric test can advance the TTL timer. Robolectric
+     * cannot advance `kotlinx.coroutines.delay` on a production dispatcher, which would make the
+     * staleness gate untestable on Android.
+     */
+    private val ttlDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
+    // SPEC-070-B PN row 7 (§6 row 7): the staleness gate lives HERE, not in ConfigRefreshWorker —
+    // WorkManager has a 15-minute floor, so a host asking for a 5-minute TTL silently got 15.
+    // `configTTL` was previously accepted and never read: dead code on Android while iOS honored it.
+    private val ttlScope = CoroutineScope(ttlDispatcher + SupervisorJob())
+
+    @Volatile
+    private var lastFetchAtMs: Long = 0L
+
+    @Volatile
+    private var ttlJob: Job? = null
+
+    /** True when no fetch has completed, or the last one is older than [configTTL] seconds. */
+    internal fun isStale(nowMs: Long = System.currentTimeMillis()): Boolean =
+        lastFetchAtMs == 0L || nowMs - lastFetchAtMs >= configTTL * 1000L
+
+    /** Cancel the pending TTL refresh. Called from `AppDNA.shutdown()`. */
+    fun shutdown() {
+        ttlJob = null
+        runCatching { ttlScope.cancel() }
+    }
     // Mutable so AppDNA.performBootstrap can supply the path returned by
     // /api/v1/sdk/bootstrap. Without this setter the manager forever falls
     // through to "No Firestore path available — serving cached config only"
@@ -341,6 +375,16 @@ internal class RemoteConfigManager(
             }
             // Reset so a subsequent forceRefresh() call doesn't double-fire.
             fetchExpectedTotal.set(0)
+
+            // SPEC-070-B PN row 7: mark the batch fetched and arm the TTL refresh, mirroring iOS
+            // (`RemoteConfigManager.swift:463`). Replacing the job means a forceRefresh() re-arms
+            // rather than stacking timers.
+            lastFetchAtMs = System.currentTimeMillis()
+            ttlJob?.let { runCatching { it.cancel() } }
+            ttlJob = ttlScope.launch {
+                delay(configTTL * 1000L)
+                if (isStale()) fetchConfigs()
+            }
         }
     }
 

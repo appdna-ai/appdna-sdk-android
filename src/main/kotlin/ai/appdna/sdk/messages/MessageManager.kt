@@ -365,9 +365,10 @@ class MessageManager internal constructor(
         when (action.type) {
             "deep_link", "open_url" -> {
                 val url = action.url ?: return
+                // SPEC-070-B PN row 18 (W11): config-driven URL — scheme-checked before the OS sees it.
+                val uri = ai.appdna.sdk.core.URLSafety.sanitized(url, activity) ?: return
                 try {
-                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
-                    activity.startActivity(intent)
+                    activity.startActivity(Intent(Intent.ACTION_VIEW, uri))
                 } catch (e: Throwable) {
                     Log.warning("[Messages] open URL failed: ${e.message}")
                 }
