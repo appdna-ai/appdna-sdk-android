@@ -71,6 +71,23 @@
         use `start` / `end` instead of `left` / `right` so layout flips
         correctly for Arabic / Hebrew locales when the system locale is RTL.
     -->
+    <!--
+        Backup exclusion.
+
+        The pending-event database is redirected into `noBackupFilesDir` by
+        `storage/EventDatabase.kt` (see NoBackupContext), so event payloads are
+        excluded from Google cloud backup and device-to-device transfer with no
+        host cooperation required.
+
+        `android:fullBackupContent` and `android:dataExtractionRules` are
+        APPLICATION-level attributes. A library that declares them fails the
+        manifest merger for every host that already declares its own, so we
+        deliberately do NOT set them here.
+
+        Hosts that also want the SDK's SharedPreferences excluded can merge
+        `res/xml/appdna_backup_rules.xml` (API ≤ 31) and
+        `res/xml/appdna_data_extraction_rules.xml` (API 31+) into their own rules.
+    -->
     <application
         android:supportsRtl="true"
         tools:node="merge">

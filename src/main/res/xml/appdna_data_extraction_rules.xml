@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (android:dataExtractionRules). Covers BOTH transports:
+      <cloud-backup>   — Google account backup
+      <device-transfer> — direct device-to-device transfer
+
+    Same exclusions as appdna_backup_rules.xml. Keep the two files in sync.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="database" path="appdna_events.db" />
+        <exclude domain="database" path="appdna_events.db-journal" />
+        <exclude domain="database" path="appdna_events.db-wal" />
+        <exclude domain="database" path="appdna_events.db-shm" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.xml" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.review.xml" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.survey_freq.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="database" path="appdna_events.db" />
+        <exclude domain="database" path="appdna_events.db-journal" />
+        <exclude domain="database" path="appdna_events.db-wal" />
+        <exclude domain="database" path="appdna_events.db-shm" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.xml" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.review.xml" />
+        <exclude domain="sharedpref" path="ai.appdna.sdk.survey_freq.xml" />
+    </device-transfer>
+</data-extraction-rules>

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 11 and below (android:fullBackupContent).
+
+    The AppDNA SDK's pending-event database and its SharedPreferences hold whatever
+    event properties, identity traits, and onboarding responses the host chose to
+    send. None of it should be copied into a Google backup. Exclude, never include.
+-->
+<full-backup-content>
+    <exclude domain="database" path="appdna_events.db" />
+    <exclude domain="database" path="appdna_events.db-journal" />
+    <exclude domain="database" path="appdna_events.db-wal" />
+    <exclude domain="database" path="appdna_events.db-shm" />
+    <exclude domain="sharedpref" path="ai.appdna.sdk.xml" />
+    <exclude domain="sharedpref" path="ai.appdna.sdk.review.xml" />
+    <exclude domain="sharedpref" path="ai.appdna.sdk.survey_freq.xml" />
+</full-backup-content>

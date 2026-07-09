@@ -2,15 +2,74 @@ package ai.appdna.sdk.storage
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.ContextWrapper
+import java.io.File
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import ai.appdna.sdk.Log
 import org.json.JSONObject
 
 /**
+ * Redirects the event database into `noBackupFilesDir`, the Android equivalent of
+ * iOS's `isExcludedFromBackup`.
+ *
+ * The pending-event table holds whatever properties and traits the host chose to
+ * send. The default `databases/` directory is copied into Google cloud backup and
+ * device-to-device transfer; `noBackupFilesDir` is not.
+ *
+ * A library cannot set `android:fullBackupContent` / `android:dataExtractionRules`
+ * itself — those are application-level attributes, and declaring them here would
+ * fail the manifest merger for every host that already declares its own. Redirecting
+ * the file is the only mechanism that works without host cooperation.
+ *
+ * Migrates any pre-existing database out of `databases/` exactly once, then leaves
+ * the old location empty. Idempotent and self-healing: a partial move is retried on
+ * the next launch, and a failed move simply leaves the SDK reading the old path.
+ */
+private class NoBackupContext(base: Context, dbName: String) : ContextWrapper(base) {
+
+    init {
+        migrateOutOfBackedUpStorage(base, dbName)
+    }
+
+    override fun getDatabasePath(name: String): File = File(noBackupFilesDir, name)
+
+    private companion object {
+        /** SQLite sidecars that must travel with the main file. */
+        private val SUFFIXES = listOf("", "-journal", "-wal", "-shm")
+
+        fun migrateOutOfBackedUpStorage(base: Context, dbName: String) {
+            try {
+                val dest = File(base.noBackupFilesDir, dbName)
+                if (dest.exists()) return // already migrated
+                val src = base.getDatabasePath(dbName)
+                if (!src.exists()) return // fresh install — nothing to move
+                base.noBackupFilesDir.mkdirs()
+                for (suffix in SUFFIXES) {
+                    val from = File(src.parentFile, dbName + suffix)
+                    if (!from.exists()) continue
+                    val to = File(base.noBackupFilesDir, dbName + suffix)
+                    if (!from.renameTo(to)) {
+                        from.copyTo(to, overwrite = true)
+                        from.delete()
+                    }
+                }
+                Log.info("Migrated event database out of backed-up storage")
+            } catch (e: Exception) {
+                // Never block SDK startup on the migration. Worst case the DB stays
+                // in databases/ and is backed up, exactly as before this change.
+                Log.warning("Event database backup-exclusion migration failed: ${e.message}")
+            }
+        }
+    }
+}
+
+/**
  * SPEC-067: SQLite-based event persistence replacing SharedPreferences.
  * Provides atomic row-level operations that survive process kills.
  * Enforces both event count cap (10K) and disk quota (5 MB).
+ *
+ * Stored in `noBackupFilesDir` — see [NoBackupContext].
  */
 internal class EventDatabase(
     context: Context,
@@ -18,7 +77,7 @@ internal class EventDatabase(
     // small cap with an isolated db. Production callers use the defaults.
     private val maxEvents: Int = MAX_EVENTS,
     dbName: String = DATABASE_NAME,
-) : SQLiteOpenHelper(context, dbName, null, DATABASE_VERSION) {
+) : SQLiteOpenHelper(NoBackupContext(context, dbName), dbName, null, DATABASE_VERSION) {
 
     init {
         // SPEC-428 CL-1/D2: wire the dropped-events counter to this app context.
