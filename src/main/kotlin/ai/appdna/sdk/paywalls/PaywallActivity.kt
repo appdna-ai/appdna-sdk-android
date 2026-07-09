@@ -3593,8 +3593,17 @@ private fun PaywallPromoInputSection(
                             updateState(if (isValid) "success" else "error")
                         }
                     } else {
-                        // No delegate configured — basic non-empty check fallback
-                        updateState(if (effectivePromoCode.isNotBlank()) "success" else "error")
+                        // No delegate configured — we cannot validate the code, so we
+                        // must NOT report success. The old "any non-empty string is
+                        // valid" fallback showed "Code applied!" for anything the user
+                        // typed, and then folded that unvalidated string into purchase
+                        // metadata as `promo_code` (see onCTATap). Rejecting matches
+                        // every delegate default on every platform.
+                        Log.warning(
+                            "Promo code submitted but no AppDNAPaywallDelegate is registered — " +
+                                "rejecting. Implement onPromoCodeSubmit to validate codes."
+                        )
+                        updateState("error")
                     }
                 },
                 enabled = effectivePromoState != "loading",
