@@ -278,6 +278,9 @@ dependencies {
     // SPEC-070-0 §3.4 — visual snapshot harness (JVM-only; no device required)
     testImplementation(libs.robolectric)
     testImplementation(libs.compose.ui.test.junit4)
+    // Supplies the ComponentActivity declaration that createComposeRule() launches. AGP merges
+    // testImplementation manifests into the unit-test manifest because isIncludeAndroidResources=true.
+    testImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.roborazzi)
     testImplementation(libs.roborazzi.compose)
     testImplementation(libs.roborazzi.junit.rule)

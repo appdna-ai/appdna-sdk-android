@@ -91,6 +91,7 @@ compose-ui-tooling-preview   = { module = "androidx.compose.ui:ui-tooling-previe
 compose-ui-tooling           = { module = "androidx.compose.ui:ui-tooling" }
 activity-compose             = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
 compose-ui-test-junit4       = { module = "androidx.compose.ui:ui-test-junit4" }
+compose-ui-test-manifest     = { module = "androidx.compose.ui:ui-test-manifest" }
 
 # Firebase
 firebase-firestore           = { module = "com.google.firebase:firebase-firestore", version.ref = "firebaseFirestore" }

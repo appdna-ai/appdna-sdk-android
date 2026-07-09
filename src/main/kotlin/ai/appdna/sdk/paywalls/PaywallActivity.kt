@@ -3531,8 +3531,10 @@ private fun PaywallComparisonTableSection(
 
 // MARK: - SPEC-089d: Promo input section (AC-037)
 
+// `internal` (not private) so PromoCodeFallbackTest can drive the no-delegate
+// branch directly. That branch used to accept any non-blank code.
 @Composable
-private fun PaywallPromoInputSection(
+internal fun PaywallPromoInputSection(
     section: PaywallSection,
     loc: (String, String) -> String,
     onPromoCodeSubmit: ((String, (Boolean) -> Unit) -> Unit)? = null,
