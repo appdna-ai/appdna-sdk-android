@@ -2,7 +2,7 @@
 // Source: src/lib/sdk-delegates/index.ts
 // Generator: scripts/sdk-codegen/emit-delegates.ts
 // Regenerate: pnpm sdk-codegen
-// Last codegen commit: f9e9991f374b737bd8194a252550db6051687a0f
+// Last codegen commit: 1c3e96ba915d0a409a9749fa9fe1818a0aff294f
 
 package ai.appdna.sdk.generated
 
@@ -28,7 +28,7 @@ interface AppDNAPaywallDelegate {
     fun onPaywallDismissed(paywallId: String) = Unit
 
     /** Validate a user-entered promo code. Return true to accept, false to reject. Routed via sync_callbacks; defaults to reject on no-delegate/timeout (SPEC-070-C §3.7). */
-    suspend fun onPromoCodeSubmit(paywallId: String, code: String): Boolean = true
+    suspend fun onPromoCodeSubmit(paywallId: String, code: String): Boolean = false
 
     /** Post-purchase: the SDK asks the host to open a deep-link URL. */
     fun onPostPurchaseDeepLink(paywallId: String, url: String) = Unit
