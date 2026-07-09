@@ -263,11 +263,18 @@ internal class EventQueue(
                         bumpFailureCounter()
                         return
                     }
-                    val baseMs = RETRY_DELAYS_MS[(attempt - 1).coerceAtMost(RETRY_DELAYS_MS.size - 1)]
-                    val jitterRange = (baseMs * JITTER_PCT).toLong()
-                    val jittered = baseMs + Random.nextLong(-jitterRange, jitterRange + 1)
-                    Log.debug("Flush failed (transient HTTP=${result.statusCode}), retrying in ${jittered}ms (attempt $attempt/$MAX_RETRIES)")
-                    delay(jittered.coerceAtLeast(0L))
+                    // A server-supplied Retry-After wins over our backoff schedule.
+                    // Otherwise: exponential base + ±25% jitter, so a fleet throttled
+                    // together does not retry in lockstep.
+                    val serverHintMs = result.retryAfterSeconds?.times(1000L)
+                    val delayMs = serverHintMs ?: run {
+                        val baseMs = RETRY_DELAYS_MS[(attempt - 1).coerceAtMost(RETRY_DELAYS_MS.size - 1)]
+                        val jitterRange = (baseMs * JITTER_PCT).toLong()
+                        baseMs + Random.nextLong(-jitterRange, jitterRange + 1)
+                    }
+                    val why = if (serverHintMs != null) "Retry-After" else "backoff"
+                    Log.debug("Flush failed (transient HTTP=${result.statusCode}), retrying in ${delayMs}ms via $why (attempt $attempt/$MAX_RETRIES)")
+                    delay(delayMs.coerceAtLeast(0L))
                 }
             }
         }

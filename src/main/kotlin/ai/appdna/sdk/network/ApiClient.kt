@@ -260,9 +260,13 @@ internal class ApiClient(
                             )
                             EventUploadResult.ClientError(code)
                         }
-                        code == 429 -> {
-                            Log.warning("Event upload rate-limited (429): retrying.")
-                            EventUploadResult.TransientFailure(code)
+                        // 429 rate-limited / 408 request-timeout are transient by
+                        // definition — never drop the batch. Honor Retry-After when sent.
+                        code == 429 || code == 408 -> {
+                            val retryAfter = parseRetryAfter(response.header("Retry-After"))
+                            val hint = retryAfter?.let { " Retry-After: ${it}s." } ?: ""
+                            Log.warning("Event upload throttled (HTTP $code):$hint retrying.")
+                            EventUploadResult.TransientFailure(code, retryAfter)
                         }
                         code in 400..499 -> {
                             val (errCode, errMsg) = decodeErrorBody(response)
@@ -274,7 +278,7 @@ internal class ApiClient(
                         }
                         code in 500..599 -> {
                             Log.warning("Event upload server error (HTTP $code): retrying.")
-                            EventUploadResult.TransientFailure(code)
+                            EventUploadResult.TransientFailure(code, parseRetryAfter(response.header("Retry-After")))
                         }
                         else -> {
                             Log.warning("Event upload unexpected status (HTTP $code): retrying.")
@@ -294,6 +298,28 @@ internal class ApiClient(
      * response. Returns (errorCode, message) when the body parses as JSON;
      * (null, null) otherwise. Always safe to call — never throws.
      */
+    /**
+     * Parses a `Retry-After` header. RFC 9110 permits either delta-seconds or an
+     * HTTP-date. Returns null for absent/unparseable/non-positive values, and caps
+     * the result so a hostile or mistaken header cannot park the queue.
+     *
+     * Mirrors iOS `APIClient.parseRetryAfter`.
+     */
+    internal fun parseRetryAfter(raw: String?): Long? {
+        val v = raw?.trim().orEmpty()
+        if (v.isEmpty()) return null
+        v.toLongOrNull()?.let { return if (it > 0) it.coerceAtMost(MAX_RETRY_AFTER_SECONDS) else null }
+        return try {
+            val fmt = java.text.SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", java.util.Locale.US)
+            fmt.timeZone = java.util.TimeZone.getTimeZone("GMT")
+            val date = fmt.parse(v) ?: return null
+            val delta = (date.time - System.currentTimeMillis()) / 1000
+            if (delta > 0) delta.coerceAtMost(MAX_RETRY_AFTER_SECONDS) else null
+        } catch (_: java.text.ParseException) {
+            null
+        }
+    }
+
     private fun decodeErrorBody(response: Response): Pair<String?, String?> {
         return try {
             val raw = response.peekBody(8 * 1024).string()
@@ -310,6 +336,9 @@ internal class ApiClient(
     // MARK: SPEC-067 — Deflate Compression (matches iOS COMPRESSION_ZLIB raw deflate, SPEC-070-A A.15)
 
     companion object {
+        /** Upper bound on an honored `Retry-After`, in seconds. Matches iOS. */
+        const val MAX_RETRY_AFTER_SECONDS = 120L
+
         /**
          * Compress data using raw deflate (no zlib header/checksum) to match the iOS
          * `compression_encode_buffer(... COMPRESSION_ZLIB)` byte stream exactly.
@@ -369,13 +398,19 @@ internal sealed class EventUploadResult {
     /** 2xx response — batch is delivered, drop from disk + memory. */
     object Success : EventUploadResult()
     /**
-     * 4xx response (excluding 429) — payload or auth is malformed.
+     * 4xx response (excluding 408 and 429) — payload or auth is malformed.
      * Retrying won't help; drop the batch immediately.
      */
     data class ClientError(val statusCode: Int) : EventUploadResult()
     /**
-     * 5xx, 429, or network error — server may recover.
+     * 5xx, 429, 408, or network error — server may recover.
      * Retry with exponential backoff up to maxRetries.
+     *
+     * [retryAfterSeconds] is a server-supplied `Retry-After` hint (already parsed
+     * and capped). When present it overrides the local backoff schedule.
      */
-    data class TransientFailure(val statusCode: Int?) : EventUploadResult()
+    data class TransientFailure(
+        val statusCode: Int?,
+        val retryAfterSeconds: Long? = null,
+    ) : EventUploadResult()
 }
