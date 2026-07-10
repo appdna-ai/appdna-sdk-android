@@ -1155,6 +1155,19 @@ object AppDNA {
     }
 
     /**
+     * SPEC-070-B PN row 16 (W12) — record that a host veto timed out and fell back to its default.
+     *
+     * The counter is `internal` to this module, and the only code that can observe a veto timing out
+     * lives in a wrapper — the SDK itself awaits a veto forever. So the counter shipped with a reader
+     * (`diagnose()`) and no writer, and `veto.timeouts_observed` read 0 no matter what. This is the
+     * writer.
+     */
+    @JvmStatic
+    fun recordVetoTimeout() {
+        ai.appdna.sdk.core.VetoTimeoutCounter.increment()
+    }
+
+    /**
      * SPEC-070-A I.11 — debug snapshot of the SDK's bootstrap state. Returns
      * a multi-line human-readable string covering: configured flag, env
      * (production / sandbox), api base url, identity (anon_id + user_id),
