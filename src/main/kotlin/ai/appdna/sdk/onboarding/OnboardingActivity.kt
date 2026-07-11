@@ -2555,6 +2555,11 @@ private fun emitAuthAction(
     toggleValues: Map<String, Boolean>,
     inputValues: Map<String, Any>,
     onNext: (Map<String, Any>?) -> Unit,
+    // Shows the same pill the required-field validation uses. Without it, an auth action with no host
+    // delegate stayed on the step and logged a warning the USER never sees — "Continue with email"
+    // was a dead button: tap, nothing, no error, forever. The log line is for the developer; the pill
+    // is for the person holding the phone. Both platforms now show it.
+    onError: (String) -> Unit = {},
     blocks: List<ContentBlock> = emptyList(),
     // SPEC-401-A R11 — context for the analytics fire on the no-delegate
     // gate. iOS handleStepCompleted (OnboardingRenderer.swift:444-446)
@@ -2602,6 +2607,7 @@ private fun emitAuthAction(
                 "implement onBeforeStepAdvance to handle authentication. Step will NOT " +
                 "advance to avoid silently leaking credentials into the responses payload."
             )
+            onError("Sign-in isn't available right now. Please try again later.")
             return
         }
     }
@@ -3238,7 +3244,9 @@ private fun BlockBasedStepView(
             "logout", "change_password", "set_new_password",
             "delete_account", "update_profile" -> {
                 emitAuthAction(
-                    rawAction, actionValue, toggleValues, inputValues, onNext, blocks,
+                    rawAction, actionValue, toggleValues, inputValues, onNext,
+                    onError = { msg -> validationMessage = msg },
+                    blocks = blocks,
                     flowId = flowId, stepId = stepId, stepIndex = currentStepIndex,
                 )
             }
