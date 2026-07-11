@@ -190,9 +190,15 @@ class BillingModule internal constructor() {
             field = value
             // Flush anything registered before billing existed. See `onEntitlementsChanged`.
             if (value != null) {
-                val pending = pendingEntitlementListeners.toList()
-                pendingEntitlementListeners.clear()
-                for (cb in pending) value.entitlementCache.addChangeListener(cb)
+                // CopyOnWriteArrayList, not a plain ArrayList: `onEntitlementsChanged` runs on the JS
+                // thread (a TurboModule body) while this flush runs on the bootstrap coroutine. With a
+                // plain list, an `add` interleaving between the snapshot and the clear would DISCARD
+                // the listener without attaching it — re-creating, intermittently, the exact
+                // dropped-listener bug this queue exists to fix. Remove-then-attach per element keeps
+                // the two operations atomic per listener.
+                for (cb in pendingEntitlementListeners) {
+                    if (pendingEntitlementListeners.remove(cb)) value.entitlementCache.addChangeListener(cb)
+                }
             }
         }
 
@@ -206,7 +212,8 @@ class BillingModule internal constructor() {
      * no entitlement change for the entire app session. iOS never had this: its handlers live in a
      * static dict that survives init order.
      */
-    private val pendingEntitlementListeners = mutableListOf<(List<Entitlement>) -> Unit>()
+    private val pendingEntitlementListeners =
+        java.util.concurrent.CopyOnWriteArrayList<(List<Entitlement>) -> Unit>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** Check if user has active subscription. */

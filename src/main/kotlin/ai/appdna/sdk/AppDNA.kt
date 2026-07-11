@@ -1544,6 +1544,15 @@ object AppDNA {
         webEntitlementManager?.addChangeListener(listener)
     }
 
+    /**
+     * Detach a listener registered with [onWebEntitlementChanged]. Removal is by reference identity —
+     * keep the lambda in a `val`. Without this a wrapper could not clean up on reload, and every
+     * reload left another live module attached to the singleton.
+     */
+    fun removeWebEntitlementListener(listener: (WebEntitlement?) -> Unit) {
+        webEntitlementManager?.removeChangeListener(listener)
+    }
+
     // MARK: - Public API: Deferred Deep Links (v0.3)
 
     /**

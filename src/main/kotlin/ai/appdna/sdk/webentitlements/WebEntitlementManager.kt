@@ -70,6 +70,21 @@ internal class WebEntitlementManager(
         changeListeners.add(listener)
     }
 
+    /**
+     * Remove a listener registered with [addChangeListener].
+     *
+     * 🔴 This did not exist, and the entitlement cache next door has always had one. A WRAPPER
+     * registers this listener at `configure()` and it captures the bridge-scoped module strongly — so
+     * with no way to detach it, every React Native reload leaked a module (and its
+     * ReactApplicationContext), and the stale ones stayed attached to the process-global singleton. A
+     * web purchase then fired the callback N times and called into a torn-down TurboModule emitter.
+     *
+     * Removal is by reference identity: pass the same lambda instance you registered.
+     */
+    fun removeChangeListener(listener: (WebEntitlement?) -> Unit) {
+        changeListeners.remove(listener)
+    }
+
     private fun loadCachedEntitlement() {
         val prefs = context?.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE) ?: return
         val json = prefs.getString("web_entitlement_cache", null) ?: return
