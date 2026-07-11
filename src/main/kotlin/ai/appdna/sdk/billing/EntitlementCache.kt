@@ -260,6 +260,16 @@ internal class EntitlementCache(
         notifyBillingDelegate()
     }
 
+    /**
+     * Test seam: fire the change listeners without a real purchase.
+     *
+     * `internal`, so it is invisible to hosts. The alternative was to leave the pre-init-listener
+     * regression untestable, and an untestable fix is a fix that comes back.
+     */
+    internal fun notifyChangeListenersForTesting(values: List<Entitlement>) {
+        for (listener in changeListeners) listener(values)
+    }
+
     private fun notifyListeners() {
         for (listener in changeListeners) {
             try {

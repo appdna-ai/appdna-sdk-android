@@ -186,6 +186,27 @@ class PushModule internal constructor() {
  */
 class BillingModule internal constructor() {
     internal var manager: NativeBillingManager? = null
+        set(value) {
+            field = value
+            // Flush anything registered before billing existed. See `onEntitlementsChanged`.
+            if (value != null) {
+                val pending = pendingEntitlementListeners.toList()
+                pendingEntitlementListeners.clear()
+                for (cb in pending) value.entitlementCache.addChangeListener(cb)
+            }
+        }
+
+    /**
+     * 🔴 Listeners registered BEFORE the billing manager exists.
+     *
+     * `manager` is only assigned inside `performBootstrap`, which is launched from `configure()` and
+     * completes after it returns. So the ordinary host sequence — `await configure(); onEntitlementsChanged(cb)`
+     * — hit `manager?` while it was still null and the callback was SILENTLY DROPPED. The React Native
+     * facade latches "observer started" after its first call and never retries, so that host received
+     * no entitlement change for the entire app session. iOS never had this: its handlers live in a
+     * static dict that survives init order.
+     */
+    private val pendingEntitlementListeners = mutableListOf<(List<Entitlement>) -> Unit>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** Check if user has active subscription. */
@@ -354,7 +375,13 @@ class BillingModule internal constructor() {
      * Register a callback for entitlement changes.
      */
     fun onEntitlementsChanged(callback: (List<Entitlement>) -> Unit) {
-        manager?.entitlementCache?.addChangeListener(callback)
+        val mgr = manager
+        if (mgr == null) {
+            // Queue rather than drop — see `pendingEntitlementListeners`.
+            pendingEntitlementListeners.add(callback)
+            return
+        }
+        mgr.entitlementCache.addChangeListener(callback)
     }
 
     /**
@@ -368,6 +395,9 @@ class BillingModule internal constructor() {
      * on every evaluation and will silently fail to remove anything.
      */
     fun removeEntitlementsChangedListener(callback: (List<Entitlement>) -> Unit) {
+        // Also drop it from the pre-init queue, or a listener removed before billing came up would be
+        // re-attached by the flush and fire after the host had already unsubscribed.
+        pendingEntitlementListeners.remove(callback)
         manager?.entitlementCache?.removeChangeListener(callback)
     }
 
