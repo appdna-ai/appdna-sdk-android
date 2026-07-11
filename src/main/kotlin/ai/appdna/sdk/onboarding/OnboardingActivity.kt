@@ -671,21 +671,6 @@ internal fun OnboardingFlowHost(
         }
     }
 
-    // SPEC-070-A A.21 — emit `flow_completed_via_fallback` whenever the flow
-    // ends because no next_step_rule matched on the last step (rule-failure
-    // bailout) instead of from a natural sequential end. Lets ETL distinguish
-    // fully-authored flows from misconfigured ones.
-    fun emitFallbackCompletion() {
-        eventTracker?.track(
-            FLOW_COMPLETED_VIA_FALLBACK_EVENT,
-            mapOf(
-                "flow_id" to flow.id,
-                "step_id" to (flow.steps.lastOrNull()?.id ?: ""),
-                "step_index" to (flow.steps.size - 1).coerceAtLeast(0),
-            ),
-        )
-    }
-
     // Helper functions
 
     // SPEC-401-A R56 (Lens B P1) — forward reference to `advanceOrComplete`
@@ -730,31 +715,26 @@ internal fun OnboardingFlowHost(
             } as? Map<*, *>
             (match?.get("data") as? Map<String, Any?>)
         }
-        // Resolve paywall id — mirrors iOS resolvePaywallFromTrigger.
-        // SPEC-401-A R63 (Lens B P2) — drop the third fallback
-        // `triggerNodeId.removePrefix("paywall_trigger_")` to match iOS
-        // OnboardingRenderer.swift:1123-1126 + :1195. iOS has only two
-        // sources (`paywall_id` / `paywallId`); when neither exists, the
-        // caller (`presentPaywallTrigger`) does `onFlowCompleted(...)`
-        // and returns. The third Android fallback derived a paywallId
-        // from the trigger NODE id itself — for modern editor IDs
-        // (`paywall1`, `paywall2`) the prefix-strip is a no-op and
-        // `AppDNA.presentPaywall("paywall1")` was called against a
-        // non-existent paywall, silently failing with no callback fired.
-        val paywallId = (triggerData?.get("paywall_id") as? String)?.takeIf { it.isNotBlank() }
-            ?: (triggerData?.get("paywallId") as? String)?.takeIf { it.isNotBlank() }
-        if (paywallId == null) {
-            Log.warning("Onboarding paywall_trigger node $triggerNodeId has no paywall_id; completing flow.")
-            @Suppress("UNCHECKED_CAST")
-            onFlowCompleted(responses.toMap() as Map<String, Any>)
-            return
+        // Resolve paywall id + the SPEC-401/403/404 skip gate. Both now live in the pure
+        // [PaywallTriggerResolver] so they can be exercised without an Activity, Play Billing
+        // or the event tracker; this closure only performs what the outcome describes.
+        val runtimeLocked = AppDNA.runtimeLock != null
+        val decision = PaywallTriggerResolver.decide(
+            triggerData = triggerData,
+            hasActiveSubscription = !runtimeLocked && AppDNA.billing.hasActiveSubscription(),
+            runtimeLocked = runtimeLocked,
+        )
+        val paywallId: String = when (decision) {
+            is PaywallTriggerResolver.PaywallTriggerOutcome.CompleteFlow -> {
+                Log.warning("Onboarding paywall_trigger node $triggerNodeId has no paywall_id; completing flow.")
+                @Suppress("UNCHECKED_CAST")
+                onFlowCompleted(responses.toMap() as Map<String, Any>)
+                return
+            }
+            is PaywallTriggerResolver.PaywallTriggerOutcome.Present -> decision.paywallId
+            is PaywallTriggerResolver.PaywallTriggerOutcome.Skip -> decision.paywallId
         }
         val onSuccessTarget = (triggerData?.get("on_success_target") as? String)?.takeIf { it.isNotBlank() }
-        // SPEC-403 — explicit skip-when-subscribed target. Empty / missing
-        // falls back to onSuccessTarget (preserving SPEC-401 1.0.61 flows
-        // that used on_success_target as a workaround) and then to the
-        // legacy "continue" edge follow inside routeOutcome below.
-        val onSubscribedSkipTarget = (triggerData?.get("on_subscribed_skip_target") as? String)?.takeIf { it.isNotBlank() }
         val onFailTarget = (triggerData?.get("on_fail_target") as? String)?.takeIf { it.isNotBlank() }
         val onDismissTarget = (triggerData?.get("on_dismiss_target") as? String)?.takeIf { it.isNotBlank() }
         val legacyDismiss = triggerData?.get("on_dismiss") as? String ?: "continue"
@@ -913,48 +893,20 @@ internal fun OnboardingFlowHost(
             else -> "continue"
         }
 
-        // SPEC-401 Fix 1A — entitlement-aware skip gate.
-        // Default `true` matches the new SDK contract: paywalls auto-skip
-        // for already-subscribed users unless the author explicitly opts
-        // out (upsell paywalls). Older flows that never authored the field
-        // resolve to null → defaults to true here. `hasActiveSubscription()`
-        // is synchronous on Android (reads from `EntitlementCache`); cold
-        // start with empty cache returns false, so the paywall presents
-        // (acceptable defensive fallback per spec edge cases).
-        // SPEC-404 — runtime lock skip. When the backend has signalled the
-        // SDK is in locked mode (per-key suspended day 20+ OR org cancelled),
-        // every paywall_trigger auto-skips via the SPEC-403 resolver chain.
-        // Reuses the same routing so existing flow targets keep working.
-        // Tracker fires with reason='sdk_runtime_locked' so analytics can
-        // distinguish this from organic subscribed-skips.
-        if (AppDNA.runtimeLock != null) {
+        // SPEC-401 Fix 1A (already-subscribed) + SPEC-404 (runtime lock) skip gates. The decision
+        // was taken above by [PaywallTriggerResolver]; both branches auto-skip via the SPEC-403
+        // resolver chain (on_subscribed_skip_target → on_success_target → legacy "continue" edge)
+        // and are told apart in analytics by `reason`.
+        if (decision is PaywallTriggerResolver.PaywallTriggerOutcome.Skip) {
             eventTracker?.track(
                 "onboarding_paywall_skip",
                 mapOf(
                     "flow_id" to flow.id,
                     "paywall_id" to paywallId,
-                    "reason" to "sdk_runtime_locked",
+                    "reason" to decision.reason,
                 ),
             )
-            routeOutcome(onSubscribedSkipTarget ?: onSuccessTarget, "continue", "sdk_runtime_locked")
-            return
-        }
-
-        val skipIfSubscribed = (triggerData?.get("skip_if_subscribed") as? Boolean) ?: true
-        if (skipIfSubscribed && AppDNA.billing.hasActiveSubscription()) {
-            eventTracker?.track(
-                "onboarding_paywall_skip",
-                mapOf(
-                    "flow_id" to flow.id,
-                    "paywall_id" to paywallId,
-                    "reason" to "user_already_subscribed",
-                ),
-            )
-            // SPEC-403 resolver chain — on_subscribed_skip_target wins,
-            // falls back to on_success_target (back-compat with SPEC-401
-            // 1.0.61 workaround flows), then to "continue" (legacy edge).
-            // Mirrors iOS OnboardingRenderer.presentPaywallTrigger.
-            routeOutcome(onSubscribedSkipTarget ?: onSuccessTarget, "continue", "user_already_subscribed")
+            routeOutcome(decision.target, decision.defaultBehavior, decision.reason)
             return
         }
 
@@ -996,179 +948,52 @@ internal fun OnboardingFlowHost(
         }
     }
 
-    fun advanceOrComplete() {
-        // SPEC-070-A J.2 — fire `on_step_advance` haptic before evaluating
-        // next-step rules (mirrors iOS HapticController invocation in
-        // OnboardingRenderer.advanceStep()).
-        HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
-        // SPEC-070-A finalization P0 audit-7 — push the step we're
-        // leaving onto navigationHistory before any branch mutates
-        // currentIndex below. Mirrors iOS `navigationHistory.append(...)`
-        // at every `navigate(to:)` call site. We push BEFORE the rules
-        // branch decides where to go because every routing path
-        // (target step, paywall_trigger, end, advance, skip) advances
-        // away from the current step. Back navigation (handleAction
-        // "back") POPs instead and is handled at its own call site.
-        flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
-        val step = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
-        // SPEC-070-A audit Round 2-restart attempt 2 F1: prefer the
-        // layout-level `step.config.next_step_rules` (Logic-panel-authored)
-        // when it carries richer `conditions[]` than the step-level rules.
-        // Mirrors iOS OnboardingRenderer.swift:761-766.
-        val stepRules = step?.next_step_rules
-        val layoutRules = step?.config?.next_step_rules
-        val hasLayoutConditions = layoutRules?.any { !it.conditions.isNullOrEmpty() } == true
-        val hasStepConditions = stepRules?.any { !it.conditions.isNullOrEmpty() } == true
-        val rules = when {
-            hasLayoutConditions && !hasStepConditions -> layoutRules
-            !stepRules.isNullOrEmpty() -> stepRules
-            else -> layoutRules
+    // SPEC-070-B — the advance/skip/merge/hook-result logic moved verbatim into the pure
+    // [OnboardingAdvance] state machine (it was unreachable from any test while it lived in
+    // these closures). This is the only place that turns its description of what should happen
+    // into the Compose-scoped side effects: haptic, history push, analytics, navigation.
+    fun applyOutcome(outcome: OnboardingAdvance.AdvanceOutcome) {
+        // SPEC-070-A J.2 — `on_step_advance` haptic fires before any analytics or navigation,
+        // and only on a natural advance (mirrors iOS HapticController in advanceStep()).
+        if (outcome.hapticOnAdvance) {
+            HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_step_advance, hapticConfig)
         }
-        val isLastStep = currentIndex >= flow.steps.size - 1
-        if (step != null && !rules.isNullOrEmpty()) {
-            // SPEC-070-A A.21: evaluate `condition` / `conditions[]` per iOS
-            // `OnboardingRenderer.swift:851-924`. First matching rule wins;
-            // unmatched rules fall through.
-            for (rule in rules) {
-                val matches = NextStepRuleEvaluator.evaluateRule(
-                    rule = rule,
-                    stepId = step.id,
-                    responses = responses.toMap(),
-                    step = step,
-                    // SPEC-070-A finalization P0 audit-7 — mirror iOS
-                    // OnboardingRenderer.swift `previousStepId` source.
-                    // SPEC-401-A R50 (Lens B P0) — read the step BEFORE
-                    // the just-pushed current step. Line 769 pushed the
-                    // step we're leaving (`step.id`) onto navigationHistory
-                    // before this loop runs, so `.last()` would return the
-                    // CURRENT step, inverting `previous_step_equals` rule
-                    // semantics. iOS pushes inside `navigate(to:)` AFTER
-                    // rule classification (OnboardingRenderer.swift:841-848),
-                    // so iOS `navigationHistory.last` is correctly the
-                    // entry-prior step. We read `size - 2` to recover the
-                    // same value without restructuring the call sites.
-                    previousStepId = navigationHistory.elementAtOrNull(navigationHistory.size - 2),
-                )
-                if (!matches) continue
+        navigationHistory.addAll(outcome.historyPush)
+        if (outcome.responses != responses) {
+            responses.clear()
+            responses.putAll(outcome.responses)
+        }
+        // SPEC-088: Persist computed data for cross-module access.
+        outcome.computedData?.let { ai.appdna.sdk.core.SessionDataStore.instance?.mergeComputedData(it) }
+        outcome.events.forEach { eventTracker?.track(it.name, it.props) }
+        when (val banner = outcome.banner) {
+            is OnboardingAdvance.Banner.Error -> {
+                errorMessage = banner.message
+                showError = true
+            }
+            is OnboardingAdvance.Banner.Success -> {
+                successMessage = banner.message
+                showSuccess = true
+            }
+            null -> Unit
+        }
+        when (val nav = outcome.navigation) {
+            is OnboardingAdvance.Navigation.GoToIndex -> currentIndex = nav.index
+            is OnboardingAdvance.Navigation.CompleteFlow -> onFlowCompleted(nav.responses)
+            is OnboardingAdvance.Navigation.PresentPaywallTrigger -> presentPaywallTriggerNode(nav.nodeId)
+            is OnboardingAdvance.Navigation.Stay -> Unit
+        }
+    }
 
-                // SPEC-070-A finalization Phase D — short-id analytics_event
-                // upgrade. Console emits e.g. `analytics2` (no legacy prefix);
-                // graph_nodes[target].type == "analytics_event" tells us to
-                // re-classify from RuleTarget.Step → RuleTarget.AnalyticsEvent.
-                @Suppress("UNCHECKED_CAST")
-                val rawClassified = classifyRuleTarget(rule.target_step_id)
-                // SPEC-401-A R10 — also upgrade short-id paywall_trigger /
-                // end graph nodes (`paywall1` / `end1`) at the entry-point
-                // classification, mirroring iOS dual prefix-or-nodeType
-                // detection at OnboardingRenderer.swift:808,814. Without
-                // this the editor's short-id targets fell into
-                // `RuleTarget.Step` and silently no-oped.
-                when (val classified = upgradeToShortIdRuleTarget(rawClassified, flow.graph_nodes as? Map<String, Any?>)) {
-                    is RuleTarget.Empty -> continue
-                    is RuleTarget.PaywallTrigger -> {
-                        presentPaywallTriggerNode(classified.rawTarget)
-                        return
-                    }
-                    is RuleTarget.EndFlow -> {
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(responses.toMap() as Map<String, Any>)
-                        return
-                    }
-                    is RuleTarget.Permission -> {
-                        // Mirror iOS auto-route: surface the permission name in the
-                        // completion payload so the host (or paywall bridge) can
-                        // request it. Marker sentinel matches `__paywall_trigger`.
-                        val merged = responses.toMutableMap()
-                        merged["__permission_request"] = classified.name
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(merged.toMap() as Map<String, Any>)
-                        return
-                    }
-                    is RuleTarget.Screen -> {
-                        val merged = responses.toMutableMap()
-                        merged["__screen_present"] = classified.screenId
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(merged.toMap() as Map<String, Any>)
-                        return
-                    }
-                    is RuleTarget.SubFlow -> {
-                        val merged = responses.toMutableMap()
-                        merged["__sub_flow"] = classified.flowId
-                        @Suppress("UNCHECKED_CAST")
-                        onFlowCompleted(merged.toMap() as Map<String, Any>)
-                        return
-                    }
-                    is RuleTarget.Step -> {
-                        val targetIndex = flow.steps.indexOfFirst { it.id == classified.stepId }
-                        if (targetIndex >= 0) {
-                            currentIndex = targetIndex
-                            return
-                        }
-                    }
-                    is RuleTarget.AnalyticsEvent -> {
-                        // SPEC-070-A finalization Phase D — analytics_event
-                        // graph node. Mirrors iOS OnboardingRenderer.swift:
-                        // 789-801 exactly:
-                        //   1. Resolve event_name from
-                        //      `flow.graph_nodes[nodeId].event_name`,
-                        //      default to literal "onboarding_analytics".
-                        //   2. Fire eventTracker.track(eventName, payload)
-                        //      with payload {flow_id, node_id, step_id}.
-                        //      `node_id` (NOT `step_index`) is the
-                        //      load-bearing key for ETL grouping.
-                        //   3. If `nodeData.next_target` is set, follow
-                        //      it (recursively classify; supports chained
-                        //      analytics → step / analytics → analytics).
-                        //   4. Otherwise fall through to natural advance
-                        //      via `continue`.
-                        @Suppress("UNCHECKED_CAST")
-                        val nodeData = (flow.graph_nodes?.get(classified.nodeId) as? Map<String, Any?>)
-                        val eventName = (nodeData?.get("event_name") as? String) ?: "onboarding_analytics"
-                        eventTracker?.track(
-                            eventName,
-                            mapOf(
-                                "flow_id" to flow.id,
-                                "node_id" to classified.nodeId,
-                                "step_id" to step.id,
-                            ),
-                        )
-                        val nextTarget = nodeData?.get("next_target") as? String
-                        if (!nextTarget.isNullOrBlank()) {
-                            val tIdx = flow.steps.indexOfFirst { it.id == nextTarget }
-                            if (tIdx >= 0) {
-                                // SPEC-401-A R3 — DO NOT push history here.
-                                // advanceOrComplete already pushed the
-                                // leaving step at line 711 before reaching
-                                // this analytics_event branch. Pushing again
-                                // caused double-pop on back-nav.
-                                currentIndex = tIdx
-                                return
-                            }
-                        }
-                        // No next_target — continue rule loop; eventually
-                        // falls through to natural advancement.
-                        continue
-                    }
-                    is RuleTarget.Unknown -> continue
-                }
-            }
-            // No rule matched. If we're on the last step this is a
-            // rule-failure-bailout, not a natural end — emit the
-            // distinguishing event so ETL can tell them apart.
-            if (isLastStep) {
-                emitFallbackCompletion()
-                @Suppress("UNCHECKED_CAST")
-                onFlowCompleted(responses.toMap() as Map<String, Any>)
-                return
-            }
-        }
-        // Fallback: sequential advance.
-        if (currentIndex + 1 >= flow.steps.size) {
-            @Suppress("UNCHECKED_CAST")
-            onFlowCompleted(responses.toMap() as Map<String, Any>)
-        } else {
-            currentIndex++
-        }
+    fun advanceOrComplete() {
+        applyOutcome(
+            OnboardingAdvance.advance(
+                flow = flow,
+                currentIndex = currentIndex,
+                responses = responses.toMap(),
+                navigationHistory = navigationHistory.toList(),
+            )
+        )
     }
 
     // SPEC-401-A R56 (Lens B P1) — bind the forward-ref now that
@@ -1176,75 +1001,19 @@ internal fun OnboardingFlowHost(
     // .routeOutcome` unknown-target fallback above.
     advanceOrCompleteRef = { advanceOrComplete() }
 
-    fun skipToStep(targetStepId: String) {
-        val targetIndex = flow.steps.indexOfFirst { it.id == targetStepId }
-        if (targetIndex >= 0) {
-            // SPEC-070-A finalization P0 audit-8 D1 — push the leaving
-            // step before skip-target navigation so the destination's
-            // previous_step_* rules see the correct prevId. Mirrors
-            // iOS navigate(to:appendHistory:) which is called from
-            // every navigation site, including hook-driven SkipTo.
-            flow.steps.getOrNull(currentIndex)?.id?.let { navigationHistory.add(it) }
-            currentIndex = targetIndex
-        } else {
-            advanceOrComplete()
-        }
-    }
-
-    fun mergeData(extraData: Map<String, Any>, stepId: String) {
-        val existing = responses[stepId]
-        if (existing is Map<*, *>) {
-            @Suppress("UNCHECKED_CAST")
-            val merged = (existing as Map<String, Any>).toMutableMap()
-            merged.putAll(extraData)
-            responses[stepId] = merged
-        } else {
-            responses[stepId] = extraData
-        }
-    }
-
-    fun applyOverrides(config: StepConfig, stepId: String): StepConfig {
-        val override = configOverrides[stepId] ?: return config
-        return config.copy(
-            title = override.title ?: config.title,
-            subtitle = override.subtitle ?: config.subtitle,
-            cta_text = override.ctaText ?: config.cta_text,
-            field_defaults = override.fieldDefaults ?: config.field_defaults
+    fun handleHookResult(result: StepAdvanceResult, step: OnboardingStep) {
+        applyOutcome(
+            OnboardingAdvance.apply(
+                flow = flow,
+                currentIndex = currentIndex,
+                responses = responses.toMap(),
+                result = result,
+                navigationHistory = navigationHistory.toList(),
+                step = step,
+            )
         )
     }
 
-    fun handleHookResult(result: StepAdvanceResult, step: OnboardingStep) {
-        when (result) {
-            is StepAdvanceResult.Proceed -> advanceOrComplete()
-            is StepAdvanceResult.ProceedWithData -> {
-                mergeData(result.data, step.id)
-                // SPEC-088: Persist computed data for cross-module access
-                ai.appdna.sdk.core.SessionDataStore.instance?.mergeComputedData(result.data)
-                advanceOrComplete()
-            }
-            is StepAdvanceResult.Block -> {
-                errorMessage = result.message
-                showError = true
-            }
-            is StepAdvanceResult.SkipTo -> {
-                result.data?.let { data ->
-                    mergeData(data, step.id)
-                    // SPEC-088: Persist computed data for cross-module access
-                    ai.appdna.sdk.core.SessionDataStore.instance?.mergeComputedData(data)
-                }
-                skipToStep(result.stepId)
-            }
-            // SPEC-070-A C.8 — Stay branch. Renders SuccessBanner if message
-            // present, otherwise stays silent so host can drive its own UI.
-            is StepAdvanceResult.Stay -> {
-                if (!result.message.isNullOrEmpty()) {
-                    successMessage = result.message
-                    showSuccess = true
-                }
-                // else: host handled UI — stay silently.
-            }
-        }
-    }
 
     fun resultName(result: StepAdvanceResult): String = when (result) {
         is StepAdvanceResult.Proceed -> "proceed"
@@ -1668,7 +1437,9 @@ internal fun OnboardingFlowHost(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 ) { stepIdx ->
                 val step = flow.steps[stepIdx]
-                val effectiveConfig = applyOverrides(step.config, step.id)
+                val effectiveConfig = configOverrides[step.id]
+                    ?.let { step.config.applyingOverride(it) }
+                    ?: step.config
 
                 OnboardingStepView(
                     step = step,
@@ -2084,7 +1855,7 @@ private suspend fun executeWebhook(
 }
 
 @Suppress("UNCHECKED_CAST")
-private fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfig): StepAdvanceResult {
+internal fun parseWebhookResponse(responseBody: String, hookConfig: StepHookConfig): StepAdvanceResult {
     return try {
         val json = JSONObject(responseBody)
         val action = json.optString("action", "proceed")
@@ -2549,7 +2320,7 @@ internal object OtpChannelResolver {
     }
 }
 
-private fun emitAuthAction(
+internal fun emitAuthAction(
     action: String,
     actionValue: String?,
     toggleValues: Map<String, Boolean>,

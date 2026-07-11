@@ -3205,12 +3205,7 @@ private fun SocialLoginBlock(
             // widening callback to (String, String?) to keep ContentBlockRenderer
             // call sites stable). Documented here so 070-B/C wrappers mirror.
             val socialClick: () -> Unit = {
-                if (provider.type == "email") {
-                    onAction("email_login:email")
-                    onAction("social_login:email") // deprecated; remove in v1.1.0
-                } else {
-                    onAction("social_login:${provider.type}")
-                }
+                socialProviderActions(provider.type).forEach(onAction)
             }
             // SPEC-070-A finalization OB-2 audit follow-up — apply per-provider
             // colors + provider-level corner/border-width across ALL three

@@ -572,6 +572,20 @@ interface AppDNAPaywallDelegate {
     // SPEC-070-A finalization §3.2 — widen `error` to `Throwable` (mirrors
     // onPaywallRestoreFailed widening + iOS `error: Error` parity).
     fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {}
+
+    /**
+     * SPEC-070-B — same failure, plus a stable machine-readable discriminator
+     * (`userCancelled` / `productNotFound` / `verificationFailed` / `networkError` /
+     * `serverError` / `pending` / `providerNotAvailable` / `unknown`).
+     *
+     * WHY: a `Throwable` does not survive a Flutter/RN bridge, so wrappers (and hosts that
+     * don't want to `when` over a sealed class) had no way to distinguish a user cancel from a
+     * declined card. Defaulted to the 2-arg overload so every existing conformer keeps working
+     * unchanged — the SDK calls THIS one; hosts that only override the 2-arg still receive it.
+     */
+    fun onPaywallPurchaseFailed(paywallId: String, error: Throwable, errorType: String) {
+        onPaywallPurchaseFailed(paywallId, error)
+    }
     fun onPaywallDismissed(paywallId: String) {}
     // AC-037: Validate a promo code entered by the user. Call the completion handler with `true` if valid, `false` otherwise.
     fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) { completion(false) }

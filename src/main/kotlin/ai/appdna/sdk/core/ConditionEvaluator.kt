@@ -56,6 +56,9 @@ internal object ConditionEvaluator {
         return current
     }
 
+    /** Numeric coercion shared with [AudienceRuleEvaluator]'s `between` bounds. */
+    fun toDoubleOrNull(value: Any?): Double? = toDouble(value)
+
     private fun toDouble(value: Any?): Double? {
         return when (value) {
             is Double -> value

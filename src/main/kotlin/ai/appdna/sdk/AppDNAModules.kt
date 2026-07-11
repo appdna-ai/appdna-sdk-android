@@ -37,7 +37,15 @@ data class PushPayload(
     val body: String,
     val imageUrl: String? = null,
     val data: Map<String, Any>? = null,
-    val action: PushAction? = null
+    val action: PushAction? = null,
+    /**
+     * SPEC-070-B — every action button registered on this notification, in tray order.
+     *
+     * `action` above is only the notification's single primary action, so a push carrying three
+     * buttons reached the host delegate looking identical to one carrying none. Hosts (and the
+     * Flutter/RN wrappers) can now see the buttons the SDK actually registered.
+     */
+    val actions: List<PushActionButton> = emptyList()
 )
 
 /**
@@ -46,6 +54,21 @@ data class PushPayload(
 data class PushAction(
     val type: String,
     val value: String
+)
+
+/**
+ * One action button attached to a push notification.
+ *
+ * [type] / [value] carry the same semantics as [PushAction] (e.g. `deep_link` + a URL,
+ * `show_screen` + a screen id, `dismiss` + nothing); [id] is echoed back as the `action_id` extra
+ * when the user taps the button.
+ */
+data class PushActionButton(
+    val id: String,
+    val label: String,
+    val type: String,
+    val value: String? = null,
+    val icon: String? = null
 )
 
 /**

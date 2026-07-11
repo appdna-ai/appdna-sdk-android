@@ -2,15 +2,27 @@ package ai.appdna.sdk.core
 
 data class AudienceRule(
     val trait: String,
-    val operator: String,  // "equals", "not_equals", "gt", "lt", "contains", "exists"
+    // "equals", "not_equals", "gt", "lt", "contains", "exists", "in", "not_in", "between"
+    val operator: String,
     val value: Any? = null,
+    // `between` bounds. Authored as sibling `min` / `max` keys rather than inside `value`.
+    val min: Any? = null,
+    val max: Any? = null,
 ) {
     companion object {
         fun fromMap(data: Map<String, Any?>): AudienceRule {
             return AudienceRule(
-                trait = data["trait"] as? String ?: "",
+                // The console writes `field`; older payloads (and the iOS models) write `trait`.
+                // Reading only one of them produced a rule on trait "" that matched nothing —
+                // or, for `between`, matched everything (see the vacuous-pass note below).
+                trait = (data["trait"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: (data["field"] as? String)
+                    ?: "",
                 operator = data["operator"] as? String ?: "equals",
-                value = data["value"],
+                // `in` / `not_in` rules are authored with a `values` array; `equals` uses `value`.
+                value = data["value"] ?: data["values"],
+                min = data["min"],
+                max = data["max"],
             )
         }
 
@@ -29,11 +41,33 @@ data class AudienceRuleSet(
         @Suppress("UNCHECKED_CAST")
         fun fromMap(data: Map<String, Any?>?): AudienceRuleSet? {
             if (data == null) return null
+            // `rules` is the console's key for the same array the SDK models call `conditions`.
+            val raw = (data["conditions"] ?: data["rules"]) as? List<Map<String, Any?>>
             return AudienceRuleSet(
                 priority = (data["priority"] as? Number)?.toInt() ?: 0,
-                conditions = (data["conditions"] as? List<Map<String, Any?>>)?.map { AudienceRule.fromMap(it) } ?: emptyList(),
+                conditions = raw?.map { AudienceRule.fromMap(it) } ?: emptyList(),
                 matchMode = data["match_mode"] as? String ?: "all",
             )
+        }
+
+        /**
+         * Parse an `audience_rules` payload in EITHER shape the console/backend emits:
+         *   - `{ priority, conditions | rules: [...], match_mode }` — a rule set, or
+         *   - `[ {trait, operator, value}, ... ]` — a bare rule list (AND across rules).
+         *
+         * WHY: consumers that only cast to `Map` read the list shape as "no rules", which for a
+         * paywall means "matches everybody" at priority 0 — targeting silently disabled.
+         * Returns `null` only when there is genuinely nothing to evaluate.
+         */
+        @Suppress("UNCHECKED_CAST")
+        fun fromAny(rules: Any?): AudienceRuleSet? = when (rules) {
+            is Map<*, *> -> fromMap(rules as Map<String, Any?>)
+            is List<*> -> AudienceRuleSet(
+                priority = 0,
+                conditions = rules.mapNotNull { (it as? Map<String, Any?>)?.let(AudienceRule::fromMap) },
+                matchMode = "all",
+            )
+            else -> null
         }
     }
 }
@@ -73,15 +107,36 @@ internal object AudienceRuleEvaluator {
                 }
             }
             "exists" -> traitValue != null
+            // `in` / `not_in` compared raw `Any?` values, so an Int trait `1` never matched the
+            // string values `["1", "2"]` the console writes for a numeric field. Route through
+            // ConditionEvaluator so numbers and their string spellings coerce like everywhere else.
             "in" -> {
-                val arr = rule.value as? List<*>
-                arr != null && arr.contains(traitValue?.toString())
+                if (traitValue == null) return false
+                val arr = rule.value as? List<*> ?: return false
+                arr.any { ConditionEvaluator.valuesEqual(traitValue, it) }
             }
             "not_in" -> {
-                val arr = rule.value as? List<*>
-                arr == null || !arr.contains(traitValue?.toString())
+                val arr = rule.value as? List<*> ?: return true
+                arr.none { ConditionEvaluator.valuesEqual(traitValue, it) }
+            }
+            // `between` was never implemented, so it fell to the `else -> true` catch-all below
+            // and passed VACUOUSLY — every user matched an audience that was meant to be bounded.
+            // Inclusive on both ends; a non-numeric trait or a missing bound fails closed.
+            "between" -> {
+                val v = ConditionEvaluator.toDoubleOrNull(traitValue) ?: return false
+                val (rawMin, rawMax) = betweenBounds(rule)
+                val lo = ConditionEvaluator.toDoubleOrNull(rawMin) ?: return false
+                val hi = ConditionEvaluator.toDoubleOrNull(rawMax) ?: return false
+                v >= lo && v <= hi
             }
             else -> true
         }
+    }
+
+    /** `between` bounds arrive as sibling `min`/`max` keys, or as a two-element `value` list. */
+    private fun betweenBounds(rule: AudienceRule): Pair<Any?, Any?> {
+        val list = rule.value as? List<*>
+        if (list != null && list.size >= 2) return list[0] to list[1]
+        return rule.min to rule.max
     }
 }

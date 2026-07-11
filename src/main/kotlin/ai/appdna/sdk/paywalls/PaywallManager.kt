@@ -16,6 +16,73 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
+ * SPEC-070-A I.13 selection algorithm, lifted out of [PaywallManager.presentByPlacement] so it can
+ * be exercised without an Activity or a RemoteConfigManager.
+ *
+ * Fix (SPEC-070-B): `audience_rules` was cast to `Map` only. The console also writes the LIST
+ * shape (`[{trait, operator, value}, ...]`) — for those paywalls the cast produced `null`, which
+ * this code read as "no targeting" (matches EVERY user) and as priority 0 (so ordering between
+ * candidates was arbitrary/insertion-ordered). [AudienceRuleSet.fromAny] accepts both shapes,
+ * which is what OnboardingFlowManager already did.
+ */
+internal fun selectPaywallForPlacement(
+    all: Collection<PaywallConfig>,
+    placement: String,
+    traits: Map<String, Any>,
+): PaywallConfig? {
+    // Filter by placement, then sort by audience_rules.priority desc.
+    val candidates = all
+        .filter { it.placement == placement }
+        .sortedByDescending { pw ->
+            ai.appdna.sdk.core.AudienceRuleSet.fromAny(pw.audience_rules)?.priority ?: 0
+        }
+
+    // First candidate whose rules evaluate true wins. No rules == match (fallback paywall).
+    return candidates.firstOrNull { pw ->
+        val rules = pw.audience_rules ?: return@firstOrNull true
+        try {
+            val ruleSet = ai.appdna.sdk.core.AudienceRuleSet.fromAny(rules)
+                ?: return@firstOrNull true
+            ai.appdna.sdk.core.AudienceRuleEvaluator.evaluate(ruleSet, traits)
+        } catch (_: Throwable) {
+            true
+        }
+    }
+}
+
+/** What a SUCCESSFUL restore must produce: analytics, the delegate payload, and the dismiss call. */
+internal data class RestoreOutcome(
+    val events: List<Pair<String, Map<String, Any>>>,
+    /** Fire `AppDNAPaywallDelegate.onPaywallRestoreCompleted(paywallId, this)`. */
+    val restoredProductIds: List<String>,
+    /** Auto-dismiss the live paywall (SPEC-401 Fix 1C). */
+    val shouldDismiss: Boolean,
+)
+
+/**
+ * The restore success mapping, lifted out of [PaywallManager.handleRestore] so the events + the
+ * dismiss decision are assertable without a Play `BillingClient`.
+ *
+ * An EMPTY restore ("the call worked, but you own nothing") deliberately leaves the paywall up so
+ * the user can still buy; a host that wants to drive dismissal itself sets
+ * `skipNextAutoDismissOnRestore` inside its delegate body ([hostRequestedSkip]).
+ */
+internal fun restoreOutcome(
+    paywallId: String,
+    productIds: List<String>,
+    hostRequestedSkip: Boolean,
+): RestoreOutcome = RestoreOutcome(
+    events = listOf(
+        "purchase_restored" to mapOf(
+            "paywall_id" to paywallId,
+            "restored_count" to productIds.size,
+        ),
+    ),
+    restoredProductIds = productIds,
+    shouldDismiss = productIds.isNotEmpty() && !hostRequestedSkip,
+)
+
+/**
  * Manages paywall presentation, purchase flow, restore flow, and event tracking (Android).
  * Mirrors iOS [Paywalls/PaywallManager.swift].
  *
@@ -58,38 +125,11 @@ internal class PaywallManager(
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null,
     ) {
-        val all = remoteConfigManager.getAllPaywalls()
-        val userTraits = AppDNA.getUserTraits()
-
-        // Filter by placement, then sort by audience_rules.priority desc
-        val candidates = all.values
-            .filter { it.placement == placement }
-            .sortedByDescending { pw ->
-                val rules = pw.audience_rules
-                @Suppress("UNCHECKED_CAST")
-                val priority = (rules as? Map<String, Any?>)?.get("priority") as? Number
-                priority?.toInt() ?: 0
-            }
-
-        // First candidate that matches audience rules wins. Iterate the
-        // raw map/list payload and short-circuit when rules evaluate false.
-        val match = candidates.firstOrNull { pw ->
-            val rules = pw.audience_rules ?: return@firstOrNull true
-            try {
-                @Suppress("UNCHECKED_CAST")
-                val ruleSet = (rules as? Map<String, Any?>)?.let {
-                    ai.appdna.sdk.core.AudienceRuleSet.fromMap(it)
-                }
-                if (ruleSet == null) {
-                    true
-                } else {
-                    ai.appdna.sdk.core.AudienceRuleEvaluator.evaluate(ruleSet, userTraits)
-                }
-            } catch (_: Throwable) {
-                true
-            }
-        }
-
+        val match = selectPaywallForPlacement(
+            all = remoteConfigManager.getAllPaywalls().values.toList(),
+            placement = placement,
+            traits = AppDNA.getUserTraits(),
+        )
         if (match == null) {
             Log.warning("No paywall found for placement: $placement")
             return
@@ -301,7 +341,11 @@ internal class PaywallManager(
                         "product_id" to plan.product_id,
                     ),
                 )
-                listener?.onPaywallPurchaseFailed(paywallId = paywallId, error = e)
+                listener?.onPaywallPurchaseFailed(
+                    paywallId = paywallId,
+                    error = e,
+                    errorType = ai.appdna.sdk.billing.billingErrorType(e),
+                )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,
                     paywallId = paywallId,
@@ -315,23 +359,37 @@ internal class PaywallManager(
                         "product_id" to plan.product_id,
                     ),
                 )
-                listener?.onPaywallPurchaseFailed(paywallId = paywallId, error = e)
+                listener?.onPaywallPurchaseFailed(
+                    paywallId = paywallId,
+                    error = e,
+                    errorType = ai.appdna.sdk.billing.billingErrorType(e),
+                )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,
                     paywallId = paywallId,
                     listener = listener,
                 )
             } catch (e: Exception) {
+                // SPEC-070-B — `error_type` is the machine-readable half of `error`. Without it
+                // the funnel (and every wrapper, which only sees data across its bridge) could
+                // only regex the human-readable message to tell a declined card from a
+                // misconfigured product id.
+                val errorType = ai.appdna.sdk.billing.billingErrorType(e)
                 eventTracker.track(
                     "purchase_failed",
                     mapOf(
                         "paywall_id" to paywallId,
                         "product_id" to plan.product_id,
                         "error" to (e.message ?: "unknown"),
+                        "error_type" to errorType,
                     ),
                 )
                 val purchaseError = if (e is PurchaseFailedException) e else Exception(e.message, e)
-                listener?.onPaywallPurchaseFailed(paywallId = paywallId, error = purchaseError)
+                listener?.onPaywallPurchaseFailed(
+                    paywallId = paywallId,
+                    error = purchaseError,
+                    errorType = errorType,
+                )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,
                     paywallId = paywallId,
@@ -461,14 +519,12 @@ internal class PaywallManager(
                     ?: throw IllegalStateException("Billing bridge not configured")
                 val entitlements = nativeMgr.restorePurchases()
                 val productIds = entitlements.map { it.productId }
-                eventTracker.track(
-                    "purchase_restored",
-                    mapOf(
-                        "paywall_id" to paywallId,
-                        "restored_count" to productIds.size,
-                    ),
+                val outcome = restoreOutcome(paywallId, productIds, hostRequestedSkip = false)
+                outcome.events.forEach { (name, props) -> eventTracker.track(name, props) }
+                listener?.onPaywallRestoreCompleted(
+                    paywallId = paywallId,
+                    productIds = outcome.restoredProductIds,
                 )
-                listener?.onPaywallRestoreCompleted(paywallId = paywallId, productIds = productIds)
                 Log.info("Restore completed for paywall $paywallId with ${productIds.size} products")
                 // SPEC-401 R3 audit Lens A/B — clear the public
                 // `skipNextAutoDismissOnRestore` flag on EVERY restore
@@ -476,6 +532,8 @@ internal class PaywallManager(
                 // and the failure path below) so the one-shot flag can't
                 // leak from one paywall presentation into the next.
                 // Captured outside the early-return below.
+                // The delegate body above may have set the flag synchronously, so the dismiss
+                // decision is only valid once it has run — re-derive it with the real flag.
                 val hostRequestedSkip = AppDNA.paywall.skipNextAutoDismissOnRestore
                 AppDNA.paywall.skipNextAutoDismissOnRestore = false
                 // SPEC-401 Fix 1C — auto-dismiss the live PaywallActivity
@@ -487,7 +545,7 @@ internal class PaywallManager(
                 // but user has no entitlements to restore" — leave paywall
                 // up so user can either close manually or attempt a fresh
                 // purchase.
-                if (productIds.isNotEmpty() && !hostRequestedSkip) {
+                if (restoreOutcome(paywallId, productIds, hostRequestedSkip).shouldDismiss) {
                     PaywallActivity.activeInstance(paywallId)?.dismissAfterRestore()
                 }
             } catch (e: Exception) {

@@ -1079,7 +1079,9 @@ class NativeBillingManager internal constructor(
             Log.error("Purchase verification failed: ${e.message}")
             AppDNA.track("purchase_failed", mapOf(
                 "product_id" to productId,
-                "error" to (e.message ?: "verification_error")
+                "error" to (e.message ?: "verification_error"),
+                // SPEC-070-B — stable discriminator alongside the prose message.
+                "error_type" to billingErrorType(e),
             ))
 
             // SPEC-070-A B.2 — onPurchaseFailed delegate fan-out.

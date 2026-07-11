@@ -41,3 +41,28 @@ sealed class BillingError(message: String, cause: Throwable? = null) : Exception
     class Pending(val productId: String) :
         BillingError("Purchase pending for product: $productId")
 }
+
+/**
+ * Stable discriminator string for a billing failure.
+ *
+ * WHY: everything downstream of a failed purchase — the `purchase_failed` event, the paywall
+ * delegate, and the Flutter / React Native wrappers, which can only receive plain data across
+ * their bridge — used to see an untyped `Throwable` whose only signal was a human-readable
+ * `message`. A wrapper (or a BigQuery query) could not tell "user cancelled" from "card
+ * declined" from "product misconfigured" without regex-matching English prose. These strings are
+ * the contract; they are never localized and never renamed.
+ */
+internal fun billingErrorType(t: Throwable): String = when (t) {
+    is BillingError.UserCancelled -> "userCancelled"
+    is BillingError.ProductNotFound -> "productNotFound"
+    is BillingError.VerificationFailed -> "verificationFailed"
+    is BillingError.NetworkError -> "networkError"
+    is BillingError.ServerError -> "serverError"
+    is BillingError.Pending -> "pending"
+    is BillingError.ProviderNotAvailable -> "providerNotAvailable"
+    // The `BillingModule.purchase` suspend surface throws its own exception types rather than
+    // BillingError; they map onto the same discriminators.
+    is ai.appdna.sdk.PurchaseCancelledException -> "userCancelled"
+    is ai.appdna.sdk.PurchasePendingException -> "pending"
+    else -> "unknown"
+}

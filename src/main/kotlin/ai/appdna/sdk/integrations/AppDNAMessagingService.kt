@@ -283,59 +283,9 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
     private fun resolveNotificationIcon(): Int =
         NotificationIconResolver.resolve(applicationContext)
 
-    /**
-     * SPEC-070-A H.10: parse action buttons from a push data payload.
-     *
-     * Accepts BOTH schemas that the AppDNA backend may emit:
-     *   1. **Canonical (iOS-shaped)**: `actions` is a JSON array of
-     *      `{ id, label, type, value, icon? }` objects.
-     *   2. **Legacy flat**: `action_0_id`, `action_0_label`, ... (no cap).
-     *
-     * Also reads a single canonical `action` JSON object (`{type, value, ...}`)
-     * for completeness — surfaced via tap-intent extras.
-     *
-     * The previous Android implementation hard-capped at 3 buttons; uncapping
-     * here matches Android's notification limit (system caps at 3 anyway, but
-     * we let the backend send more so future OS versions or wear devices can
-     * surface them).
-     */
-    private fun parseActionButtons(data: Map<String, String>): List<ActionButton> {
-        val buttons = mutableListOf<ActionButton>()
-
-        // Canonical schema first.
-        data["actions"]?.let { rawActions ->
-            try {
-                val arr = JSONArray(rawActions)
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val id = obj.optString("id", "")
-                    if (id.isEmpty()) continue
-                    val label = obj.optString("label", "")
-                    val type = obj.optString("type", "dismiss")
-                    val value = obj.optString("value", null)
-                    val icon = obj.optString("icon", null)
-                    buttons.add(ActionButton(id, label, type, value, icon))
-                }
-            } catch (e: Exception) {
-                Log.warning("Push: failed to parse 'actions' JSON: ${e.message}")
-            }
-        }
-        if (buttons.isNotEmpty()) return buttons
-
-        // Legacy flat schema. SPEC-070-A H.10 — uncap. Walk indices until a
-        // gap appears (action_${i}_id missing).
-        var i = 0
-        while (true) {
-            val id = data["action_${i}_id"] ?: break
-            val label = data["action_${i}_label"] ?: ""
-            val type = data["action_${i}_type"] ?: "dismiss"
-            val value = data["action_${i}_value"]
-            val icon = data["action_${i}_icon"]
-            buttons.add(ActionButton(id, label, type, value, icon))
-            i++
-        }
-        return buttons
-    }
+    /** SPEC-070-A H.10 — see [PushPayloadParser.parseActionButtons]. */
+    private fun parseActionButtons(data: Map<String, String>): List<ai.appdna.sdk.PushActionButton> =
+        PushPayloadParser.parseActionButtons(data)
 
     /**
      * SPEC-070-A H.8 + H.16: surface the push payload to the host's
@@ -347,13 +297,10 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
     private fun notifyPushDelegateReceived(message: RemoteMessage) {
         val delegate = try { AppDNA.push.delegate() } catch (_: Throwable) { null } ?: return
         val data = message.data
-        val payload = PushPayload(
-            pushId = data["push_id"] ?: "",
-            title = data["title"] ?: message.notification?.title ?: "",
-            body = data["body"] ?: message.notification?.body ?: "",
-            imageUrl = data["image_url"],
-            data = data.toMap(),
-            action = parseCanonicalAction(data),
+        val payload = PushPayloadParser.buildPayload(
+            data = data,
+            fallbackTitle = message.notification?.title,
+            fallbackBody = message.notification?.body,
         )
         val inForeground = isAppInForeground(applicationContext)
         try {
@@ -369,29 +316,9 @@ open class AppDNAMessagingService : FirebaseMessagingService() {
         }
     }
 
-    /**
-     * SPEC-070-A H.10: read canonical `action` field if present
-     * (`{"type": "show_screen", "value": "settings"}`) — falls back to flat
-     * `action_type`/`action_value` keys for legacy senders.
-     */
-    private fun parseCanonicalAction(data: Map<String, String>): PushAction? {
-        data["action"]?.let { rawAction ->
-            try {
-                val obj = JSONObject(rawAction)
-                val type = obj.optString("type", "").ifEmpty { return@let null }
-                val value = obj.optString("value", "")
-                return PushAction(type, value)
-            } catch (e: Exception) {
-                Log.warning("Push: failed to parse 'action' JSON: ${e.message}")
-            }
-        }
-        val type = data["action_type"]?.takeIf { it.isNotEmpty() } ?: return null
-        val value = data["action_value"] ?: ""
-        return PushAction(type, value)
-    }
-
-    // SPEC-084: Parse action buttons from push data
-    private data class ActionButton(val id: String, val label: String, val type: String, val value: String?, val icon: String? = null)
+    /** SPEC-070-A H.10 — see [PushPayloadParser.parseCanonicalAction]. */
+    private fun parseCanonicalAction(data: Map<String, String>): PushAction? =
+        PushPayloadParser.parseCanonicalAction(data)
 
     companion object {
         const val DEFAULT_CHANNEL_ID = "appdna_push"
