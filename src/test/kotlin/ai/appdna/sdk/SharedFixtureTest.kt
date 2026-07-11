@@ -58,6 +58,11 @@ import ai.appdna.sdk.network.ApiClient
 import ai.appdna.sdk.onboarding.AppDNAOnboardingDelegate
 import ai.appdna.sdk.onboarding.ONBOARDING_HOOK_COMPLETED_EVENT
 import ai.appdna.sdk.onboarding.OnboardingAdvance
+import ai.appdna.sdk.onboarding.OnboardingCompletion
+import ai.appdna.sdk.onboarding.PERMISSION_ACTION
+import ai.appdna.sdk.onboarding.PERMISSION_ACTION_VALUE_KEY
+import ai.appdna.sdk.onboarding.PermissionActionDecision
+import ai.appdna.sdk.onboarding.emitPermissionAction
 import ai.appdna.sdk.onboarding.RuleTarget
 import ai.appdna.sdk.onboarding.classifyRuleTarget
 import ai.appdna.sdk.onboarding.OnboardingConfigParser
@@ -326,6 +331,16 @@ class SharedFixtureTest(
                 spy.state["current_step_index"] = currentIndex
                 spy.state["is_presenting"] = false
                 spy.state["flow_completed"] = true
+                // The SDK owns the completion contract — the event name, the props, and the order the
+                // delegate is called in. Drive it rather than re-describe it.
+                OnboardingCompletion.complete(
+                    flowId = flow.id,
+                    totalSteps = flow.steps.size,
+                    durationMs = 0,
+                    responses = outcome.responses,
+                    track = { name, props -> tracker.track(name, props) },
+                    delegate = RecordingOnboardingDelegate(spy),
+                )
             }
             is OnboardingAdvance.Navigation.PresentPaywallTrigger -> {
                 spy.state["paywall_trigger_node"] = nav.nodeId
@@ -439,6 +454,40 @@ class SharedFixtureTest(
             .filterValues { it != null }.mapValues { it.value!! }
 
         when (buttonAction) {
+            // (b0) permission CTA — the REAL emitPermissionAction seam. On the safe-fallback path
+            // (an unsupported or blank permission type) the emission IS the advance: the host is told
+            // what happened and the user is never stranded on a dead button.
+            PERMISSION_ACTION -> {
+                val delegate = RecordingOnboardingDelegate(spy)
+                AppDNA.onboarding.setDelegate(delegate)
+                val decision = emitPermissionAction(
+                    configType = cfg.optStringOrNull("permission_type"),
+                    layoutType = cfg.optJSONObject("layout")?.optStringOrNull("permission_type"),
+                    actionValue = buttonValue,
+                    toggleValues = emptyMap(),
+                    inputValues = formData,
+                    onNext = { payload ->
+                        spy.delegateCalls.add(
+                            "onAction" to mapOf(
+                                "action" to payload?.get("action"),
+                                "value" to payload?.get(PERMISSION_ACTION_VALUE_KEY),
+                            ),
+                        )
+                    },
+                )
+                if (decision is PermissionActionDecision.SafeFallbackAdvance) {
+                    applyAdvance(flow, currentIndex, formData, StepAdvanceResult.Proceed, spy,
+                        p.tracker, hookRan = false)
+                } else {
+                    unsupported(
+                        "permission type '${'$'}{(decision as PermissionActionDecision.RunPipeline).type}' is " +
+                            "SUPPORTED, so the real SDK hands off to the OS permission pipeline — which needs " +
+                            "an Activity. This fixture asserts the SAFE-FALLBACK path; use an unsupported type.",
+                    )
+                }
+                spy.events += p.envelopes().map { it.toEventPair() }
+                return
+            }
             // (b) auth-class button — the REAL emitAuthAction dispatch (delegate-gated).
             "login", "register", "reset_password", "magic_link", "verify_email", "email_login",
             "resend_verification", "enable_biometric", "request_otp", "verify_otp", "logout",
@@ -686,12 +735,17 @@ class SharedFixtureTest(
             )
         }
 
-        override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable, errorType: String) {
+        override fun onPaywallPurchaseFailed(
+            paywallId: String,
+            error: Throwable,
+            errorType: String,
+            productId: String?,
+        ) {
             spy.delegateCalls.add(
                 "onPaywallPurchaseFailed" to mapOf(
                     "paywallId" to paywallId,
                     "errorType" to errorType,
-                    "productId" to (error as? BillingError.ProductNotFound)?.productId,
+                    "productId" to productId,
                 ),
             )
         }
@@ -777,7 +831,7 @@ class SharedFixtureTest(
                             "error_type" to errorType,
                         ),
                     )
-                    delegate.onPaywallPurchaseFailed(paywallId, throwable, errorType)
+                    delegate.onPaywallPurchaseFailed(paywallId, throwable, errorType, productId)
                 }
                 spy.state["is_presenting_paywall"] = true
             }
@@ -1073,7 +1127,7 @@ class SharedFixtureTest(
             val params = uri.queryParameterNames.associateWith { uri.getQueryParameter(it) }
             // PLUMBING: DeepLinksModule.handleURL routes through AppDNA.track, which needs a
             // configured SDK. The URL + params below are the ones the SDK parsed out of the push.
-            p.tracker.track("deep_link_handled", mapOf("url" to pushAction.value, "source" to "push"))
+            p.tracker.track("deep_link_handled", mapOf("url" to pushAction.value))
             spy.delegateCalls.add(
                 "onDeepLinkReceived" to mapOf("url" to pushAction.value, "params" to params),
             )
