@@ -149,9 +149,14 @@ internal class PaywallManager(
         val activeConfig = remoteConfigManager.getPaywallConfig(id)
         if (activeConfig == null) {
             Log.error("Paywall config not found for id: $id")
+            // SPEC-070-B — no product was ever selected here (the paywall never rendered), so
+            // `productId` is genuinely null rather than unknown.
+            val configError = IllegalStateException("Paywall config not found")
             listener?.onPaywallPurchaseFailed(
                 paywallId = id,
-                error = IllegalStateException("Paywall config not found"),
+                error = configError,
+                errorType = ai.appdna.sdk.billing.billingErrorType(configError),
+                productId = null,
             )
             return
         }
@@ -345,6 +350,7 @@ internal class PaywallManager(
                     paywallId = paywallId,
                     error = e,
                     errorType = ai.appdna.sdk.billing.billingErrorType(e),
+                    productId = plan.product_id,
                 )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,
@@ -363,6 +369,7 @@ internal class PaywallManager(
                     paywallId = paywallId,
                     error = e,
                     errorType = ai.appdna.sdk.billing.billingErrorType(e),
+                    productId = plan.product_id,
                 )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,
@@ -389,6 +396,7 @@ internal class PaywallManager(
                     paywallId = paywallId,
                     error = purchaseError,
                     errorType = errorType,
+                    productId = plan.product_id,
                 )
                 handlePostPurchaseFailure(
                     config = config.post_purchase?.on_failure,

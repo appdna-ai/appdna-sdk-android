@@ -133,12 +133,26 @@ internal object OnboardingAdvance {
     ): AdvanceOutcome {
         val targetIndex = flow.steps.indexOfFirst { it.id == targetStepId }
         if (targetIndex < 0) return advance(flow, currentIndex, responses, navigationHistory)
+        val fromStepId = flow.steps.getOrNull(currentIndex)?.id
         // SPEC-070-A finalization P0 audit-8 D1 — push the leaving step before skip-target
         // navigation so the destination's previous_step_* rules see the correct prevId.
         return AdvanceOutcome(
             navigation = Navigation.GoToIndex(targetIndex),
             responses = responses,
-            historyPush = listOfNotNull(flow.steps.getOrNull(currentIndex)?.id),
+            // SPEC-070-B — a skip_to jump used to be analytically INVISIBLE: the flow silently
+            // teleported over N steps, so the funnel could not tell a step that was jumped over
+            // from one the user never reached. Emit the jump.
+            events = listOf(
+                TrackedEvent(
+                    STEP_SKIPPED_EVENT,
+                    buildMap {
+                        put("flow_id", flow.id)
+                        fromStepId?.let { put("from_step_id", it) }
+                        put("to_step_id", targetStepId)
+                    },
+                ),
+            ),
+            historyPush = listOfNotNull(fromStepId),
         )
     }
 
@@ -287,6 +301,28 @@ internal object OnboardingAdvance {
  * retire the event that the onboarding funnel is built on.
  */
 internal const val ONBOARDING_HOOK_COMPLETED_EVENT = "onboarding_hook_completed"
+
+/**
+ * SPEC-070-B — the event fired when the flow JUMPS over one or more steps because a hook (host
+ * delegate or server webhook) returned `StepAdvanceResult.SkipTo(stepId)`.
+ *
+ * WHY A NEW NAME AND NOT `onboarding_step_skipped`:
+ * `onboarding_step_skipped` (OnboardingFlowManager.onStepSkipped, iOS OnboardingFlowManager.swift:95)
+ * already means something else and MUST keep meaning it — the user tapped the step's own **Skip
+ * button**, so its props are `{flow_id, step_id, step_index}`: one step, declined by the user, and
+ * the flow then advances normally to the NEXT step. A `skip_to` is a *programmatic branch*: the
+ * host jumps the flow to an arbitrary target and every step in between is bypassed without ever
+ * being viewed. The two carry different props (`step_id` vs `from_step_id`/`to_step_id`), have
+ * different actors (user vs host), and answer different funnel questions ("how many people declined
+ * this step?" vs "which steps were branched over?"). Folding them into one name would make both
+ * unanalysable, so this is a NON-COLLIDING new name.
+ *
+ * The spelling + props are the cross-platform contract asserted by the shared fixture
+ * `packages/sdk-shared-fixtures/step_advance/skip_to_target_step.fixture.json` (`step_skipped` with
+ * `from_step_id` / `to_step_id`); iOS emits the identical name and props. `flow_id` rides along for
+ * consistency with every other onboarding event.
+ */
+internal const val STEP_SKIPPED_EVENT = "step_skipped"
 
 /**
  * The wire spelling of a [StepAdvanceResult] — the `result` property on

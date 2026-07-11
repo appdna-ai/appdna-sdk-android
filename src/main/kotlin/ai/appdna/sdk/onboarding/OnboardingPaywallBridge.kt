@@ -76,13 +76,27 @@ internal class OnboardingPaywallBridge(
     }
 
     override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable) {
-        onPaywallPurchaseFailed(paywallId, error, ai.appdna.sdk.billing.billingErrorType(error))
+        onPaywallPurchaseFailed(
+            paywallId, error, ai.appdna.sdk.billing.billingErrorType(error), productId = null,
+        )
     }
 
-    // SPEC-070-B — the SDK calls the typed overload; forward `errorType` on to the host listener
-    // so the discriminator survives the onboarding→paywall bridge instead of being dropped here.
     override fun onPaywallPurchaseFailed(paywallId: String, error: Throwable, errorType: String) {
-        forwardOnMain { it.onPaywallPurchaseFailed(paywallId, error, errorType) }
+        onPaywallPurchaseFailed(paywallId, error, errorType, productId = null)
+    }
+
+    // SPEC-070-B — the SDK calls the widest overload; forward `errorType` AND `productId` on to the
+    // host listener so neither the discriminator nor the failed product is dropped by the
+    // onboarding→paywall bridge. Every narrower overload funnels through here, so the bridge's
+    // dismissal bookkeeping (didFail/onFailed) runs exactly once per failure whichever arity the
+    // caller used.
+    override fun onPaywallPurchaseFailed(
+        paywallId: String,
+        error: Throwable,
+        errorType: String,
+        productId: String?,
+    ) {
+        forwardOnMain { it.onPaywallPurchaseFailed(paywallId, error, errorType, productId) }
         // iOS convention: paywall stays on screen after a failure (error
         // toast + retry allowed). Mark the intent so the host's
         // `on_fail_target` routing config can fire if the failure

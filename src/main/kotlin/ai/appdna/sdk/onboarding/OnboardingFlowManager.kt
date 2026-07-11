@@ -100,15 +100,18 @@ internal class OnboardingFlowManager(
                 // schema + dashboards typed against Int from iOS see type
                 // drift on Android-only telemetry.
                 val durationMs = (System.currentTimeMillis() - startTime).toInt()
-                eventTracker.track("onboarding_flow_completed", mapOf(
-                    "flow_id" to flow.id,
-                    "total_steps" to flow.steps.size,
-                    "total_duration_ms" to durationMs,
-                    "responses" to responses
-                ))
-                // SPEC-088: Persist onboarding responses for cross-module access
-                ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses)
-                listener?.onOnboardingCompleted(flowId = flow.id, responses = responses)
+                // SPEC-070-B — the completion decision (event + SPEC-088 persistence + delegate)
+                // now lives in [OnboardingCompletion], NOT in this Activity-bound lambda, so it is
+                // reachable — and provable — without presenting an Activity. Same event, same
+                // props, same order as before.
+                OnboardingCompletion.complete(
+                    flowId = flow.id,
+                    totalSteps = flow.steps.size,
+                    durationMs = durationMs,
+                    responses = responses,
+                    track = { name, props -> eventTracker.track(name, props) },
+                    delegate = listener,
+                )
             },
             onFlowDismissed = { lastStepId, lastStepIndex ->
                 eventTracker.track("onboarding_flow_dismissed", mapOf(

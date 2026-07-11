@@ -586,6 +586,32 @@ interface AppDNAPaywallDelegate {
     fun onPaywallPurchaseFailed(paywallId: String, error: Throwable, errorType: String) {
         onPaywallPurchaseFailed(paywallId, error)
     }
+
+    /**
+     * SPEC-070-B — same failure, plus the product the user was actually trying to buy.
+     *
+     * WHY: `onPaywallPurchaseCompleted` / `onPaywallPurchaseStarted` both carry `productId`, but the
+     * FAILURE callback did not — so a paywall selling two plans (monthly + annual) told the host
+     * only "a purchase failed on paywall X". The host could not retry the right product, could not
+     * attribute the failure, and could not tell which plan the card was declined on. The
+     * `purchase_failed` ANALYTIC always carried `product_id`; the delegate silently dropped it.
+     *
+     * `productId` is nullable: some failures happen before a product is in play (e.g. the paywall
+     * config itself is missing — [PaywallManager.present]). Null means "no product was selected",
+     * never "unknown product".
+     *
+     * Defaulted through the 3-arg overload so every existing conformer (which may override the
+     * 2-arg or the 3-arg form) keeps compiling and keeps receiving the callback unchanged. The SDK
+     * always calls THIS one.
+     */
+    fun onPaywallPurchaseFailed(
+        paywallId: String,
+        error: Throwable,
+        errorType: String,
+        productId: String?,
+    ) {
+        onPaywallPurchaseFailed(paywallId, error, errorType)
+    }
     fun onPaywallDismissed(paywallId: String) {}
     // AC-037: Validate a promo code entered by the user. Call the completion handler with `true` if valid, `false` otherwise.
     fun onPromoCodeSubmit(paywallId: String, code: String, completion: (Boolean) -> Unit) { completion(false) }

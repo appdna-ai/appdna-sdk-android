@@ -526,10 +526,7 @@ class SharedFixtureTest(
         )
         spy.state["rendered_title"] = merged.title
         spy.state["rendered_subtitle"] = merged.subtitle
-        // The console authors the CTA label as either `cta_text` or `primary_button.label`; the
-        // override only carries `cta_text`, so an unset override inherits the published label.
-        spy.state["rendered_primary_button_label"] =
-            merged.cta_text ?: config?.optJSONObject("primary_button")?.optStringOrNull("label")
+        spy.state["rendered_cta_text"] = merged.cta_text
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -612,7 +609,7 @@ class SharedFixtureTest(
             if (match != null) {
                 // PLUMBING: PaywallManager.present() launches a real Activity. The selection — the
                 // thing the fixture is about — is the SDK's.
-                p.tracker.track("paywall_shown", mapOf("paywall_id" to match.id, "placement" to placement))
+                p.tracker.track("paywall_view", mapOf("paywall_id" to match.id, "placement" to placement))
             }
             spy.state["active_paywall_id"] = match?.id
             spy.state["is_presenting"] = match != null
@@ -995,15 +992,12 @@ class SharedFixtureTest(
                 spy.state["parsed_post_purchase_failure_action"] = parsed.post_purchase?.on_failure?.action
                 spy.state["parsed_post_purchase_failure_allow_dismiss"] =
                     parsed.post_purchase?.on_failure?.allow_dismiss
-                if (map.containsKey("cta_style")) {
-                    unsupported(
-                        "PaywallConfig models neither a top-level `cta_style` nor top-level `reviews` — " +
-                            "on Android (PaywallConfig.kt:19-53) OR on iOS (PaywallConfig.swift). `reviews` " +
-                            "exists only inside a section's data. A console-authored cta_style.corner_radius " +
-                            "is dropped on the floor by both SDKs. GENUINE GAP",
-                    )
-                }
-                spy.state["parsed_cta_corner_radius"] = null
+                // The CTA corner radius is REAL and parsed: the console publishes `cta.style.corner_radius`
+                // (CTASchema in paywall.schema.ts) and PaywallConfigParser flattens the nested style map
+                // onto PaywallCTA (PaywallConfig.kt:863-871). An earlier draft of this runner declared it
+                // a "GENUINE GAP" and hardcoded null — asserting nothing, which is the whole failure mode
+                // this rewrite exists to remove.
+                spy.state["parsed_cta_corner_radius"] = parsed.cta?.corner_radius
             }
             "survey_themes" -> {
                 // The fixture's config IS the theme document; SurveyAppearance owns both the theme

@@ -2794,10 +2794,13 @@ private fun BlockBasedStepView(
 
     // Advance via the same collect-and-onNext path the primary CTA uses so the freshly stored
     // `permission_{type}` value rides along in the step response. Mirrors iOS advancePermissionStep.
-    fun advancePermissionStep() {
-        val merged = mutableMapOf<String, Any>()
-        merged.putAll(inputValues)
-        for ((key, value) in toggleValues) merged["toggle_$key"] = value
+    //
+    // SPEC-070-B — the payload now also carries the `onAction` pair (`action` = "permission",
+    // `action_value` = the resolved type) via [permissionActionPayload], so a host reading
+    // `onBeforeStepAdvance`'s stepData can see WHICH permission this advance came from. Before, a
+    // permission step advanced with an anonymous bag of inputs and the host had to guess.
+    fun advancePermissionStep(type: String) {
+        val merged = permissionActionPayload(type, toggleValues, inputValues).toMutableMap()
         onNext(if (merged.isEmpty()) null else merged)
     }
 
@@ -2810,19 +2813,19 @@ private fun BlockBasedStepView(
         if (showFallback) {
             permSettingsFallback = PermissionSettingsFallback(type = type, label = label)
         } else {
-            advancePermissionStep()
+            advancePermissionStep(type)
         }
     }
 
-    // SPEC-421 — the full async permission pipeline for a `permission` CTA. Reads the step's
-    // `layout.permission_type`, runs the optional host pre-hook, status check, native OS request,
-    // analytics + delegate callbacks, stores the result, and advances. Never crashes on an undeclared
-    // manifest permission (status returns UNAVAILABLE → emit + advance without launching). Mirrors iOS
-    // OnboardingRenderer.runPermissionPipeline.
-    fun runPermissionPipeline() {
-        // Type source of truth = the step's `layout.permission_type` (the only console-authorable path).
-        val type = effectiveConfig.permission_type
-            ?: (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
+    // SPEC-421 — the full async permission pipeline for a `permission` CTA: runs the optional host
+    // pre-hook, status check, native OS request, analytics + delegate callbacks, stores the result,
+    // and advances. Never crashes on an undeclared manifest permission (status returns UNAVAILABLE →
+    // emit + advance without launching). Mirrors iOS OnboardingRenderer.runPermissionPipeline.
+    //
+    // SPEC-070-B — [type] is now resolved by the pure [resolvePermissionType] seam at the call site
+    // (config → layout → the button's own `action_value`) instead of being re-read from `layout`
+    // inside this closure, so the type + prompt/fallback decision is assertable without Compose.
+    fun runPermissionPipeline(type: String) {
         interactionScope.launch {
             // 1. Optional host pre-hook — host may resolve without prompting.
             val handling = AppDNA.onboarding.listener?.onPermissionRequest(type)
@@ -2834,7 +2837,7 @@ private fun BlockBasedStepView(
                     AppDNA.track("permission_denied", permissionProps(type))
                 }
                 storePermissionResult(type, granted)
-                advancePermissionStep()
+                advancePermissionStep(type)
                 return@launch
             }
 
@@ -2843,7 +2846,7 @@ private fun BlockBasedStepView(
                 PermissionStatus.GRANTED -> {
                     AppDNA.track("permission_already_granted", permissionProps(type))
                     storePermissionResult(type, true)
-                    advancePermissionStep()
+                    advancePermissionStep(type)
                 }
                 PermissionStatus.DENIED -> {
                     AppDNA.track("permission_denied", permissionProps(type))
@@ -2856,7 +2859,7 @@ private fun BlockBasedStepView(
                         "[Permission] '$type' unavailable (not declared in host manifest or " +
                         "unsupported type) — advancing without prompting.",
                     )
-                    advancePermissionStep()
+                    advancePermissionStep(type)
                 }
                 PermissionStatus.UNDETERMINED -> {
                     // 3. Request the OS prompt (async via the composition-registered launcher).
@@ -2865,7 +2868,7 @@ private fun BlockBasedStepView(
                     if (granted) {
                         AppDNA.track("permission_granted", permissionProps(type))
                         storePermissionResult(type, true)
-                        advancePermissionStep()
+                        advancePermissionStep(type)
                     } else {
                         AppDNA.track("permission_denied", permissionProps(type))
                         storePermissionResult(type, false)
@@ -2875,7 +2878,7 @@ private fun BlockBasedStepView(
                             granted = false,
                             shouldShowRationale = permissionManager.shouldShowRationale(type),
                         )
-                        if (blocked) maybeShowSettingsFallbackOrAdvance(type) else advancePermissionStep()
+                        if (blocked) maybeShowSettingsFallbackOrAdvance(type) else advancePermissionStep(type)
                     }
                 }
             }
@@ -2903,11 +2906,21 @@ private fun BlockBasedStepView(
         // permission pipeline (prompt) BEFORE the required-field validation gate below, matching
         // iOS (OnboardingRenderer.swift `case "next"` short-circuits before `guard canAdvance`).
         // Permission steps skip required-field validation by design (the pipeline owns advance).
+        // SPEC-070-B — the type + prompt/fallback call is the pure seam's now. A plain `next` on a
+        // permission step only diverts into the pipeline when the step really does declare a
+        // supported permission (RunPipeline); otherwise it falls through to the normal `next`
+        // handling below, exactly as before.
         if (rawAction == "next") {
-            val nextPermissionType = effectiveConfig.permission_type
-                ?: (effectiveConfig.layout?.get("permission_type") as? String) ?: ""
-            if (nextPermissionType.isNotEmpty() && PermissionManager.isSupported(nextPermissionType)) {
-                runPermissionPipeline()
+            val nextDecision = decidePermissionAction(
+                resolvePermissionType(
+                    configType = effectiveConfig.permission_type,
+                    layoutType = effectiveConfig.layout?.get("permission_type") as? String,
+                    // A bare `next` carries no action value — never treat the CTA label as a type.
+                    actionValue = null,
+                ),
+            )
+            if (nextDecision is PermissionActionDecision.RunPipeline) {
+                runPermissionPipeline(nextDecision.type)
                 return
             }
         }
@@ -3017,12 +3030,36 @@ private fun BlockBasedStepView(
                     flowId = flowId, stepId = stepId, stepIndex = currentStepIndex,
                 )
             }
-            // SPEC-421 — fire the real OS permission prompt (async), capture grant/deny safely,
-            // emit analytics + the delegate hook, store the result for next-step routing, then advance.
-            // Type source of truth = the step's `layout.permission_type` (the only console-authorable
-            // path). If absent/unsupported/undeclared the pipeline emits `permission_unavailable` +
-            // advances. Mirrors iOS `OnboardingRenderer.swift` `case "permission"`.
-            "permission" -> runPermissionPipeline()
+            // SPEC-421 / SPEC-070-B — a `permission` CTA now goes through the [emitPermissionAction]
+            // seam. It (a) makes the tap OBSERVABLE to the host — `{action: "permission",
+            // action_value: <type>}` on the same `onNext` channel every other CTA uses, which is what
+            // the cross-platform fixtures call `onAction` — and (b) decides prompt-vs-safe-fallback
+            // purely. Supported type → fire the real OS prompt (async), capture grant/deny, emit
+            // analytics + the delegate hook, store the result for next-step routing, then advance.
+            // Absent/unsupported type → emit `permission_unavailable` and ADVANCE (the seam already
+            // emitted the action + completed the step), so the button is never a dead end.
+            // Mirrors iOS `OnboardingRenderer.swift` `case "permission"`.
+            "permission" -> {
+                val decision = emitPermissionAction(
+                    configType = effectiveConfig.permission_type,
+                    layoutType = effectiveConfig.layout?.get("permission_type") as? String,
+                    actionValue = actionValue,
+                    toggleValues = toggleValues,
+                    inputValues = inputValues,
+                    onNext = onNext,
+                )
+                when (decision) {
+                    is PermissionActionDecision.RunPipeline -> runPermissionPipeline(decision.type)
+                    is PermissionActionDecision.SafeFallbackAdvance -> {
+                        AppDNA.track("permission_unavailable", permissionProps(decision.type))
+                        ai.appdna.sdk.Log.warning(
+                            "[Permission] '${decision.type}' is not a permission this platform can " +
+                                "request (unsupported or undeclared type) — the action was reported to " +
+                                "the host and the flow advanced without prompting.",
+                        )
+                    }
+                }
+            }
             else -> onNext(null)
         }
     }
@@ -3356,7 +3393,7 @@ private fun BlockBasedStepView(
             AlertDialog(
                 onDismissRequest = {
                     permSettingsFallback = null
-                    advancePermissionStep()
+                    advancePermissionStep(fallback.type)
                 },
                 title = { Text("Permission needed") },
                 text = { Text("You can enable this in Settings.") },
@@ -3364,13 +3401,13 @@ private fun BlockBasedStepView(
                     TextButton(onClick = {
                         permissionManager.openAppSettings()
                         permSettingsFallback = null
-                        advancePermissionStep()
+                        advancePermissionStep(fallback.type)
                     }) { Text(fallback.label) }
                 },
                 dismissButton = {
                     TextButton(onClick = {
                         permSettingsFallback = null
-                        advancePermissionStep()
+                        advancePermissionStep(fallback.type)
                     }) { Text("Continue") }
                 },
             )
