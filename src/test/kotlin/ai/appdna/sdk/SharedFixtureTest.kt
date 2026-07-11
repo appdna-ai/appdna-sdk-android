@@ -518,7 +518,9 @@ class SharedFixtureTest(
                     // (EventPipelineFixtureTest) — both carry no `action`, so they must NOT be loaded
                     // by this behavioral runner (which requires `action.kind`).
                     val cat = json.optString("category", "")
-                    val isRender = cat == "render" || cat == "events"
+                    // `resilience` (AC-35) joins them: it carries no `action`, and its contracts are
+                    // asserted by ResilienceFixtureTest against the pure native seams.
+                    val isRender = cat == "render" || cat == "events" || cat == "resilience"
                     if (applies && !isRender) {
                         val name = file.name.removeSuffix(".fixture.json")
                         out.add(arrayOf(name, json))

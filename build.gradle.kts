@@ -76,6 +76,20 @@ android {
             // server, so 1g (modestly above default) is server-safe while clearing the test OOM.
             all {
                 it.maxHeapSize = "1g"
+
+                // SPEC-070-B AC-35 — the shared fixtures live OUTSIDE this module
+                // (packages/sdk-shared-fixtures), so Gradle saw no input change when one was edited
+                // and marked the test task UP-TO-DATE. Editing a fixture's expected value therefore
+                // did NOT re-run the test: it reported the previous run's result and went green.
+                // Found by falsification — planting `429: transient=false` (the exact live defect the
+                // fixture forbids) still produced BUILD SUCCESSFUL. Declaring the tree as an input
+                // makes a fixture edit invalidate the cache, which is what makes these gates real.
+                val fixtures = rootProject.file("../sdk-shared-fixtures")
+                if (fixtures.isDirectory) {
+                    it.inputs.dir(fixtures)
+                        .withPropertyName("sharedFixtures")
+                        .withPathSensitivity(PathSensitivity.RELATIVE)
+                }
             }
         }
     }

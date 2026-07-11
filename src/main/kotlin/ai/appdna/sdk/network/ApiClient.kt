@@ -262,7 +262,9 @@ internal class ApiClient(
                         }
                         // 429 rate-limited / 408 request-timeout are transient by
                         // definition — never drop the batch. Honor Retry-After when sent.
-                        code == 429 || code == 408 -> {
+                        // The set (not two inline literals) is the seam the shared `resilience`
+                        // fixture asserts, so iOS and Android are checked against the SAME table.
+                        code in TRANSIENT_STATUS_CODES -> {
                             val retryAfter = parseRetryAfter(response.header("Retry-After"))
                             val hint = retryAfter?.let { " Retry-After: ${it}s." } ?: ""
                             Log.warning("Event upload throttled (HTTP $code):$hint retrying.")
@@ -338,6 +340,15 @@ internal class ApiClient(
     companion object {
         /** Upper bound on an honored `Retry-After`, in seconds. Matches iOS. */
         const val MAX_RETRY_AFTER_SECONDS = 120L
+
+        /**
+         * HTTP statuses that look like a permanent 4xx but MUST be retried, never latched.
+         * Mirrors iOS `APIClient.transientStatusCodes` — the shared `resilience` fixture
+         * (rate_limited_429_retried) asserts both against this same set, so the platforms
+         * cannot drift on the most common failure under load.
+         */
+        @JvmStatic
+        val TRANSIENT_STATUS_CODES: Set<Int> = setOf(408, 429)
 
         /**
          * Compress data using raw deflate (no zlib header/checksum) to match the iOS
