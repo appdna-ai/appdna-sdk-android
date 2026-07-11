@@ -734,17 +734,15 @@ object AppDNA {
         // SPEC-070-A G.3: emit local `identify` event so the existing client
         // pipeline (BigQuery alias resolution + experiment exposure ledger)
         // sees the user-id transition immediately.
-        val identifyProps = mutableMapOf<String, Any>(
-            "user_id" to userId,
-            "anon_id" to (previousAnonId ?: ""),
+        track(
+            IDENTIFY_EVENT,
+            buildIdentifyProps(
+                userId = userId,
+                previousAnonId = previousAnonId,
+                previousUserId = previousUserId,
+                traits = traits,
+            ),
         )
-        if (previousUserId != null && previousUserId != userId) {
-            identifyProps["previous_user_id"] = previousUserId
-        }
-        if (traits != null) {
-            identifyProps["traits"] = traits
-        }
-        track("identify", identifyProps)
 
         // SPEC-070-A G.2: fire-and-forget POST to /api/v1/sdk/identify so the
         // backend can stitch anon → user identities even if the user never
@@ -2116,4 +2114,38 @@ object AppDNA {
             Log.info("SDK shut down")
         }
     }
+}
+
+/**
+ * The canonical name of the identity-transition event. A constant rather than a literal at the
+ * single call site because the cross-platform behavioral fixtures assert this name — a rename must
+ * break the fixture, not slip through.
+ */
+internal const val IDENTIFY_EVENT = "identify"
+
+/**
+ * The `identify` event's property shape, lifted out of [AppDNA.identify].
+ *
+ * WHY: the property NAMES are the contract (BigQuery alias resolution reads them, and the shared
+ * fixtures pin them cross-platform), but they were built inline inside a function that first needs a
+ * configured SDK — network, Firestore, billing — so nothing could assert the shape without booting
+ * all of it. Verbatim move; `identify()` still emits it. Mirrors iOS AppDNA.swift:386-395.
+ */
+internal fun buildIdentifyProps(
+    userId: String,
+    previousAnonId: String?,
+    previousUserId: String?,
+    traits: Map<String, Any>?,
+): Map<String, Any> {
+    val props = mutableMapOf<String, Any>(
+        "user_id" to userId,
+        "anon_id" to (previousAnonId ?: ""),
+    )
+    if (previousUserId != null && previousUserId != userId) {
+        props["previous_user_id"] = previousUserId
+    }
+    if (traits != null) {
+        props["traits"] = traits
+    }
+    return props
 }

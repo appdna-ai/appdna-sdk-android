@@ -280,6 +280,31 @@ internal object OnboardingAdvance {
 }
 
 /**
+ * The event fired when a step-advance hook (host delegate OR server webhook) returns.
+ *
+ * A constant rather than a literal at the two call sites in `OnboardingFlowHost`: the shared
+ * cross-platform fixtures assert this exact name, so a rename must break them rather than silently
+ * retire the event that the onboarding funnel is built on.
+ */
+internal const val ONBOARDING_HOOK_COMPLETED_EVENT = "onboarding_hook_completed"
+
+/**
+ * The wire spelling of a [StepAdvanceResult] — the `result` property on
+ * [ONBOARDING_HOOK_COMPLETED_EVENT], and the discriminator every webhook body uses.
+ *
+ * Lifted out of the `resultName` closure inside `@Composable OnboardingFlowHost` (verbatim; the
+ * composable now calls this) so it is assertable without a Compose tree. These five strings are the
+ * contract and are never localized or renamed.
+ */
+internal fun stepAdvanceResultName(result: StepAdvanceResult): String = when (result) {
+    is StepAdvanceResult.Proceed -> "proceed"
+    is StepAdvanceResult.ProceedWithData -> "proceed_with_data"
+    is StepAdvanceResult.Block -> "block"
+    is StepAdvanceResult.SkipTo -> "skip_to"
+    is StepAdvanceResult.Stay -> "stay"
+}
+
+/**
  * Mirrors the old `applyOverrides` closure in `OnboardingFlowHost` — merges an
  * `onBeforeStepRender` override onto a step's config. Extracted so hosts/tests can assert the
  * merge without standing up a Compose tree.

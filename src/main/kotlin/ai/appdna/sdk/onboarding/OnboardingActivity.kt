@@ -1015,13 +1015,9 @@ internal fun OnboardingFlowHost(
     }
 
 
-    fun resultName(result: StepAdvanceResult): String = when (result) {
-        is StepAdvanceResult.Proceed -> "proceed"
-        is StepAdvanceResult.ProceedWithData -> "proceed_with_data"
-        is StepAdvanceResult.Block -> "block"
-        is StepAdvanceResult.SkipTo -> "skip_to"
-        is StepAdvanceResult.Stay -> "stay"
-    }
+    // The five wire strings now live in OnboardingAdvance.kt so they can be asserted without a
+    // Compose tree (the shared fixtures pin them). Same values, one owner.
+    fun resultName(result: StepAdvanceResult): String = stepAdvanceResultName(result)
 
     val currentStep = if (currentIndex < flow.steps.size) flow.steps[currentIndex] else null
 
@@ -1528,7 +1524,7 @@ internal fun OnboardingFlowHost(
                                     graceTimerJob.cancel()
                                     val durationMs = System.currentTimeMillis() - startTime
                                     isProcessing = false
-                                    trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                    trackHookEvent(ONBOARDING_HOOK_COMPLETED_EVENT, step, mapOf(
                                         "hook_type" to "client",
                                         "result" to resultName(result),
                                         "duration_ms" to durationMs,
@@ -1577,7 +1573,7 @@ internal fun OnboardingFlowHost(
                                     )
                                     val durationMs = System.currentTimeMillis() - startTime
                                     isProcessing = false
-                                    trackHookEvent("onboarding_hook_completed", step, mapOf(
+                                    trackHookEvent(ONBOARDING_HOOK_COMPLETED_EVENT, step, mapOf(
                                         "hook_type" to "server",
                                         "result" to resultName(result),
                                         "duration_ms" to durationMs,
