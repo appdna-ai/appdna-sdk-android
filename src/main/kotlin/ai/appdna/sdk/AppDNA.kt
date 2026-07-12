@@ -145,6 +145,40 @@ object AppDNA {
         }
     }
 
+    // MARK: - Subsystem init isolation (SPEC-070-B W13 / AC-31(b))
+
+    /**
+     * Names of subsystems to fail on purpose. Test-only, and the exact seam iOS uses
+     * (`AppDNA.swift:233`): proving the isolation holds requires INJECTING a failure into the real
+     * `configure()`, and a reporting path that is never exercised is not isolation.
+     */
+    @Volatile
+    internal var subsystemInitFailures: Set<String> = emptySet()
+
+    /**
+     * Build one subsystem in isolation. A subsystem that fails to start is reported as degraded and
+     * left null; the event pipeline — wired earlier in [configure] — keeps running either way, and
+     * so do `isConfigured`, `sdk_initialized`, and every `onReady` callback.
+     *
+     * 🔴 Android used to construct all five bare. A `PaywallManager` that threw took the HOST's
+     * `Application.onCreate()` down with it, left `isConfiguring` latched true so no later
+     * `configure()` could ever recover, and cost the app its analytics for the whole process.
+     * Analytics is the floor guarantee here, exactly as it is on iOS.
+     */
+    internal fun <T> initSubsystem(name: String, make: () -> T): T? {
+        return try {
+            if (name in subsystemInitFailures) {
+                throw AppDNAInitError.SubsystemFailed(name, "injected failure")
+            }
+            make()
+        } catch (e: Throwable) {
+            reportInitDegraded(
+                AppDNAInitError.SubsystemFailed(name, e.message ?: e::class.java.simpleName)
+            )
+            null
+        }
+    }
+
     /**
      * SPEC-070-A H.20: record a non-fatal init error and notify the delegate.
      * Stored in [lastInitError] so hosts can read it any time after configure().
@@ -605,23 +639,38 @@ object AppDNA {
             // they can consult it for a running experiment targeting the surface+
             // entity being presented (treatment → render variant payload; control/
             // none → render the active entity through the normal path).
-            this.paywallManager = PaywallManager(
-                remoteConfigManager = remoteCfg,
-                eventTracker = tracker,
-                experimentManager = expManager
-            )
+            //
+            // SPEC-070-B W13 — each of the five is built in ISOLATION, under the same names iOS
+            // uses. A constructor that throws leaves its own manager null and is reported through
+            // `onInitDegraded`; it does NOT abort configure(), which would cost the host every
+            // remaining subsystem, `isConfigured`, `sdk_initialized`, and every `onReady` callback.
+            this.paywallManager = initSubsystem("paywall") {
+                PaywallManager(
+                    remoteConfigManager = remoteCfg,
+                    eventTracker = tracker,
+                    experimentManager = expManager
+                )
+            }
 
-            this.onboardingFlowManager = OnboardingFlowManager(
-                remoteConfigManager = remoteCfg,
-                eventTracker = tracker,
-                experimentManager = expManager
-            )
+            this.onboardingFlowManager = initSubsystem("onboarding") {
+                OnboardingFlowManager(
+                    remoteConfigManager = remoteCfg,
+                    eventTracker = tracker,
+                    experimentManager = expManager
+                )
+            }
 
             // v0.3 managers
-            this.surveyManager = SurveyManager(appContext, tracker, client, expManager)
-            this.webEntitlementManager = WebEntitlementManager(tracker, appContext)
+            this.surveyManager = initSubsystem("surveys") {
+                SurveyManager(appContext, tracker, client, expManager)
+            }
+            this.webEntitlementManager = initSubsystem("web_entitlements") {
+                WebEntitlementManager(tracker, appContext)
+            }
             // SPEC-203: per-user journey message listener.
-            this.pendingMessageListener = ai.appdna.sdk.messages.PendingMessageListener(tracker, appContext)
+            this.pendingMessageListener = initSubsystem("in_app_messages") {
+                ai.appdna.sdk.messages.PendingMessageListener(tracker, appContext)
+            }
 
             // Wire survey config updates from RemoteConfigManager to SurveyManager
             remoteCfg.surveyUpdateHandler = { rawSurveys ->
@@ -633,18 +682,19 @@ object AppDNA {
 
             // SPEC-070-A A.8: SessionManager — observes ProcessLifecycle to emit
             // session_start / session_end / app_open / app_close with 30-min idle rotation.
-            ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
-                val sm = ai.appdna.sdk.core.SessionManager(appContext, tracker, sds)
-                this.sessionManager = sm
-                sm.start()
+            this.sessionManager = initSubsystem("sessions") {
+                ai.appdna.sdk.core.SessionDataStore.instance?.let { sds ->
+                    ai.appdna.sdk.core.SessionManager(appContext, tracker, sds).also { it.start() }
+                }
             }
 
             // SPEC-070-A A.9: MessageManager — trigger evaluator + frequency tracker
             // + presentation queue + delegate veto. Renderer separate (InAppMessageRenderer)
             // per architectural split.
-            ai.appdna.sdk.core.SessionDataStore.instance?.let { _ ->
-                this.messageManager = ai.appdna.sdk.messages.MessageManager(
-                    context = appContext,
+            this.messageManager = initSubsystem("in_app_messages") {
+                ai.appdna.sdk.core.SessionDataStore.instance?.let { _ ->
+                    ai.appdna.sdk.messages.MessageManager(
+                        context = appContext,
                     // SPEC-070-A finalization parity audit B1#6 — read live
                     // from RemoteConfigManager so Firestore-published
                     // in-app messages reach the manager. Previous
@@ -652,10 +702,11 @@ object AppDNA {
                     // field which was never written. Now reads
                     // remoteConfigManager.getActiveMessages() each call
                     // (also picks up updates after Firestore re-fetch).
-                    configProvider = { remoteConfigManager?.getActiveMessages() ?: activeMessages },
-                    // SPEC-036-F §1.2 — experiment-aware presentation.
-                    experimentManager = expManager,
-                )
+                        configProvider = { remoteConfigManager?.getActiveMessages() ?: activeMessages },
+                        // SPEC-036-F §1.2 — experiment-aware presentation.
+                        experimentManager = expManager,
+                    )
+                }
             }
 
             // SPEC-070-A A.10: NavigationInterceptor — observes Activity resume to
@@ -2013,6 +2064,21 @@ object AppDNA {
     internal fun appContextForBridges(): Context? = appContext
 
     /**
+     * SPEC-070-B W13 — which subsystems `configure()` actually brought up. The isolation test reads
+     * it to assert that a failing subsystem takes ONLY itself down: the ones after it in
+     * `configure()` still exist, and so does the event pipeline.
+     */
+    internal fun subsystemsUp(): Map<String, Boolean> = mapOf(
+        "paywall" to (paywallManager != null),
+        "onboarding" to (onboardingFlowManager != null),
+        "surveys" to (surveyManager != null),
+        "web_entitlements" to (webEntitlementManager != null),
+        "in_app_messages" to (messageManager != null),
+        "sessions" to (sessionManager != null),
+        "events" to (eventTracker != null),
+    )
+
+    /**
      * Shut down the SDK and release resources. Call from Application.onTerminate().
      *
      * SPEC-070-A H.24 — release ALL native handles + cancel ALL coroutine
@@ -2029,9 +2095,19 @@ object AppDNA {
             val key = apiKey
             val db = eventDatabase
             if (ctx != null && key != null && db != null) {
-                ai.appdna.sdk.background.EventUploadWorker.scheduleIfNeeded(
-                    ctx, key, environment.baseUrl, db
-                )
+                // 🔴 SPEC-070-B W13 — this was UNGUARDED, while the identical call in `configure()`
+                // (the `bgScheduler` lambda) is wrapped. `WorkManager.getInstance()` THROWS
+                // `IllegalStateException` in any app that disables `WorkManagerInitializer` — a
+                // supported, documented configuration — so `AppDNA.shutdown()` threw into the host,
+                // and returned before resetting `isConfigured`/`isConfiguring`. The SDK was then
+                // wedged: the re-entrancy guard rejected every subsequent `configure()`.
+                try {
+                    ai.appdna.sdk.background.EventUploadWorker.scheduleIfNeeded(
+                        ctx, key, environment.baseUrl, db
+                    )
+                } catch (e: Throwable) {
+                    Log.warning("Background upload schedule on shutdown failed: ${e.message}")
+                }
             }
             connectivityMonitor?.shutdown()
             webEntitlementManager?.stopObserving()

@@ -45,6 +45,27 @@ internal object URLSafety {
         resolved.packageName == context.packageName
     }.getOrDefault(false)
 
+    /**
+     * Sanitize and open, in one call. Returns whether the URL was allowed and launched.
+     *
+     * 🔴 The helper above existed and was unit-tested, while the paywall — the MONEY surface — and
+     * the SDUI flow manager built `Intent(ACTION_VIEW, Uri.parse(configString))` by hand and
+     * bypassed it entirely. A tested guard nothing calls is not a guard. Every config-driven open
+     * goes through here now, so there is one place to test and one place to break.
+     */
+    fun open(context: Context, raw: String?, newTask: Boolean = false): Boolean {
+        val uri = sanitized(raw, context) ?: return false
+        return runCatching {
+            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+            if (newTask) intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            true
+        }.getOrElse {
+            Log.warning("Opening a config URL failed: ${it.message}")
+            false
+        }
+    }
+
     /** Parse and validate in one step. Returns null — and logs why — when the URL is refused. */
     fun sanitized(raw: String?, context: Context? = null): Uri? {
         if (raw.isNullOrBlank()) return null

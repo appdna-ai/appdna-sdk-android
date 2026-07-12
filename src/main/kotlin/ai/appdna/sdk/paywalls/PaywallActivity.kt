@@ -2971,8 +2971,9 @@ private fun PaywallLegalSection(
                 onClick = { offset ->
                     annotated.getStringAnnotations(tag = "URL", start = offset, end = offset)
                         .firstOrNull()?.let { annotation ->
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(annotation.item))
-                            context.startActivity(intent)
+                            // SPEC-070-B W11 — a markdown link in a legal block is still a
+                            // CONFIG-DRIVEN url. It goes through the allowlist like every other.
+                            ai.appdna.sdk.core.URLSafety.open(context, annotation.item)
                         }
                 },
             )
@@ -3002,8 +3003,9 @@ private fun PaywallLegalSection(
                             if (link.action == "restore") {
                                 onRestore()
                             } else if (link.url.isNotBlank()) {
-                                val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(link.url))
-                                context.startActivity(intent)
+                                // SPEC-070-B W11 — allowlisted. A paywall config that names
+                                // `javascript:` or `intent:` here is refused, not opened.
+                                ai.appdna.sdk.core.URLSafety.open(context, link.url)
                             }
                         },
                     )
@@ -3951,10 +3953,8 @@ private fun PaywallStickyFooter(
                 when (section.data.secondary_action) {
                     "restore" -> onRestore()
                     "link" -> {
-                        section.data.secondary_url?.let { url ->
-                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-                            context.startActivity(intent)
-                        }
+                        // SPEC-070-B W11 — allowlisted, like every other config-driven URL.
+                        ai.appdna.sdk.core.URLSafety.open(context, section.data.secondary_url)
                     }
                 }
             }) {

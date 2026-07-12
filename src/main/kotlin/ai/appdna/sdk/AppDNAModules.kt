@@ -791,3 +791,31 @@ interface AppDNAInitDelegate {
      */
     fun onInitDegraded(reason: Throwable) {}
 }
+
+/**
+ * SPEC-070-B W13 — the recoverable init failures the SDK reports through
+ * [AppDNAInitDelegate.onInitDegraded] and [ai.appdna.sdk.AppDNA.lastInitError].
+ *
+ * Mirrors iOS `AppDNAInitError` (AppDNA+Delegates.swift:194) case for case, so a cross-platform host
+ * — the React Native and Flutter wrappers above all — sees one error vocabulary.
+ */
+sealed class AppDNAInitError(message: String) : Exception(message) {
+    /**
+     * One subsystem failed to start. The others — analytics above all — are unaffected.
+     *
+     * 🔴 Before this existed, `configure()` built every subsystem bare. A throw out of any manager's
+     * constructor propagated to the HOST's `Application.onCreate()`, and the SDK never reached
+     * `performBootstrap`: no `isConfigured`, no `sdk_initialized`, no `onReady` callback — ever, for
+     * the whole process. iOS had isolated its subsystems; Android had not.
+     */
+    data class SubsystemFailed(val name: String, val detail: String) :
+        AppDNAInitError("Subsystem '$name' failed to initialize: $detail")
+
+    /** No usable AppDNA Firebase configuration. Remote config will not load; analytics still work. */
+    data class FirebaseConfigMissing(val detail: String) :
+        AppDNAInitError("Firebase configuration missing: $detail")
+
+    /** The bootstrap request failed. The SDK runs on cached config, if any. */
+    data class BootstrapFailed(val detail: String) :
+        AppDNAInitError("Bootstrap failed: $detail")
+}

@@ -129,22 +129,26 @@ internal class FlowManager(
         }
     }
 
+    /**
+     * Where the app context comes from. Production reads it off the configured SDK; the SPEC-070-B
+     * W11 test substitutes a Robolectric context so it can drive [handleAction] — the REAL call site
+     * — rather than re-implementing the open in the test.
+     */
+    internal var contextProvider: () -> android.content.Context? =
+        { ai.appdna.sdk.AppDNA.appContextForBridges() }
+
+    // SPEC-070-B W11 — both openers used to be `Intent(ACTION_VIEW, Uri.parse(configString))`,
+    // straight from remote config, with no allowlist. A `javascript:` or `intent:` URL published
+    // into a flow config opened whatever it named. `URLSafety.open` refuses anything that is not
+    // https / mailto / tel / sms / market, or a deep link back into the host's own package.
     private fun openDeepLink(url: String) {
-        try {
-            val ctx = ai.appdna.sdk.AppDNA.appContextForBridges() ?: return
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            ctx.startActivity(intent)
-        } catch (_: Throwable) { /* best-effort */ }
+        val ctx = contextProvider() ?: return
+        ai.appdna.sdk.core.URLSafety.open(ctx, url, newTask = true)
     }
 
     private fun openExternalUrl(url: String) {
-        try {
-            val ctx = ai.appdna.sdk.AppDNA.appContextForBridges() ?: return
-            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
-            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-            ctx.startActivity(intent)
-        } catch (_: Throwable) { /* best-effort */ }
+        val ctx = contextProvider() ?: return
+        ai.appdna.sdk.core.URLSafety.open(ctx, url, newTask = true)
     }
 
     private fun openAppSettings() {
