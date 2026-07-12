@@ -1,77 +1,74 @@
 package ai.appdna.sdk.core
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Ignore
+import org.junit.Assert.assertSame
 import org.junit.Test
-// import org.robolectric.RuntimeEnvironment   // un-ignore tests once Robolectric runner is wired
-// import java.io.File                          // ditto
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import java.io.File
 
 /**
- * SPEC-070-A A.3 — instrumentation stub for [NetworkImage] / [AppDNAImageLoader].
+ * SPEC-070-A A.3 — [AppDNAImageLoader], the Coil loader behind [NetworkImage].
  *
- * Robolectric is already on the SDK's `testImplementation` classpath
- * (see `build.gradle.kts` — `org.robolectric:robolectric:4.11.1`), but
- * driving Coil's `AsyncImage` through full Compose rendering needs the
- * Roborazzi snapshot harness (planned future work for the visual-snapshot
- * leg of SPEC-070-0 §3.4).
+ * ## What this file used to be
  *
- * Until that harness covers `NetworkImage`, this file documents the
- * intended assertions:
- *   1. `AppDNAImageLoader.singleton(context)` returns a non-null
- *      `coil.ImageLoader`.
- *   2. The disk-cache directory resolves to
- *      `<context.cacheDir>/appdna_image_cache`.
- *   3. Repeated calls return the same instance (singleton semantics).
+ * Three `@Ignore`d tests whose bodies were COMMENTED OUT, plus one live test that could not fail:
  *
- * Each assertion is provided as an `@Ignore`d test below so that switching
- * to Robolectric `RuntimeEnvironment.getApplication()` is a one-line
- * un-ignore + add `@RunWith(RobolectricTestRunner::class)` change.
+ *     assertNotNull(AppDNAImageLoader)                                        // an `object`. Never null.
+ *     assertEquals("ai.appdna.sdk.core.AppDNAImageLoader", …javaClass.name)   // a class names itself.
+ *
+ * Both assertions are true of a Kotlin `object` by construction — no edit to `AppDNAImageLoader` could
+ * make either one red. It was a test in the sense that it had a `@Test` annotation. Meanwhile the two
+ * things the loader actually promises went unchecked, and both are real bugs that ship silently:
+ *
+ *   - `singleton()` returning a NEW `ImageLoader` per call. Everything still renders; the memory cache
+ *     and the 50 MB disk cache are simply never reused, so every recomposition re-downloads. The bug
+ *     is invisible except as "the app feels slow and burns data".
+ *   - `diskCacheDir()` pointing somewhere other than `<cacheDir>/appdna_image_cache` — into the app's
+ *     own data, or a directory the OS never reclaims.
+ *
+ * The Roborazzi harness the old comments were waiting for is not needed for either: Robolectric was
+ * already on the `testImplementation` classpath the whole time. So this now asserts the behaviour,
+ * under Robolectric, for real. Falsified by planting both bugs — each turns a test red.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [33])
 class NetworkImageInstrumentationStubTest {
 
+    private fun context(): Context = ApplicationProvider.getApplicationContext()
+
     @Test
-    @Ignore(
-        "Requires Robolectric runtime — un-ignore once Roborazzi harness " +
-            "covers core/NetworkImage.kt. See SPEC-070-0 §3.4."
-    )
-    fun `singleton returns non-null ImageLoader`() {
-        // val context = RuntimeEnvironment.getApplication()
-        // val loader = AppDNAImageLoader.singleton(context)
-        // assertNotNull(loader)
+    fun `singleton returns a usable ImageLoader`() {
+        assertNotNull(AppDNAImageLoader.singleton(context()))
     }
 
     @Test
-    @Ignore(
-        "Requires Robolectric runtime — un-ignore once Roborazzi harness " +
-            "covers core/NetworkImage.kt. See SPEC-070-0 §3.4."
-    )
+    fun `singleton returns the SAME instance across calls`() {
+        val first = AppDNAImageLoader.singleton(context())
+        val second = AppDNAImageLoader.singleton(context())
+        // assertSame, not assertEquals: a fresh ImageLoader per call is the bug, and two fresh
+        // loaders could plausibly compare equal. Identity is the property that matters — it is what
+        // makes the memory + disk caches shared rather than per-call.
+        assertSame("singleton() must hand back one shared ImageLoader — a new one per call silently disables caching", first, second)
+    }
+
+    @Test
+    fun `singleton is stable even when called with different Context objects`() {
+        // Real callers pass whatever Context they have (LocalContext.current — an Activity, per
+        // composition). The loader keys off applicationContext, so the instance must not vary.
+        val fromApp = AppDNAImageLoader.singleton(context())
+        val fromOther = AppDNAImageLoader.singleton(context().applicationContext)
+        assertSame(fromApp, fromOther)
+    }
+
+    @Test
     fun `disk cache directory is appdna_image_cache under cacheDir`() {
-        // val context = RuntimeEnvironment.getApplication()
-        // val expected = File(context.cacheDir, "appdna_image_cache")
-        // assertEquals(expected.absolutePath, AppDNAImageLoader.diskCacheDir(context).absolutePath)
-    }
-
-    @Test
-    @Ignore(
-        "Requires Robolectric runtime — un-ignore once Roborazzi harness " +
-            "covers core/NetworkImage.kt. See SPEC-070-0 §3.4."
-    )
-    fun `singleton returns same instance across calls`() {
-        // val context = RuntimeEnvironment.getApplication()
-        // val first = AppDNAImageLoader.singleton(context)
-        // val second = AppDNAImageLoader.singleton(context)
-        // assertEquals(first, second)
-    }
-
-    /**
-     * Sanity check that runs without Robolectric — confirms this test class
-     * is on the JUnit classpath and the symbols imported above resolve.
-     * Prevents the file from being silently dropped.
-     */
-    @Test
-    fun `compile-time sanity check`() {
-        assertNotNull(AppDNAImageLoader)
-        assertEquals("ai.appdna.sdk.core.AppDNAImageLoader", AppDNAImageLoader.javaClass.name)
+        val ctx = context()
+        val expected = File(ctx.cacheDir, "appdna_image_cache")
+        assertEquals(expected.absolutePath, AppDNAImageLoader.diskCacheDir(ctx).absolutePath)
     }
 }
