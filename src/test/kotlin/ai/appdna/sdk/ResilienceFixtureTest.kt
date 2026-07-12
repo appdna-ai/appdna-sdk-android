@@ -1,6 +1,8 @@
 package ai.appdna.sdk
 
+import ai.appdna.sdk.events.EventQueue
 import ai.appdna.sdk.network.ApiClient
+import ai.appdna.sdk.network.EventUploadDisposition
 import ai.appdna.sdk.storage.EventDatabase
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
@@ -47,7 +49,9 @@ class ResilienceFixtureTest {
             val block = json.getJSONObject("resilience")
             val contract = block.getString("contract")
             seenContracts.add(contract)
-            val cases = block.getJSONArray("cases")
+            // Lazy: `backoff` asserts a DISTRIBUTION and carries no case table, so eagerly reading
+            // `cases` would throw before the dispatch below ever ran.
+            val cases: org.json.JSONArray by lazy { block.getJSONArray("cases") }
 
             when (contract) {
                 "transient_status" -> {
@@ -93,6 +97,105 @@ class ResilienceFixtureTest {
                     }
                 }
 
+                // AC-35 — the full three-way classification, plus the latch expectation. Android has
+                // no `eventUploadPermanentlyFailed` flag (it drops the batch and pauses via
+                // bumpFailureCounter), so the `latch` sequence is asserted against the SAME
+                // classifier, carried forward — a status that is not DROP_PERMANENT may neither set
+                // nor clear the latched state, and only a SUCCESS clears it. That is exactly what
+                // iOS's real flag does, so the two platforms are held to one expectation.
+                "permanent_failure" -> {
+                    for (i in 0 until cases.length()) {
+                        val c = cases.getJSONObject(i)
+                        val status = c.getInt("status")
+                        val expected = when (c.getString("disposition")) {
+                            "success" -> EventUploadDisposition.SUCCESS
+                            "retry_transient" -> EventUploadDisposition.RETRY_TRANSIENT
+                            "drop_permanent" -> EventUploadDisposition.DROP_PERMANENT
+                            // `error`, not `fail`: JUnit's fail() returns Unit, which widens the
+                            // `when` to Any and quietly un-types the comparison below.
+                            else -> error("[$id] unknown disposition '${c.getString("disposition")}'")
+                        }
+                        assertEquals(
+                            "[$id] HTTP $status disposition",
+                            expected,
+                            ApiClient.dispositionFor(status),
+                        )
+                    }
+
+                    val latch = block.optJSONArray("latch")
+                        ?: fail("[$id] permanent_failure must state a `latch` sequence — the 429 defect WAS the latch")
+                    var latched = false
+                    for (i in 0 until (latch as org.json.JSONArray).length()) {
+                        val step = latch.getJSONObject(i)
+                        val status = step.getInt("status")
+                        latched = when (ApiClient.dispositionFor(status)) {
+                            EventUploadDisposition.SUCCESS -> false
+                            EventUploadDisposition.DROP_PERMANENT -> true
+                            // 🔴 W1. The transient branch must leave the latch EXACTLY as it found it.
+                            // iOS set it here, and one 429 stopped every upload until app restart.
+                            EventUploadDisposition.RETRY_TRANSIENT -> latched
+                        }
+                        assertEquals(
+                            "[$id] after HTTP $status, permanently-failed?",
+                            step.getBoolean("permanently_failed"),
+                            latched,
+                        )
+                    }
+                }
+
+                // AC-35 — bounded AND jittered. Both halves, because each hides the other's failure:
+                // a `return base` regression satisfies every bound, and an unbounded jitter is still
+                // "jittered". Drives the real `EventQueue.jittered`, not a copy of its arithmetic.
+                "backoff" -> {
+                    val maxRetries = block.getInt("max_retries")
+                    val jitterPct = block.getDouble("jitter_pct")
+                    val samples = block.getInt("samples")
+                    val minDistinct = block.getInt("min_distinct_samples")
+                    val maxTotal = block.getLong("max_total_backoff_ms")
+                    val bases = block.getJSONArray("base_delays_ms")
+                        .let { arr -> (0 until arr.length()).map { arr.getLong(it) } }
+
+                    assertEquals("[$id] retry count", maxRetries, EventQueue.MAX_RETRIES)
+                    assertEquals("[$id] jitter fraction", jitterPct, EventQueue.JITTER_PCT, 1e-9)
+                    assertEquals(
+                        "[$id] base backoff schedule",
+                        bases,
+                        EventQueue.RETRY_DELAYS_MS.toList(),
+                    )
+
+                    var worstCaseTotal = 0L
+                    for (base in bases) {
+                        val lo = (base * (1 - jitterPct)).toLong()
+                        val hi = (base * (1 + jitterPct)).toLong()
+                        val seen = mutableSetOf<Long>()
+                        repeat(samples) {
+                            val d = EventQueue.jittered(base)
+                            assertTrue(
+                                "[$id] jittered($base) = $d escaped [$lo, $hi] — the backoff is not bounded",
+                                d in lo..hi,
+                            )
+                            assertTrue("[$id] jittered($base) = $d is negative", d >= 0)
+                            seen.add(d)
+                        }
+                        assertTrue(
+                            "[$id] jittered($base) produced only ${seen.size} distinct value(s) over " +
+                                "$samples samples — the jitter is not being applied, and a throttled " +
+                                "fleet will retry in lockstep",
+                            seen.size >= minDistinct,
+                        )
+                    }
+                    // "Bounded" is a claim about the TOTAL, not about one delay: initial attempt plus
+                    // MAX_RETRIES retries, each at its worst-case jittered ceiling.
+                    for (attempt in 1..maxRetries) {
+                        val base = bases[(attempt - 1).coerceAtMost(bases.size - 1)]
+                        worstCaseTotal += (base * (1 + jitterPct)).toLong()
+                    }
+                    assertTrue(
+                        "[$id] worst-case total backoff ${worstCaseTotal}ms exceeds the ${maxTotal}ms bound",
+                        worstCaseTotal <= maxTotal,
+                    )
+                }
+
                 else -> fail("[$id] unknown resilience contract '$contract' — this runner must assert it, never skip it")
             }
         }
@@ -101,7 +204,7 @@ class ResilienceFixtureTest {
         // and this suite would still go green on the survivors.
         assertEquals(
             "every resilience contract must be covered by a fixture",
-            setOf("transient_status", "retry_after", "stale_horizon"),
+            setOf("transient_status", "retry_after", "stale_horizon", "permanent_failure", "backoff"),
             seenContracts,
         )
     }

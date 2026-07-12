@@ -273,11 +273,8 @@ internal class EventQueue(
                     // Otherwise: exponential base + ±25% jitter, so a fleet throttled
                     // together does not retry in lockstep.
                     val serverHintMs = result.retryAfterSeconds?.times(1000L)
-                    val delayMs = serverHintMs ?: run {
-                        val baseMs = RETRY_DELAYS_MS[(attempt - 1).coerceAtMost(RETRY_DELAYS_MS.size - 1)]
-                        val jitterRange = (baseMs * JITTER_PCT).toLong()
-                        baseMs + Random.nextLong(-jitterRange, jitterRange + 1)
-                    }
+                    val delayMs = serverHintMs
+                        ?: jittered(RETRY_DELAYS_MS[(attempt - 1).coerceAtMost(RETRY_DELAYS_MS.size - 1)])
                     val why = if (serverHintMs != null) "Retry-After" else "backoff"
                     Log.debug("Flush failed (transient HTTP=${result.statusCode}), retrying in ${delayMs}ms via $why (attempt $attempt/$MAX_RETRIES)")
                     delay(delayMs.coerceAtLeast(0L))
@@ -370,6 +367,24 @@ internal class EventQueue(
         val RETRY_DELAYS_MS: LongArray = longArrayOf(1000L, 2000L, 4000L)
         /** SPEC-070-A A.16: ±25 % jitter, matches the prompt requirement. */
         const val JITTER_PCT = 0.25
+
+        /**
+         * SPEC-070-B AC-35 (`backoff_bounded_and_jittered`) — apply ±[JITTER_PCT] to a backoff delay.
+         *
+         * A named seam, not four lines inlined in the retry loop, because the fixture has to be able
+         * to SAMPLE it: "bounded" and "jittered" are claims about a distribution, and a distribution
+         * cannot be asserted through a `delay()` call inside a coroutine that is talking to OkHttp.
+         * Mirrors iOS `EventQueue.jittered(_:)`, which the same fixture drives.
+         *
+         * Never negative: a clamped-to-zero delay retries immediately, which is bad; a NEGATIVE delay
+         * would throw.
+         */
+        @JvmStatic
+        fun jittered(baseMs: Long): Long {
+            val jitterRange = (baseMs * JITTER_PCT).toLong()
+            if (jitterRange <= 0L) return baseMs.coerceAtLeast(0L)
+            return (baseMs + Random.nextLong(-jitterRange, jitterRange + 1)).coerceAtLeast(0L)
+        }
         /** SPEC-070-A A.16: Pause uploads after this many back-to-back batch failures. */
         const val MAX_CONSECUTIVE_FAILURES = 5
         /** SPEC-070-A A.17: Cap in-memory copy at 1000 events (matches iOS EventQueue.swift `maxInMemoryEvents`). */

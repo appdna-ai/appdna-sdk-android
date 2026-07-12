@@ -909,6 +909,16 @@ object AppDNA {
         eventTracker = tracker
     }
 
+    /**
+     * Test-only seam, alongside [installEventTrackerForTest]. The Activity-presenting surfaces
+     * (screens, flows) launch from [appContext], which only `configure()` (network bootstrap) sets —
+     * so a unit test could not reach the presentation path at all, which is how `showFlow()` shipped
+     * rendering literally nothing. Nil/unused in production.
+     */
+    internal fun installApplicationContextForTest(context: Context?) {
+        appContext = context
+    }
+
     fun track(event: String, properties: Map<String, Any>? = null) {
         // SPEC-428 STEP-9: double-checked locking. Fast path (post-configure) reads the @Volatile
         // eventTracker with no lock. If null, take preInitLock (which configure() holds while it reserves

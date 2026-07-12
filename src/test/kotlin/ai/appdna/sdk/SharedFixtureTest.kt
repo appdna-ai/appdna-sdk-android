@@ -377,9 +377,10 @@ class SharedFixtureTest(
                 inputValues = data.filterKeys { it != "action" }.filterValues { it != null }.mapValues { it.value!! },
                 onNext = { emitted -> recordAuthEmission(emitted, spy) },
                 onError = { msg -> spy.errors.add("auth_action_blocked" to msg) },
-                flowId = flow.id,
-                stepId = stepId,
-                stepIndex = currentIndex,
+                // The gate now reads the RENDERER's delegate (the one `present` was given), not the
+                // global `AppDNA.onboarding.listener` — they are different references and only the
+                // former is what `onBeforeStepAdvance` is actually called on.
+                delegate = delegate,
             )
         }
 
@@ -493,7 +494,8 @@ class SharedFixtureTest(
             "resend_verification", "enable_biometric", "request_otp", "verify_otp", "logout",
             "change_password", "set_new_password", "delete_account", "update_profile",
             -> {
-                AppDNA.onboarding.setDelegate(RecordingOnboardingDelegate(spy))
+                val delegate = RecordingOnboardingDelegate(spy)
+                AppDNA.onboarding.setDelegate(delegate)
                 emitAuthAction(
                     action = buttonAction,
                     actionValue = buttonValue,
@@ -501,9 +503,7 @@ class SharedFixtureTest(
                     inputValues = formData,
                     onNext = { emitted -> recordAuthEmission(emitted, spy) },
                     onError = { msg -> spy.errors.add("auth_action_blocked" to msg) },
-                    flowId = flow.id,
-                    stepId = step.id,
-                    stepIndex = currentIndex,
+                    delegate = delegate,
                 )
                 // The SDK deliberately does NOT advance here: it waits for the host's
                 // StepAdvanceResult from onBeforeStepAdvance.

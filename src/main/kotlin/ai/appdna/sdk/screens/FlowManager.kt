@@ -18,6 +18,26 @@ internal class FlowManager(
 
     var onComplete: ((FlowResult) -> Unit)? = null
 
+    /**
+     * Host hook fired immediately after [onComplete], on the SAME terminal
+     * transition. The presenting host ([ScreenHostActivity] in flow mode) uses
+     * it to finish itself. Kept separate from [onComplete] because
+     * [ScreenManager] owns that one (analytics + the caller's callback) and a
+     * flow must be drivable in a unit test with no Activity at all.
+     */
+    internal var onFinished: (() -> Unit)? = null
+
+    /**
+     * A flow has exactly ONE terminal transition. Without this latch the
+     * Activity's `onDestroy` backstop would fire `dismissFlow()` after a
+     * `completeFlow()` had already run, and the SAME flow would emit
+     * `flow_completed` AND `flow_abandoned`.
+     */
+    private var finished = false
+
+    /** True when [navigateBack] has somewhere to go — drives hardware-back handling in the host. */
+    internal val canGoBack: Boolean get() = navigationStack.isNotEmpty()
+
     val currentScreen: ScreenConfig?
         get() {
             val idx = _currentScreenIndex.value
@@ -207,14 +227,25 @@ internal class FlowManager(
         }
     }
 
-    private fun completeFlow() {
-        val duration = (System.currentTimeMillis() - startTime).toInt()
-        onComplete?.invoke(FlowResult(flowConfig.id, true, currentScreenId ?: "", responses, screensViewed, duration))
-    }
+    private fun completeFlow() = finish(completed = true)
 
-    fun dismissFlow() {
+    fun dismissFlow() = finish(completed = false)
+
+    private fun finish(completed: Boolean) {
+        if (finished) return
+        finished = true
         val duration = (System.currentTimeMillis() - startTime).toInt()
-        onComplete?.invoke(FlowResult(flowConfig.id, false, currentScreenId ?: "", responses, screensViewed, duration))
+        onComplete?.invoke(
+            FlowResult(
+                flowConfig.id,
+                completed,
+                currentScreenId ?: "",
+                responses.toMap(),
+                screensViewed.toList(),
+                duration,
+            ),
+        )
+        onFinished?.invoke()
     }
 
     private fun evaluateCondition(rule: NavigationRule): Boolean {

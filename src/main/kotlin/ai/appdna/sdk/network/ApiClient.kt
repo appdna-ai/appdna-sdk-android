@@ -248,43 +248,44 @@ internal class ApiClient(
 
                 client.newCall(request).execute().use { response ->
                     val code = response.code
-                    when {
-                        response.isSuccessful -> EventUploadResult.Success
-                        code == 401 -> {
-                            // SPEC-070-A H.1: surface invalid API key explicitly
-                            // so EventQueue can drop the batch (retrying won't help).
+                    // SPEC-070-B AC-35: the CLASSIFICATION is [dispositionFor], a pure function the
+                    // shared `permanent_4xx_dropped` fixture asserts on both platforms. It used to
+                    // live only in the branches of this `when` — reachable exclusively through a real
+                    // OkHttp round trip, so no test could ask whether a 429 drops a batch. On iOS the
+                    // equivalent code said "yes" for months and nothing caught it.
+                    when (dispositionFor(code)) {
+                        EventUploadDisposition.SUCCESS -> EventUploadResult.Success
+
+                        EventUploadDisposition.DROP_PERMANENT -> {
                             val (errCode, errMsg) = decodeErrorBody(response)
-                            Log.error(
-                                "Event upload auth failed (HTTP 401): Invalid API key or SDK suspended. " +
-                                    "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
-                            )
+                            if (code == 401) {
+                                // SPEC-070-A H.1: surface invalid API key explicitly
+                                // so EventQueue can drop the batch (retrying won't help).
+                                Log.error(
+                                    "Event upload auth failed (HTTP 401): Invalid API key or SDK suspended. " +
+                                        "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                                )
+                            } else {
+                                Log.error(
+                                    "Event upload rejected (HTTP $code): dropping batch — retrying won't help. " +
+                                        "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                                )
+                            }
                             EventUploadResult.ClientError(code)
                         }
-                        // 429 rate-limited / 408 request-timeout are transient by
-                        // definition — never drop the batch. Honor Retry-After when sent.
-                        // The set (not two inline literals) is the seam the shared `resilience`
-                        // fixture asserts, so iOS and Android are checked against the SAME table.
-                        code in TRANSIENT_STATUS_CODES -> {
+
+                        EventUploadDisposition.RETRY_TRANSIENT -> {
+                            // 429 rate-limited / 408 request-timeout are transient by definition —
+                            // never drop the batch. 503 commonly sends a Retry-After. Honor it either
+                            // way; a status nobody expected is retried rather than silently dropped.
                             val retryAfter = parseRetryAfter(response.header("Retry-After"))
                             val hint = retryAfter?.let { " Retry-After: ${it}s." } ?: ""
-                            Log.warning("Event upload throttled (HTTP $code):$hint retrying.")
+                            if (code in TRANSIENT_STATUS_CODES) {
+                                Log.warning("Event upload throttled (HTTP $code):$hint retrying.")
+                            } else {
+                                Log.warning("Event upload failed (HTTP $code):$hint retrying.")
+                            }
                             EventUploadResult.TransientFailure(code, retryAfter)
-                        }
-                        code in 400..499 -> {
-                            val (errCode, errMsg) = decodeErrorBody(response)
-                            Log.error(
-                                "Event upload rejected (HTTP $code): dropping batch — retrying won't help. " +
-                                    "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
-                            )
-                            EventUploadResult.ClientError(code)
-                        }
-                        code in 500..599 -> {
-                            Log.warning("Event upload server error (HTTP $code): retrying.")
-                            EventUploadResult.TransientFailure(code, parseRetryAfter(response.header("Retry-After")))
-                        }
-                        else -> {
-                            Log.warning("Event upload unexpected status (HTTP $code): retrying.")
-                            EventUploadResult.TransientFailure(code)
                         }
                     }
                 }
@@ -349,6 +350,20 @@ internal class ApiClient(
          */
         @JvmStatic
         val TRANSIENT_STATUS_CODES: Set<Int> = setOf(408, 429)
+
+        /**
+         * SPEC-070-B AC-35 — the pure classifier the shared `permanent_4xx_dropped` fixture asserts.
+         * Mirrors iOS `APIClient.disposition(for:)` exactly, which is the point: the two SDKs
+         * disagreed on 429 in production, and nothing could see it because the decision only existed
+         * inside a `when` over a live OkHttp `Response`.
+         */
+        @JvmStatic
+        fun dispositionFor(code: Int): EventUploadDisposition = when {
+            code in 200..299 -> EventUploadDisposition.SUCCESS
+            code in TRANSIENT_STATUS_CODES -> EventUploadDisposition.RETRY_TRANSIENT
+            code in 400..499 -> EventUploadDisposition.DROP_PERMANENT
+            else -> EventUploadDisposition.RETRY_TRANSIENT
+        }
 
         /**
          * Compress data using raw deflate (no zlib header/checksum) to match the iOS
@@ -424,4 +439,28 @@ internal sealed class EventUploadResult {
         val statusCode: Int?,
         val retryAfterSeconds: Long? = null,
     ) : EventUploadResult()
+}
+
+/**
+ * SPEC-070-B AC-35 — what an event-upload HTTP status MEANS, independent of any network.
+ *
+ * Mirrors iOS `APIClient.EventUploadDisposition`. It is a separate type from [EventUploadResult]
+ * because a result carries the response (status, Retry-After); a disposition is the pure decision
+ * ABOUT a status, and only a pure decision can be put in front of a shared fixture. The two SDKs
+ * disagreed on 429 for months precisely because the decision existed nowhere except inside a `when`
+ * over a live OkHttp `Response`.
+ */
+internal enum class EventUploadDisposition {
+    /** 2xx — the batch landed. Clears iOS's permanent-failure latch. */
+    SUCCESS,
+
+    /** Retry with backoff: 408, 429, every 5xx, and anything else unexpected. Never latches. */
+    RETRY_TRANSIENT,
+
+    /**
+     * A genuine permanent 4xx (400/401/403/404 …). Drop the batch: retrying a bad API key forever
+     * would only drain the battery. iOS additionally LATCHES `eventUploadPermanentlyFailed` here;
+     * Android pauses via `bumpFailureCounter()`.
+     */
+    DROP_PERMANENT,
 }

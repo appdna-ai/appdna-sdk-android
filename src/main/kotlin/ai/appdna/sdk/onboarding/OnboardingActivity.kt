@@ -1441,6 +1441,12 @@ internal fun OnboardingFlowHost(
                     step = step,
                     effectiveConfig = effectiveConfig,
                     flowId = flow.id,
+                    // 🔴 The delegate the RENDERER holds — the same reference `onBeforeStepAdvance`
+                    // is called on. The auth gate + permission callbacks downstream must read THIS,
+                    // not the global `AppDNA.onboarding.listener`, or a native host that passed its
+                    // delegate to `presentOnboarding(...)` gets a veto seam that works and an auth
+                    // gate that thinks there is no delegate at all.
+                    delegate = delegate,
                     // SPEC-419 STEP-2 — flow-host interaction seam threaded to the step scope.
                     performInteraction = ::performInteraction,
                     // SPEC-401-A R11 — pass accumulated responses (immutable
@@ -2048,6 +2054,8 @@ fun OnboardingStepView(
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
     flowId: String = "",
+    /** The renderer's delegate — see the call site in [OnboardingFlowHost]. */
+    delegate: AppDNAOnboardingDelegate? = null,
     currentStepIndex: Int = 0,
     totalSteps: Int = 1,
     /**
@@ -2111,6 +2119,7 @@ fun OnboardingStepView(
             stepId = step.id,
             // SPEC-419 STEP-2 — pass the flow-host interaction seam down to the step scope.
             performInteraction = performInteraction,
+            delegate = delegate,
         )
     } else {
         // Legacy rendering
@@ -2328,14 +2337,17 @@ internal fun emitAuthAction(
     // is for the person holding the phone. Both platforms now show it.
     onError: (String) -> Unit = {},
     blocks: List<ContentBlock> = emptyList(),
-    // SPEC-401-A R11 — context for the analytics fire on the no-delegate
-    // gate. iOS handleStepCompleted (OnboardingRenderer.swift:444-446)
-    // fires `onboarding_step_completed` BEFORE the requiresDelegate gate;
-    // Android previously returned early without emitting, so warehouse
-    // queries on auth attempts saw the event on iOS but not Android.
-    flowId: String? = null,
-    stepId: String? = null,
-    stepIndex: Int? = null,
+    /**
+     * 🔴 THE DELEGATE THE RENDERER ACTUALLY HOLDS — not `AppDNA.onboarding.listener`.
+     *
+     * This gate used to read the GLOBAL listener while the renderer's veto seam
+     * (`onBeforeStepAdvance`) reads the delegate that was passed to `present`. A native Kotlin host
+     * that calls the documented `AppDNA.presentOnboarding(activity, "welcome", myDelegate)` WITHOUT
+     * also calling `AppDNA.onboarding.setDelegate(...)` therefore had a working veto seam and a gate
+     * that saw NO delegate: every `email_login` / `request_otp` / `social_login` step refused to
+     * advance, forever, with a delegate sitting right there.
+     */
+    delegate: AppDNAOnboardingDelegate? = null,
 ) {
     // SPEC-070-A finalization OB-4 — auth-action delegate gate. If the
     // host has not registered an AppDNAOnboardingDelegate (which is the
@@ -2345,38 +2357,20 @@ internal fun emitAuthAction(
     // via SDK Log so production builds (BuildConfig.DEBUG=false) don't
     // suppress the message — auth flow misconfiguration is a developer
     // contract issue worth surfacing in release builds too.
-    if (action in AUTH_ACTIONS_REQUIRING_DELEGATE) {
-        val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
-        if (!hasDelegate) {
-            // SPEC-401-A R11 — fire `onboarding_step_completed` analytics
-            // BEFORE the early return, mirroring iOS handleStepCompleted
-            // pre-gate emit. Hosts looking at warehouse data for "user
-            // attempted login but flow misconfigured" now see the same
-            // event on both platforms.
-            if (flowId != null && stepId != null && stepIndex != null) {
-                val data = mutableMapOf<String, Any>().also { d ->
-                    d.putAll(inputValues)
-                    for ((k, v) in toggleValues) d["toggle_$k"] = v
-                    d["action"] = action
-                    if (actionValue != null) d["action_value"] = actionValue
-                }
-                ai.appdna.sdk.AppDNA.track("onboarding_step_completed", mapOf(
-                    "flow_id" to flowId,
-                    "step_id" to stepId,
-                    "step_index" to stepIndex,
-                    "selection_data" to data,
-                    "blocked_reason" to "no_delegate",
-                ))
-            }
-            ai.appdna.sdk.Log.warning(
-                "Auth action `$action` was triggered but no AppDNAOnboardingDelegate " +
-                "is registered. Register via AppDNA.onboarding.setDelegate(...) and " +
-                "implement onBeforeStepAdvance to handle authentication. Step will NOT " +
-                "advance to avoid silently leaking credentials into the responses payload."
-            )
-            onError("Sign-in isn't available right now. Please try again later.")
-            return
-        }
+    if (action in AUTH_ACTIONS_REQUIRING_DELEGATE && delegate == null) {
+        // 🔴 NO `onboarding_step_completed` HERE. The step did NOT complete — it refused to
+        // advance. Android used to emit one anyway (with a `blocked_reason: "no_delegate"` property
+        // no dbt model has ever heard of), inflating Android step-completion counts and funnel
+        // conversion by every misconfigured auth tap. iOS's blocked path emits nothing (its only
+        // `onboarding_step_completed` emitter is the real advance, via `onStepCompleted`).
+        ai.appdna.sdk.Log.warning(
+            "Auth action `$action` was triggered but no AppDNAOnboardingDelegate " +
+            "is registered. Register via AppDNA.onboarding.setDelegate(...) and " +
+            "implement onBeforeStepAdvance to handle authentication. Step will NOT " +
+            "advance to avoid silently leaking credentials into the responses payload."
+        )
+        onError("Sign-in isn't available right now. Please try again later.")
+        return
     }
 
     val data = mutableMapOf<String, Any>()
@@ -2402,6 +2396,44 @@ internal fun emitAuthAction(
             if (actionValue != null) data["action_value"] = actionValue
         }
     }
+    onNext(data)
+}
+
+/**
+ * The `social_login` CTA. Extracted from the Compose `when (action)` branch so the delegate gate is
+ * reachable — and provable — without a live Activity; it was previously unreachable by any test,
+ * which is how it kept BOTH bugs (global-listener gate, fake `onboarding_step_completed`) that
+ * [emitAuthAction] had.
+ *
+ * iOS treats `social_login` as one more entry in `AuthActionPolicy.delegateRequiredActions`
+ * (OnboardingRenderer.swift:1697), so the blocked path behaves exactly like every other auth action:
+ * log, show the error toast, DO NOT advance, emit nothing.
+ */
+internal fun emitSocialLoginAction(
+    provider: String?,
+    inputValues: Map<String, Any>,
+    onNext: (Map<String, Any>?) -> Unit,
+    onError: (String) -> Unit = {},
+    delegate: AppDNAOnboardingDelegate? = null,
+) {
+    if (delegate == null) {
+        ai.appdna.sdk.Log.warning(
+            "social_login button tapped but no AppDNAOnboardingDelegate is " +
+            "registered. Register via AppDNA.onboarding.setDelegate(...) and " +
+            "implement onBeforeStepAdvance to handle the OAuth flow. Step will " +
+            "NOT advance until a delegate is provided."
+        )
+        onError("Sign-in isn't available right now. Please try again later.")
+        return
+    }
+    // SPEC-070-A C.1 — social_login retains its existing data shape
+    // (`{provider, action: "social_login"}`) for hosts that switch on
+    // `action == "social_login"`. iOS `OnboardingRenderer.swift:1507-1524`.
+    val data = mutableMapOf<String, Any>(
+        "provider" to (provider ?: "unknown"),
+        "action" to "social_login",
+    )
+    data.putAll(inputValues)
     onNext(data)
 }
 
@@ -2722,6 +2754,12 @@ private fun BlockBasedStepView(
     // SPEC-419 STEP-2 — flow-host interaction seam. This is the STEP scope: it owns fieldConfigOverrides
     // + handleInteract and routes any host-requested advance through the required-field-gated handleAction.
     performInteraction: suspend (String, String, String?, Map<String, Any>) -> AppliedInteraction? = { _, _, _, _ -> null },
+    /**
+     * The renderer's delegate. Read by the auth-action gate ([emitAuthAction] /
+     * [emitSocialLoginAction]) and by the permission callbacks below, all of which used to read the
+     * GLOBAL `AppDNA.onboarding.listener` instead — a different reference.
+     */
+    delegate: AppDNAOnboardingDelegate? = null,
 ) {
     val variant = effectiveConfig.layout_variant ?: "no_image"
 
@@ -2787,7 +2825,7 @@ private fun BlockBasedStepView(
     // observe-only delegate callback. Does NOT advance — callers advance explicitly.
     fun storePermissionResult(type: String, granted: Boolean) {
         inputValues["permission_" + type] = if (granted) "granted" else "denied"
-        AppDNA.onboarding.listener?.onPermissionResult(
+        delegate?.onPermissionResult(
             flowId = flowId, stepId = stepId, permissionType = type, granted = granted,
         )
     }
@@ -2828,7 +2866,7 @@ private fun BlockBasedStepView(
     fun runPermissionPipeline(type: String) {
         interactionScope.launch {
             // 1. Optional host pre-hook — host may resolve without prompting.
-            val handling = AppDNA.onboarding.listener?.onPermissionRequest(type)
+            val handling = delegate?.onPermissionRequest(type)
             if (handling is PermissionHandling.HandledByHost) {
                 val granted = handling.granted
                 if (granted) {
@@ -2968,45 +3006,11 @@ private fun BlockBasedStepView(
             // with hosts that switch on `action == "social_login"`. iOS
             // `OnboardingRenderer.swift:1507-1524`.
             "social_login" -> {
-                // SPEC-070-A finalization B4 P1 — delegate gate. Without an
-                // AppDNAOnboardingDelegate to handle social-login, advancing
-                // would silently leak provider info into the responses
-                // payload with no auth performed. Match the gate iOS uses
-                // for `request_otp`/`login`/`register` etc.
-                val hasDelegate = ai.appdna.sdk.AppDNA.onboarding.listener != null
-                if (!hasDelegate) {
-                    // SPEC-401-A R13 — fire onboarding_step_completed BEFORE
-                    // early return, mirroring the emitAuthAction pre-gate
-                    // pattern + iOS handleStepCompleted (OnboardingRenderer
-                    // .swift:440-468). Without this hosts running BigQuery
-                    // queries on misconfigured social-login attempts see
-                    // hits on iOS but blanks on Android.
-                    val data = mutableMapOf<String, Any>(
-                        "provider" to (actionValue ?: "unknown"),
-                        "action" to "social_login",
-                    )
-                    data.putAll(inputValues)
-                    ai.appdna.sdk.AppDNA.track("onboarding_step_completed", mapOf(
-                        "flow_id" to flowId,
-                        "step_id" to stepId,
-                        "step_index" to currentStepIndex,
-                        "selection_data" to data,
-                        "blocked_reason" to "no_delegate",
-                    ))
-                    ai.appdna.sdk.Log.warning(
-                        "social_login button tapped but no AppDNAOnboardingDelegate is " +
-                        "registered. Register via AppDNA.onboarding.setDelegate(...) and " +
-                        "implement onBeforeStepAdvance to handle the OAuth flow. Step will " +
-                        "NOT advance until a delegate is provided."
-                    )
-                    return
-                }
-                val data = mutableMapOf<String, Any>(
-                    "provider" to (actionValue ?: "unknown"),
-                    "action" to "social_login",
+                emitSocialLoginAction(
+                    actionValue, inputValues, onNext,
+                    onError = { msg -> validationMessage = msg },
+                    delegate = delegate,
                 )
-                data.putAll(inputValues)
-                onNext(data)
             }
             // SPEC-070-A C.1 — strict-typed auth/account actions. Every case
             // emits `onNext({action, [recipient?], ...inputValues})` so the
@@ -3027,7 +3031,7 @@ private fun BlockBasedStepView(
                     rawAction, actionValue, toggleValues, inputValues, onNext,
                     onError = { msg -> validationMessage = msg },
                     blocks = blocks,
-                    flowId = flowId, stepId = stepId, stepIndex = currentStepIndex,
+                    delegate = delegate,
                 )
             }
             // SPEC-421 / SPEC-070-B — a `permission` CTA now goes through the [emitPermissionAction]

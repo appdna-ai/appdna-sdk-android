@@ -310,23 +310,57 @@ class ScreenManager private constructor() {
             fireOnFlowCompleted(flowId, errResult)
             return
         }
-        AppDNA.track("flow_started", mapOf("flow_id" to flowId, "flow_name" to config.name))
-        val result = FlowResult(flowId = flowId)
-        callback?.invoke(result)
-        // SPEC-070-A G.8 — `flow_completed` matches iOS
-        // ScreenManager.swift:222 (the completed-vs-abandoned split is
-        // driven by the FlowResult.completed flag — `flow_abandoned` for
-        // false, `flow_completed` for true). Without a real FlowManager
-        // running we treat the synchronous bailout as `flow_abandoned`
-        // to avoid false positives.
-        val eventName = if (result.completed) "flow_completed" else "flow_abandoned"
-        AppDNA.track(eventName, mapOf(
+        // 🔴 THE FLOW USED TO RENDER NOTHING. This method emitted `flow_started`, built an EMPTY
+        // `FlowResult` (completed=false), invoked the caller's callback, emitted `flow_abandoned`
+        // and returned — while [FlowManager], the real 21-verb router, was never instantiated
+        // anywhere in `src/main`. Every console-authored multi-screen flow — from a native host,
+        // from React Native, from Flutter — started, instantly "finished", and showed no UI.
+        //
+        // Now it does what iOS does at `Screens/ScreenManager.swift:220-256`: collect the flow's
+        // screen configs, build a FlowManager over them, wire `onComplete` to the analytics + the
+        // caller's callback, emit `flow_started`, and PRESENT (ScreenPresenter.presentFlow →
+        // ScreenHostActivity flow mode). `flow_completed` vs `flow_abandoned` is now decided by the
+        // FlowManager's REAL terminal transition, and carries the real screens_viewed + duration.
+        val screens = mutableMapOf<String, ScreenConfig>()
+        for (ref in config.screens) {
+            getCachedScreen(ref.screenId)?.let { screens[ref.screenId] = it }
+        }
+
+        val flowManager = FlowManager(config, screens)
+        flowManager.onComplete = { result ->
+            // iOS ScreenManager.swift:231-247 — same event names, same property set.
+            val eventName = if (result.completed) "flow_completed" else "flow_abandoned"
+            AppDNA.track(eventName, mapOf(
+                "flow_id" to flowId,
+                "flow_name" to config.name,
+                "screens_viewed" to result.screensViewed,
+                "duration_ms" to result.durationMs,
+            ))
+            // SPEC-070-A B.6 — fire onFlowCompleted delegate (fires on both
+            // completed and abandoned paths — host reads result.completed).
+            fireOnFlowCompleted(flowId, result)
+            callback?.invoke(result)
+        }
+
+        AppDNA.track("flow_started", mapOf(
             "flow_id" to flowId,
             "flow_name" to config.name,
+            "start_screen_id" to config.startScreenId,
         ))
-        // SPEC-070-A B.6 — fire onFlowCompleted delegate (fires on both
-        // completed and abandoned paths — host reads result.completed).
-        fireOnFlowCompleted(flowId, result)
+
+        val appCtx = AppDNA.getApplicationContext()
+        if (appCtx == null || flowManager.currentScreen == null) {
+            // Nothing can be rendered (SDK not configured, or the start screen's config was never
+            // cached). Terminate the flow properly instead of leaving the caller hanging — one
+            // `flow_abandoned` through the SAME path a user-abandoned flow takes.
+            ai.appdna.sdk.Log.warning(
+                if (appCtx == null) "showFlow($flowId): no application context — SDK not configured."
+                else "showFlow($flowId): start screen '${config.startScreenId}' not cached — cannot render.",
+            )
+            flowManager.dismissFlow()
+            return
+        }
+        ScreenHostActivity.launchFlow(appCtx, flowId, flowManager)
     }
 
     /**
