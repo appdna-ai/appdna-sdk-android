@@ -132,7 +132,15 @@ class PurchaseEventsEmittedOnceTest {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val mgr = realBillingManager()
         AppDNA.billing.manager = mgr
-        mgr.currentPaywallId = "pw_test"
+        // 🔴 This line used to say `mgr.currentPaywallId = "pw_test"`.
+        //
+        // Nothing in PRODUCTION ever wrote that field — the test wrote it, and then asserted the
+        // event carried it. So when the purchase emits moved down into the billing manager, every
+        // Android purchase event shipped `paywall_id: ""` and this test stayed green, because the
+        // test was driving a path production could not reach. Blanked paywall conversion, MTPU-by-
+        // paywall and every paywall experiment breakdown, while iOS still sent the real id.
+        //
+        // The setup no longer supplies it. `handlePurchase` must set it, or the assertions below fail.
 
         realPaywallManager().handlePurchase(
             activity = activity,

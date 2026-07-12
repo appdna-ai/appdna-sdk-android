@@ -179,6 +179,10 @@ class NativeBillingManager internal constructor(
 
     /** Attribution context for the current purchase. */
     var currentPaywallId: String? = null
+    // ⚠️ PRE-EXISTING GAP, not a regression: nothing writes this, so `experiment_id` ships as "" on
+    // every purchase event. The value lives on `PaywallContext.experiment`, which `handlePurchase`
+    // never receives — closing it means threading the context down, not a one-line assignment. Left
+    // explicit rather than silently emitting an empty string that looks like a real value.
     var currentExperimentId: String? = null
 
     /**
@@ -821,6 +825,10 @@ class NativeBillingManager internal constructor(
                 purchaseContinuation = null
                 pendingProductId = null
                 currentPaywallMetadata = emptyMap()
+        // Same scope as the metadata: a direct AppDNA.billing.purchase() with no paywall must not
+        // inherit the last paywall's id and mis-attribute the revenue to it.
+        currentPaywallId = null
+        currentExperimentId = null
                 continuation.resume(
                     failPurchase(
                         "Failed to launch billing flow: ${launchResult.debugMessage}",

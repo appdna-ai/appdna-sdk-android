@@ -282,9 +282,19 @@ internal class PaywallManager(
         listener: AppDNAPaywallDelegate?,
     ) {
         listener?.onPaywallPurchaseStarted(paywallId = paywallId, productId = plan.product_id)
-        // AC-038 — the toggle states + promo_code this paywall collected ride along on the manager's
-        // purchase events. Purchase-scoped: the manager clears it on every terminal outcome.
-        AppDNA.billing.manager?.currentPaywallMetadata = metadata
+        // 🔴 The ids must travel WITH the metadata. When the purchase emits moved down to the billing
+        // manager (so they stopped firing twice), `currentPaywallId` / `currentExperimentId` were left
+        // read-only: the manager read them into every purchase event and NOTHING in production ever
+        // wrote them. So `paywall_id` shipped as "" on every Android purchase — blanking paywall
+        // conversion, MTPU-by-paywall and every paywall experiment breakdown — while iOS still sent the
+        // real id, so the two platforms disagreed on the same column.
+        //
+        // It was green only because the TEST assigned the field itself. A test driving a path
+        // production cannot reach is not a test.
+        AppDNA.billing.manager?.let { mgr ->
+            mgr.currentPaywallMetadata = metadata
+            mgr.currentPaywallId = paywallId
+        }
 
         scope.launch {
             try {
