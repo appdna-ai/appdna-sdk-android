@@ -984,7 +984,13 @@ object AppDNA {
             activity = activity,
             id = id,
             context = context,
-            listener = listener
+            // A wrapper (React Native / Flutter) has no Kotlin delegate object to pass — its delegate
+            // lives in JS/Dart behind `AppDNA.paywall.setDelegate(...)`. Without this fallback the
+            // paywall RENDERS PERFECTLY and every callback is dead, and PaywallManager's
+            // `onPromoCodeSubmit = if (listener != null) {...} else null` drops promo codes into the
+            // no-delegate fallback that accepts ANY non-blank code. iOS has always fallen back
+            // (AppDNA.swift:607/632).
+            listener = resolvePaywallListener(listener)
         ) ?: Log.warning("Cannot present paywall — SDK not configured")
     }
 
@@ -1014,7 +1020,7 @@ object AppDNA {
             activity = activity,
             placement = placement,
             context = context,
-            listener = listener,
+            listener = resolvePaywallListener(listener)
         ) ?: Log.warning("Cannot present paywall by placement — SDK not configured")
     }
 
@@ -1029,6 +1035,22 @@ object AppDNA {
      * @param listener Optional listener for onboarding lifecycle events.
      * @return true if the flow was presented, false if config was not found.
      */
+    /**
+     * The fallback, in one named place so it is testable and so a reader can see the guarantee.
+     *
+     * A caller that omits the delegate gets the one the host registered. Every WRAPPER omits it —
+     * React Native and Flutter have no Kotlin delegate object to hand over, because theirs lives in
+     * JS/Dart behind `setDelegate`.
+     */
+    @JvmStatic
+    internal fun resolveOnboardingListener(explicit: AppDNAOnboardingDelegate?): AppDNAOnboardingDelegate? =
+        explicit ?: onboarding.listener
+
+    /** @see resolveOnboardingListener */
+    @JvmStatic
+    internal fun resolvePaywallListener(explicit: AppDNAPaywallDelegate?): AppDNAPaywallDelegate? =
+        explicit ?: paywall.listener
+
     @JvmStatic
     @JvmOverloads
     fun presentOnboarding(
@@ -1036,6 +1058,21 @@ object AppDNA {
         flowId: String? = null,
         listener: AppDNAOnboardingDelegate? = null
     ): Boolean {
+        // 🔴 A caller that omits the listener MUST still get the one the host registered via
+        // `AppDNA.onboarding.setDelegate(...)`. iOS has always done this (AppDNA.swift:660); Android
+        // did not, and it was invisible because the flow RENDERS PERFECTLY with a null delegate:
+        //
+        //   - every lifecycle callback (started/stepChanged/completed/dismissed) went nowhere;
+        //   - the veto seam (onBeforeStepAdvance / onBeforeStepRender / onElementInteraction) never
+        //     fired, because the renderer holds THIS reference;
+        //   - and the auth gate checks a DIFFERENT reference (`onboarding.listener`, which IS set), so
+        //     it saw a delegate, passed, and asked no one — an `email_login` / `verify_otp` step
+        //     ADVANCED PAST THE CREDENTIAL STEP with nobody authenticating the user.
+        //
+        // Every wrapper hits this: React Native and Flutter have no Kotlin delegate object to hand
+        // over, because their delegate lives in JS/Dart behind setDelegate.
+        @Suppress("NAME_SHADOWING")
+        val listener = resolveOnboardingListener(listener)
         // SPEC-401-A R26 — match iOS AppDNA.swift:386-394 thread-safety:
         // iOS uses `Thread.isMainThread` + `DispatchQueue.main.sync` to
         // marshal off-thread callers. Android was running the entire
@@ -1068,6 +1105,21 @@ object AppDNA {
         flowId: String?,
         listener: AppDNAOnboardingDelegate?,
     ): Boolean {
+        // 🔴 A caller that passes no listener MUST still get the one the host registered via
+        // `AppDNA.onboarding.setDelegate(...)`. iOS has always done this (`AppDNA.swift:660`,
+        // `delegate ?? AppDNA.onboarding.delegate`); Android did not, and the consequence was
+        // invisible because the surface still RENDERS perfectly with a null delegate:
+        //
+        //   - every lifecycle callback (started / stepChanged / completed / dismissed) went nowhere;
+        //   - the veto seam (onBeforeStepAdvance / onBeforeStepRender / onElementInteraction) never
+        //     fired at all, because the renderer holds THIS reference;
+        //   - and worst, the auth gate at OnboardingActivity checks a DIFFERENT reference
+        //     (`AppDNA.onboarding.listener`, which IS set), so it saw a delegate, passed, and never
+        //     asked anyone — so an `email_login` / `verify_otp` step ADVANCED PAST THE CREDENTIAL
+        //     STEP with nobody authenticating the user.
+        //
+        // Every wrapper (React Native, Flutter) hits this path, because a wrapper has no Kotlin
+        // delegate object to hand over — its delegate lives in JS/Dart behind `setDelegate`.
         return onboardingFlowManager?.present(
             activity = activity,
             flowId = flowId,
