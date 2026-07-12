@@ -844,6 +844,20 @@ object AppDNA {
         eventTracker?.track(event, properties)
     }
 
+    /**
+     * Test-only observation seam, mirroring iOS `EventTracker.eventSink`.
+     *
+     * Everything the billing layer emits goes through the STATIC `AppDNA.track(...)`, whose tracker is
+     * only ever published by `configure()` (which needs a network bootstrap). A unit test therefore
+     * could not see a single billing event — which is exactly how Android shipped a purchase chain
+     * that emitted `purchase_started` and `purchase_completed` TWICE per purchase without one test
+     * noticing. Installing a real EventTracker (backed by a real EventQueue + EventDatabase) lets a
+     * test read back the envelopes the SDK actually produced. Nil/unused in production.
+     */
+    internal fun installEventTrackerForTest(tracker: EventTracker?) {
+        eventTracker = tracker
+    }
+
     fun track(event: String, properties: Map<String, Any>? = null) {
         // SPEC-428 STEP-9: double-checked locking. Fast path (post-configure) reads the @Volatile
         // eventTracker with no lock. If null, take preInitLock (which configure() holds while it reserves

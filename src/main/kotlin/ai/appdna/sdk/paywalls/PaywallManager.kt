@@ -258,8 +258,22 @@ internal class PaywallManager(
      * [AppDNA.billing.purchase] and on success dispatches
      * [handlePostPurchaseSuccess]; on failure dispatches
      * [handlePostPurchaseFailure].
+     *
+     * ⚠️ THIS LAYER EMITS NO PURCHASE EVENTS. It used to emit `purchase_started` /
+     * `purchase_completed` / `purchase_canceled` / `purchase_pending` / `purchase_failed` — and so
+     * does [NativeBillingManager], which sits underneath it on the very same purchase. Every Android
+     * paywall purchase therefore produced TWO of each event, with two different property shapes (so
+     * dbt could not dedup them), and Android paywall conversion + purchase volume read ~2× iOS for
+     * identical user behaviour. The billing manager owns the purchase-event family now, because it is
+     * the only layer on BOTH this path and the direct `AppDNA.billing.purchase()` path, and the only
+     * one that sees Play's terminal outcome. What this layer contributes — the paywall's AC-038
+     * metadata (toggle states, promo_code) — is handed DOWN to the manager instead of being emitted
+     * a second time.
+     *
+     * `internal` (not private) so a test can drive the whole paywall→billing purchase chain and count
+     * what the two layers emit together — see `PurchaseEventsEmittedOnceTest`.
      */
-    private fun handlePurchase(
+    internal fun handlePurchase(
         activity: Activity,
         paywallId: String,
         plan: PaywallPlan,
@@ -268,63 +282,13 @@ internal class PaywallManager(
         listener: AppDNAPaywallDelegate?,
     ) {
         listener?.onPaywallPurchaseStarted(paywallId = paywallId, productId = plan.product_id)
-        // AC-038: include toggle states + promo_code in event metadata
-        val purchaseProps = mutableMapOf<String, Any>(
-            "paywall_id" to paywallId,
-            "product_id" to plan.product_id,
-        )
-        purchaseProps.putAll(metadata)
-        eventTracker.track("purchase_started", purchaseProps)
+        // AC-038 — the toggle states + promo_code this paywall collected ride along on the manager's
+        // purchase events. Purchase-scoped: the manager clears it on every terminal outcome.
+        AppDNA.billing.manager?.currentPaywallMetadata = metadata
 
         scope.launch {
             try {
                 val tx = AppDNA.billing.purchase(activity, plan.product_id)
-                // SPEC-070-A G.6 — purchase_completed includes price + currency + paywall_id
-                val completedProps = mutableMapOf<String, Any>(
-                    "paywall_id" to paywallId,
-                    "product_id" to tx.productId,
-                    "transaction_id" to tx.transactionId,
-                )
-                // SPEC-070-A finalization B5#P1 — fan out the FULL purchaseProps
-                // metadata into purchase_completed, mirroring iOS PaywallManager.swift:208
-                // which copies the entire dict. Previously only price+currency
-                // were copied through, dropping provider and any plan-card-injected
-                // metadata. Now `provider`, `price`, `currency`, plus any future
-                // metadata key reaches the funnel.
-                purchaseProps.forEach { (k, v) ->
-                    if (k != "paywall_id" && k != "product_id") {
-                        completedProps[k] = v
-                    }
-                }
-                // Ensure provider is set even when caller didn't inject it.
-                // BillingModule.purchase always routes through native Play
-                // Billing on Android (RC/Adapty bridges fire purchase_completed
-                // themselves with their own provider tag), so the native path
-                // can default to "google_play".
-                if (!completedProps.containsKey("provider")) {
-                    completedProps["provider"] = "google_play"
-                }
-                // SPEC-070-A finalization B5 P1 — pull real price/currency
-                // from the PriceResolver cache when caller didn't inject
-                // them. NativeBillingManager populates the cache when the
-                // host queries products before purchase; this is the same
-                // resolver path the native handler uses. Mirrors iOS
-                // PaywallManager which reads `result.priceFormatStyle` /
-                // `product.price` directly.
-                if (!completedProps.containsKey("price") || !completedProps.containsKey("currency")) {
-                    val cached = try {
-                        AppDNA.billing.manager?.priceResolver?.cachedPriceInfo(plan.product_id)
-                    } catch (_: Throwable) { null }
-                    if (cached != null) {
-                        if (!completedProps.containsKey("price")) {
-                            completedProps["price"] = cached.priceMicros / 1_000_000.0
-                        }
-                        if (!completedProps.containsKey("currency")) {
-                            completedProps["currency"] = cached.currencyCode
-                        }
-                    }
-                }
-                eventTracker.track("purchase_completed", completedProps)
 
                 listener?.onPaywallPurchaseCompleted(
                     paywallId = paywallId,
@@ -337,15 +301,8 @@ internal class PaywallManager(
                     listener = listener,
                 )
             } catch (e: PurchaseCancelledException) {
-                eventTracker.track(
-                    // SPEC-070-A finalization: matches iOS canonical
-                    // `purchase_canceled` (single 'l'). NativeBillingManager.swift:166.
-                    "purchase_canceled",
-                    mapOf(
-                        "paywall_id" to paywallId,
-                        "product_id" to plan.product_id,
-                    ),
-                )
+                // No `purchase_canceled` emit here — NativeBillingManager's USER_CANCELED branch
+                // already emitted exactly one, with these same property names.
                 listener?.onPaywallPurchaseFailed(
                     paywallId = paywallId,
                     error = e,
@@ -358,13 +315,8 @@ internal class PaywallManager(
                     listener = listener,
                 )
             } catch (e: PurchasePendingException) {
-                eventTracker.track(
-                    "purchase_pending",
-                    mapOf(
-                        "paywall_id" to paywallId,
-                        "product_id" to plan.product_id,
-                    ),
-                )
+                // No `purchase_pending` emit here — handleSuccessfulPurchase already emitted exactly
+                // one when Play reported PurchaseState.PENDING.
                 listener?.onPaywallPurchaseFailed(
                     paywallId = paywallId,
                     error = e,
@@ -377,20 +329,12 @@ internal class PaywallManager(
                     listener = listener,
                 )
             } catch (e: Exception) {
-                // SPEC-070-B — `error_type` is the machine-readable half of `error`. Without it
-                // the funnel (and every wrapper, which only sees data across its bridge) could
-                // only regex the human-readable message to tell a declined card from a
-                // misconfigured product id.
+                // No `purchase_failed` emit here — every terminal failure of the manager's purchase()
+                // emits exactly one (incl. the early returns: no client, unknown product, launch
+                // rejected), carrying the same `paywall_id` / `product_id` / `error` / `error_type`
+                // keys iOS uses (PurchaseFailedProps.build, PaywallManager.swift:515).
+                // `error_type` is still needed HERE for the delegate callback.
                 val errorType = ai.appdna.sdk.billing.billingErrorType(e)
-                eventTracker.track(
-                    "purchase_failed",
-                    mapOf(
-                        "paywall_id" to paywallId,
-                        "product_id" to plan.product_id,
-                        "error" to (e.message ?: "unknown"),
-                        "error_type" to errorType,
-                    ),
-                )
                 val purchaseError = if (e is PurchaseFailedException) e else Exception(e.message, e)
                 listener?.onPaywallPurchaseFailed(
                     paywallId = paywallId,

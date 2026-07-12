@@ -181,6 +181,29 @@ class NativeBillingManager internal constructor(
     var currentPaywallId: String? = null
     var currentExperimentId: String? = null
 
+    /**
+     * Paywall-supplied event metadata for the purchase currently in flight (AC-038 toggle states,
+     * `promo_code`, anything a plan card injected).
+     *
+     * WHY THIS EXISTS: [PaywallManager] used to emit its OWN `purchase_started` / `purchase_completed`
+     * next to the ones this class emits for the same purchase, so every Android paywall purchase
+     * produced TWO of each — Android read ~2× iOS for identical user behaviour, and the two emits had
+     * different property shapes so nothing downstream could dedup them. The billing manager is now the
+     * single owner of the purchase-event family (it is the only layer on BOTH the paywall path and the
+     * direct `AppDNA.billing.purchase()` path, and the only one that sees Play's terminal outcome), so
+     * the paywall hands its metadata down here instead of emitting a second event.
+     *
+     * Purchase-scoped: set by PaywallManager before it calls `purchase`, cleared in [resumePurchase]
+     * alongside [pendingProductId].
+     */
+    internal var currentPaywallMetadata: Map<String, Any> = emptyMap()
+
+    /** Fold [currentPaywallMetadata] into a purchase event without overwriting the canonical keys. */
+    private fun MutableMap<String, Any>.withPaywallMetadata(): MutableMap<String, Any> {
+        for ((k, v) in currentPaywallMetadata) if (!containsKey(k)) put(k, v)
+        return this
+    }
+
     // SPEC-070-A A.20 — process-lifecycle observer that polls
     // `BillingClient.queryPurchasesAsync` on every foreground entry, diffs
     // against the snapshot persisted in [LocalStorage], and emits
@@ -226,11 +249,31 @@ class NativeBillingManager internal constructor(
                         val restored = restorePurchases()
                         val entitlement = restored.firstOrNull()
                         if (entitlement != null) {
+                            // The host asked to buy and ends up entitled, so this IS a completed
+                            // purchase for the funnel. PaywallManager used to emit it (it only saw
+                            // "the suspend returned Purchased"); now that this class owns the family,
+                            // the emit has to happen on this branch too or the path goes silent.
+                            trackPurchaseCompleted(
+                                productId = entitlement.productId,
+                                isTrial = entitlement.isTrial,
+                                transactionId = entitlement.productId,
+                            )
                             resumePurchase(PurchaseResult.Purchased(entitlement))
                         } else {
+                            trackPurchaseFailed(
+                                reason = "item_already_owned_no_entitlement",
+                                debugMessage = billingResult.debugMessage,
+                                productId = pendingProductId,
+                            )
                             resumePurchase(PurchaseResult.Unknown)
                         }
                     } catch (e: Exception) {
+                        trackPurchaseFailed(
+                            reason = "restore_failed",
+                            debugMessage = e.message,
+                            productId = pendingProductId,
+                            errorType = billingErrorType(e),
+                        )
                         resumePurchase(PurchaseResult.Failed(e.message ?: "Restore failed"))
                     }
                 }
@@ -357,13 +400,71 @@ class NativeBillingManager internal constructor(
         reason: String,
         debugMessage: String?,
         productId: String? = null,
+        errorType: String = "unknown",
     ) {
         AppDNA.track("purchase_failed", buildMap {
             put("paywall_id", currentPaywallId ?: "")
             put("reason", reason)
+            // iOS `PurchaseFailedProps.build` (PaywallManager.swift:515) emits `error` + `error_type`
+            // on every purchase_failed. PaywallManager.kt used to add them on the paywall path only —
+            // now that this class is the sole emitter, they must be here or the Android funnel loses
+            // the machine-readable discriminator on every non-paywall failure.
+            put("error", debugMessage?.takeIf { it.isNotBlank() } ?: reason)
+            put("error_type", errorType)
             if (!debugMessage.isNullOrBlank()) put("debug_message", debugMessage)
             if (!productId.isNullOrBlank()) put("product_id", productId)
         })
+    }
+
+    /**
+     * The single `purchase_completed` emit for the native Play path.
+     *
+     * Property names are iOS's (`PaywallManager.swift:253` — `paywall_id`, `product_id`, `price`,
+     * `currency`, `provider`) plus the Android-side extras that already shipped (`is_trial`,
+     * `experiment_id`, `transaction_id`) and any paywall metadata the plan card injected.
+     */
+    private fun trackPurchaseCompleted(
+        productId: String,
+        isTrial: Boolean,
+        transactionId: String?,
+    ) {
+        val props = mutableMapOf<String, Any>(
+            "product_id" to productId,
+            "paywall_id" to (currentPaywallId ?: ""),
+            // SPEC-070-A finalization parity audit R6 — emit Bool not stringified Bool. iOS emits a
+            // raw Bool; ETL dashboards filtering WHERE is_trial = true silently dropped Android rows.
+            "is_trial" to isTrial,
+            // BillingModule.purchase always routes through native Play Billing on Android (the
+            // RC/Adapty bridges emit their own `provider` tag from their own forward* entry points).
+            "provider" to "google_play",
+        )
+        transactionId?.takeIf { it.isNotBlank() }?.let { props["transaction_id"] = it }
+        currentExperimentId?.let { props["experiment_id"] = it }
+        // SPEC-070-A G.6 — resolve price/currency from the PriceResolver cache when available.
+        // Best-effort; failures fall through so the rest of the envelope still ships.
+        try {
+            priceResolver.cachedPriceInfo(productId)?.let { info ->
+                props["price"] = info.priceMicros / 1_000_000.0
+                props["currency"] = info.currencyCode
+            }
+        } catch (_: Throwable) { /* best-effort */ }
+        AppDNA.track("purchase_completed", props.withPaywallMetadata())
+    }
+
+    /**
+     * Terminal-failure helper for the early returns inside [purchase] — the paths that never reach
+     * Play's `PurchasesUpdatedListener` (no client, unknown product, launch rejected). These used to
+     * emit nothing here and were covered only by PaywallManager's duplicate emit; with the paywall no
+     * longer emitting, a purchase that dies on one of these paths would have been SILENT.
+     */
+    private fun failPurchase(
+        message: String,
+        reason: String,
+        productId: String?,
+        errorType: String = "unknown",
+    ): PurchaseResult.Failed {
+        trackPurchaseFailed(reason = reason, debugMessage = message, productId = productId, errorType = errorType)
+        return PurchaseResult.Failed(message)
     }
 
     /** Connection manager handling BillingClient lifecycle. */
@@ -535,8 +636,15 @@ class NativeBillingManager internal constructor(
                 // CASE-rewrite in `stg_purchase_events.sql` (Part B). Historic
                 // Android `subscription_cancelled` rows are backfilled via a
                 // post-merge `dbt run --select stg_purchase_events --full-refresh`.
-                val event = if (prev.isAutoRenewing) "subscription_renewal_failed" else "subscription_canceled"
-                AppDNA.track(event, mapOf("product_id" to productId))
+                //
+                // Both names are spelled out as LITERALS at the callsite (rather than hoisted into a
+                // `val`) because `check:event-name-parity` reads literal track() arguments — behind a
+                // variable, these two events were invisible to the gate on BOTH platforms.
+                if (prev.isAutoRenewing) {
+                    AppDNA.track("subscription_renewal_failed", mapOf("product_id" to productId))
+                } else {
+                    AppDNA.track("subscription_canceled", mapOf("product_id" to productId))
+                }
             }
         }
 
@@ -635,16 +743,17 @@ class NativeBillingManager internal constructor(
         // (USER_CANCELED, SERVICE_DISCONNECTED, …) can attribute their
         // analytics back to it. Cleared in [resumePurchase] on any terminal.
         pendingProductId = productId
-        // SPEC-070-A finalization parity — match iOS NativeBillingManager.swift:73-77
-        // (product_id + paywall_id + experiment_id).
-        AppDNA.track("purchase_started", mapOf(
+        // THE ONE `purchase_started` for this purchase — paywall-driven or direct. Property names
+        // match iOS PaywallManager.swift:236 (`paywall_id`, `product_id`, + the paywall's metadata);
+        // `experiment_id` is the Android-side extra that already shipped.
+        AppDNA.track("purchase_started", mutableMapOf<String, Any>(
             "product_id" to productId,
             "paywall_id" to (currentPaywallId ?: ""),
             "experiment_id" to (currentExperimentId ?: ""),
-        ))
+        ).withPaywallMetadata())
 
         val client = connectionManager.awaitConnectedClient()
-            ?: return PurchaseResult.Failed("BillingClient not connected")
+            ?: return failPurchase("BillingClient not connected", "billing_client_not_connected", productId)
 
         // SPEC-070-A A.27 — query SUBS and INAPP in parallel; pick whichever
         // Play returns. Some products are configured as one-time entitlements
@@ -656,7 +765,12 @@ class NativeBillingManager internal constructor(
             val inapp = inappDeferred.await()
             // Prefer SUBS when both succeed (matches iOS ordering).
             subs ?: inapp
-        } ?: return PurchaseResult.Failed("Product not found: $productId")
+        } ?: return failPurchase(
+            "Product not found: $productId",
+            "product_not_found",
+            productId,
+            errorType = "productNotFound",
+        )
 
         val productDetails = resolved.productDetails
         val productType = resolved.productType
@@ -705,8 +819,14 @@ class NativeBillingManager internal constructor(
             val launchResult = client.launchBillingFlow(activity, flowParams)
             if (launchResult.responseCode != BillingClient.BillingResponseCode.OK) {
                 purchaseContinuation = null
+                pendingProductId = null
+                currentPaywallMetadata = emptyMap()
                 continuation.resume(
-                    PurchaseResult.Failed("Failed to launch billing flow: ${launchResult.debugMessage}")
+                    failPurchase(
+                        "Failed to launch billing flow: ${launchResult.debugMessage}",
+                        "launch_billing_flow_failed",
+                        productId,
+                    )
                 ) {}
             }
         }
@@ -1007,31 +1127,12 @@ class NativeBillingManager internal constructor(
             // Update cache
             entitlementCache.update(entitlement)
 
-            // SPEC-070-A G.6 — resolve price/currency from PriceResolver cache
-            // when available. Resolver is best-effort; failures fall through
-            // with empty strings so the rest of the analytics envelope still
-            // ships.
-            val priceInfo = try {
-                priceResolver.cachedPriceInfo(productId)
-            } catch (_: Throwable) { null }
-
-            val props = mutableMapOf<String, Any>(
-                "product_id" to productId,
-                "paywall_id" to (currentPaywallId ?: ""),
-                // SPEC-070-A finalization parity audit R6 — emit Bool not
-                // stringified Bool. iOS NativeBillingManager.swift:160 emits
-                // raw Bool; Android was sending "true"/"false" string. ETL
-                // dashboards filtering WHERE is_trial = true silently
-                // dropped Android rows.
-                "is_trial" to entitlement.isTrial,
+            // THE ONE `purchase_completed` for this purchase — paywall-driven or direct.
+            trackPurchaseCompleted(
+                productId = productId,
+                isTrial = entitlement.isTrial,
+                transactionId = purchase.orderId ?: productId,
             )
-            if (priceInfo != null) {
-                props["price"] = priceInfo.priceMicros / 1_000_000.0
-                props["currency"] = priceInfo.currencyCode
-            }
-            currentExperimentId?.let { props["experiment_id"] = it }
-
-            AppDNA.track("purchase_completed", props)
 
             // SPEC-070-A B.2 — typed billing delegate fan-out. Build a
             // TransactionInfo mirror (productId is the most stable handle —
@@ -1077,12 +1178,13 @@ class NativeBillingManager internal constructor(
             resumePurchase(PurchaseResult.Purchased(entitlement))
         } catch (e: Exception) {
             Log.error("Purchase verification failed: ${e.message}")
-            AppDNA.track("purchase_failed", mapOf(
-                "product_id" to productId,
-                "error" to (e.message ?: "verification_error"),
+            trackPurchaseFailed(
+                reason = "verification_failed",
+                debugMessage = e.message ?: "verification_error",
+                productId = productId,
                 // SPEC-070-B — stable discriminator alongside the prose message.
-                "error_type" to billingErrorType(e),
-            ))
+                errorType = billingErrorType(e),
+            )
 
             // SPEC-070-A B.2 — onPurchaseFailed delegate fan-out.
             try {
@@ -1111,6 +1213,10 @@ class NativeBillingManager internal constructor(
      */
     private fun resumePurchase(result: PurchaseResult) {
         pendingProductId = null
+        // Purchase-scoped, exactly like pendingProductId: the next purchase (which may be a direct
+        // AppDNA.billing.purchase() with no paywall at all) must not inherit the last paywall's
+        // toggle states / promo_code.
+        currentPaywallMetadata = emptyMap()
         purchaseContinuation?.let { continuation ->
             purchaseContinuation = null
             continuation.resume(result) {}
@@ -1128,5 +1234,6 @@ class NativeBillingManager internal constructor(
         entitlementCache.stopObserving()
         currentPaywallId = null
         currentExperimentId = null
+        currentPaywallMetadata = emptyMap()
     }
 }
