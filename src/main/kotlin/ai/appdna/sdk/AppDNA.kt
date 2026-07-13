@@ -1039,6 +1039,10 @@ object AppDNA {
      * @param id The paywall ID (matching Firestore config).
      * @param context Optional paywall context (placement, experiment, variant).
      * @param listener Optional listener for paywall lifecycle events.
+     * @return `false` when NOTHING will be presented — the SDK is runtime-locked, was never
+     *   configured, or no paywall with this id exists in the published config. `presentOnboarding`
+     *   and `showScreen` have always reported this; this returned `Unit`, so every wrapper resolved
+     *   its promise SUCCESSFULLY on a typo'd id and told the host a paywall it never saw was shown.
      */
     @JvmStatic
     @JvmOverloads
@@ -1047,15 +1051,22 @@ object AppDNA {
         id: String,
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null
-    ) {
+    ): Boolean {
         // SPEC-404 — refuse to present any paywall while the SDK is in
         // backend-locked mode. A purchase here would be wasted UX (the
         // receipt-validate route would 401 and no entitlement would land).
         if (runtimeLock != null) {
             Log.warning("AppDNA.presentPaywall(id=$id) skipped — SDK in runtime-locked mode")
-            return
+            return false
         }
-        paywallManager?.present(
+        val manager = paywallManager ?: run {
+            Log.warning("Cannot present paywall — SDK not configured")
+            return false
+        }
+        // Read BEFORE presenting: `present` still runs on the unknown-id path, because its not-found
+        // branch is what fires `onPaywallPurchaseFailed` and a native host relies on that callback.
+        val known = manager.hasPaywall(id)
+        manager.present(
             activity = activity,
             id = id,
             context = context,
@@ -1066,7 +1077,8 @@ object AppDNA {
             // no-delegate fallback that accepts ANY non-blank code. iOS has always fallen back
             // (AppDNA.swift:607/632).
             listener = resolvePaywallListener(listener)
-        ) ?: Log.warning("Cannot present paywall — SDK not configured")
+        )
+        return known
     }
 
     /**
@@ -1077,6 +1089,9 @@ object AppDNA {
      * [ai.appdna.sdk.paywalls.PaywallManager.presentByPlacement] —
      * this is a thin wrapper so hosts don't have to reach through
      * `AppDNA.paywalls.manager?.presentByPlacement(...)`.
+     *
+     * @return `false` when no paywall matched the placement, the SDK is locked, or it was never
+     *   configured. See [presentPaywall].
      */
     @JvmStatic
     @JvmOverloads
@@ -1085,18 +1100,24 @@ object AppDNA {
         placement: String,
         context: PaywallContext? = null,
         listener: AppDNAPaywallDelegate? = null,
-    ) {
+    ): Boolean {
         // SPEC-404 — same lock check as the id-based variant above.
         if (runtimeLock != null) {
             Log.warning("AppDNA.presentPaywallByPlacement(placement=$placement) skipped — SDK in runtime-locked mode")
-            return
+            return false
         }
-        paywallManager?.presentByPlacement(
+        val manager = paywallManager ?: run {
+            Log.warning("Cannot present paywall by placement — SDK not configured")
+            return false
+        }
+        val known = manager.hasPaywallForPlacement(placement)
+        manager.presentByPlacement(
             activity = activity,
             placement = placement,
             context = context,
             listener = resolvePaywallListener(listener)
-        ) ?: Log.warning("Cannot present paywall by placement — SDK not configured")
+        )
+        return known
     }
 
     // MARK: - Public API: Onboarding (v0.2)

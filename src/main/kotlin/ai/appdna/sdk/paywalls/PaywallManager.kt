@@ -119,6 +119,26 @@ internal class PaywallManager(
      * Returns silently when no paywall matches — host can fall back to a
      * static experience or omit the placement.
      */
+    /**
+     * Would [present] find something to show? The lookup, without the presentation.
+     *
+     * Exists so `AppDNA.presentPaywall` can RETURN whether anything will happen. It used to return
+     * `Unit`, so every wrapper resolved its promise successfully on a paywall id that does not exist —
+     * `await AppDNA.paywall.present('typo_id')` reported success and showed nothing, forever.
+     */
+    fun hasPaywall(id: String): Boolean = remoteConfigManager.getPaywallConfig(id) != null
+
+    /**
+     * Would [presentByPlacement] find something to show? Runs the SAME selector the presentation runs
+     * — not a lookalike — so the two can never disagree about what "no paywall here" means.
+     */
+    fun hasPaywallForPlacement(placement: String): Boolean =
+        selectPaywallForPlacement(
+            all = remoteConfigManager.getAllPaywalls().values.toList(),
+            placement = placement,
+            traits = AppDNA.getUserTraits(),
+        ) != null
+
     fun presentByPlacement(
         activity: Activity,
         placement: String,

@@ -51,8 +51,13 @@ sealed class BillingError(message: String, cause: Throwable? = null) : Exception
  * `message`. A wrapper (or a BigQuery query) could not tell "user cancelled" from "card
  * declined" from "product misconfigured" without regex-matching English prose. These strings are
  * the contract; they are never localized and never renamed.
+ *
+ * **Public**, not internal: the React Native wrapper is a SEPARATE Gradle module, so `internal` put
+ * this out of its reach and it rejected every purchase — cancel, ask-to-buy, declined card, dead
+ * network — with one code (`PURCHASE_ERROR`) and a localized message. These are the exact strings
+ * iOS's `billingErrorType(_:)` returns; that is what makes one `catch (e.code)` work on both.
  */
-internal fun billingErrorType(t: Throwable): String = when (t) {
+fun billingErrorType(t: Throwable): String = when (t) {
     is BillingError.UserCancelled -> "userCancelled"
     is BillingError.ProductNotFound -> "productNotFound"
     is BillingError.VerificationFailed -> "verificationFailed"
