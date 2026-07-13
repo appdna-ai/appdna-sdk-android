@@ -865,6 +865,24 @@ object AppDNA {
         pendingMessageListener?.stopObserving()
         // SPEC-070-A A.9: clear in-session message frequency counters + queue.
         messageManager?.resetSession()
+
+        // 🔴 USER A'S ONBOARDING ANSWERS SURVIVED THE SIGN-OUT AND RENDERED INTO USER B'S PAYWALL.
+        //
+        // `SessionDataStore` is a PERSISTED process-global (SharedPreferences here, UserDefaults on iOS)
+        // holding three buckets: onboarding responses, computed data, session data. `reset()` cleared
+        // identity, exposures, message and survey session — and never touched it. Neither did
+        // `shutdown()`. `clearAll()` existed on both platforms with ZERO callers.
+        //
+        // So after A signed out and B signed in on the same device, B could read A's onboarding answers
+        // and structured location back via `getOnboardingResponses()` / `session.get(key)` /
+        // `getLocationData(fieldId)`. And worse than the read: `TemplateEngine.buildContext()` feeds all
+        // three buckets into the `{{…}}` namespace, so A's answers RENDERED INTO B's paywall, onboarding
+        // and in-app-message copy. It survived app restarts. All four SDKs.
+        //
+        // `reset()` IS the sign-out boundary. `shutdown()` deliberately does NOT do this — it is a
+        // lifecycle stop, not a user change.
+        ai.appdna.sdk.core.SessionDataStore.instance?.clearAll()
+
         // Cross-account-leak defence — DELIBERATELY do NOT call
         // `AppAccountTokenResolver.clearFirstIdentifiedUserId()` here.
         // The anchor is a security boundary: clearing it on sign-out
@@ -874,7 +892,7 @@ object AppDNA {
         // lifecycle is the app installation; uninstall / clear-data
         // wipes SharedPreferences, which is the correct invalidation
         // event. Mirrors iOS AppDNA.swift reset() behaviour.
-        Log.info("Identity reset")
+        Log.info("Identity reset (session data cleared)")
     }
 
     // MARK: - Public API: Events
