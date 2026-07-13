@@ -261,6 +261,14 @@ class NativeBillingManager internal constructor(
                                 productId = entitlement.productId,
                                 isTrial = entitlement.isTrial,
                                 transactionId = entitlement.productId,
+                                // NOT a new subscription — ITEM_ALREADY_OWNED means the user was ALREADY
+                                // entitled and Play refused to sell it again; this branch merely restores
+                                // what they had. `purchase_completed` still fires (the host asked to buy
+                                // and the user ends up entitled — the funnel must not go silent), but
+                                // `subscription_started` would count an EXISTING subscriber as new, once
+                                // per re-tap, on a METERED event. The genuinely-new subscription emitted
+                                // it when it was first bought.
+                                isSubscription = false,
                             )
                             resumePurchase(PurchaseResult.Purchased(entitlement))
                         } else {
@@ -372,6 +380,23 @@ class NativeBillingManager internal constructor(
      * Public so bridges in `integrations/` can reach it via
      * `AppDNA.billing.manager?.purchaseEventProps(...)`.
      */
+    /**
+     * Best-effort answer to "does [productId] auto-renew?" for the RevenueCat / Adapty forward paths.
+     *
+     * Those hosts drive the purchase through the provider's own SDK, so neither a Play `Purchase` nor a
+     * server-verified `Entitlement` is in scope when they call `forwardPurchaseSuccess` — yet they must
+     * obey the same rule as the native path, or every RC/Adapty customer keeps the exact hole this fix
+     * closes. Sources, in order:
+     *   1. the entitlement the server verified for this product (`expiresAt != null` — the same
+     *      discriminator [isSubscriptionPurchase] uses),
+     *   2. the Play SUBS catalogue [PriceResolver] queried this session.
+     * Neither knows → `false` (a one-off). Hosts that DO know pass `isSubscription` explicitly to
+     * `forwardPurchaseSuccess`, which always wins over this inference.
+     */
+    fun isKnownSubscriptionProduct(productId: String): Boolean =
+        entitlementCache.getEntitlement(productId)?.expiresAt != null ||
+            priceResolver.isKnownSubscriptionProduct(productId)
+
     fun purchaseEventProps(productId: String, provider: String): Map<String, Any> {
         val props = mutableMapOf<String, Any>(
             "product_id" to productId,
@@ -421,16 +446,45 @@ class NativeBillingManager internal constructor(
     }
 
     /**
-     * The single `purchase_completed` emit for the native Play path.
+     * 🔴 `subscription_started` is one of the THREE MTPU-metered events
+     * (`BigQueryBillingService`: `event_name IN ('purchase_completed', 'subscription_started',
+     * 'subscription_renewed')`) — and NO SDK emitted it. The only production rows carrying that name
+     * were seeded demo data. MTPU totals survived (COUNT(DISTINCT user) over the union, and a new
+     * subscriber already lands via `purchase_completed`), but the subscription funnel was fiction:
+     * nothing downstream could tell a NEW SUBSCRIPTION from a one-off / consumable / lifetime purchase.
+     *
+     * The discriminator is the entitlement the server just verified: a SUBSCRIPTION expires, a one-off
+     * does not. `expiresAt == null` therefore means "not a subscription" and the purchase emits
+     * `purchase_completed` alone. Kept as a named function so the rule is testable on its own and reads
+     * the same as the iOS half (`PurchaseResult.isSubscription`, set from
+     * `Product.subscription != nil`).
+     */
+    internal fun isSubscriptionPurchase(entitlement: Entitlement): Boolean = entitlement.expiresAt != null
+
+    /**
+     * The single `purchase_completed` emit for the native Play path — plus `subscription_started` when,
+     * and only when, the purchased product auto-renews.
      *
      * Property names are iOS's (`PaywallManager.swift:253` — `paywall_id`, `product_id`, `price`,
      * `currency`, `provider`) plus the Android-side extras that already shipped (`is_trial`,
-     * `experiment_id`, `transaction_id`) and any paywall metadata the plan card injected.
+     * `experiment_id`, `transaction_id`) and any paywall metadata the plan card injected. Both events
+     * carry the SAME envelope — built once, emitted twice — so a funnel joining them never has to
+     * special-case one.
+     *
+     * `subscription_started` is a PURCHASE-TIME event: it fires here, once, and NEVER from
+     * [reconcileSubscriptionState] / [diffAndEmit], which own `subscription_renewed` /
+     * `subscription_canceled` / `subscription_renewal_failed`. Emitting from the reconcile diff as well
+     * would fire it again on the first pass after every purchase — the same double-count this class was
+     * created to end.
+     *
+     * `internal` (was private) so a unit test can read back the envelopes the SDK actually produces;
+     * production callers are unchanged.
      */
-    private fun trackPurchaseCompleted(
+    internal fun trackPurchaseCompleted(
         productId: String,
         isTrial: Boolean,
         transactionId: String?,
+        isSubscription: Boolean,
     ) {
         val props = mutableMapOf<String, Any>(
             "product_id" to productId,
@@ -452,7 +506,11 @@ class NativeBillingManager internal constructor(
                 props["currency"] = info.currencyCode
             }
         } catch (_: Throwable) { /* best-effort */ }
-        AppDNA.track("purchase_completed", props.withPaywallMetadata())
+        val envelope: Map<String, Any> = props.withPaywallMetadata()
+        AppDNA.track("purchase_completed", envelope)
+        if (isSubscription) {
+            AppDNA.track("subscription_started", envelope)
+        }
     }
 
     /**
@@ -1135,11 +1193,13 @@ class NativeBillingManager internal constructor(
             // Update cache
             entitlementCache.update(entitlement)
 
-            // THE ONE `purchase_completed` for this purchase — paywall-driven or direct.
+            // THE ONE `purchase_completed` for this purchase — paywall-driven or direct — and, for an
+            // auto-renewing product only, the `subscription_started` that no SDK used to emit.
             trackPurchaseCompleted(
                 productId = productId,
                 isTrial = entitlement.isTrial,
                 transactionId = purchase.orderId ?: productId,
+                isSubscription = isSubscriptionPurchase(entitlement),
             )
 
             // SPEC-070-A B.2 — typed billing delegate fan-out. Build a

@@ -27,6 +27,24 @@ internal class PriceResolver(
     fun cachedPriceInfo(productId: String): ProductInfo? = priceInfoCache[productId]
 
     /**
+     * Product IDs Play has confirmed are SUBS (auto-renewing) — i.e. they came back from a
+     * `ProductType.SUBS` query. Read by [NativeBillingManager.isKnownSubscriptionProduct] to decide
+     * whether a purchase should ALSO emit `subscription_started` (an MTPU-metered event no SDK used to
+     * emit) on the provider paths — RevenueCat / Adapty — where the host drove the purchase through the
+     * provider's SDK and no Play `Purchase` / verified `Entitlement` is in scope at the emit site.
+     *
+     * A product that never came back from a SUBS query is NOT recorded here, so the fallback answers
+     * "not a subscription" rather than fabricating one: over-emitting a metered event is the worse
+     * failure.
+     */
+    private val subscriptionProductIds = java.util.Collections.newSetFromMap(
+        java.util.concurrent.ConcurrentHashMap<String, Boolean>(),
+    )
+
+    /** True iff Play returned [productId] from a `ProductType.SUBS` query during this session. */
+    fun isKnownSubscriptionProduct(productId: String): Boolean = subscriptionProductIds.contains(productId)
+
+    /**
      * Fetch product details for a list of subscription product IDs.
      *
      * @param productIds The Google Play product IDs to query.
@@ -57,7 +75,11 @@ internal class PriceResolver(
         }
 
         return result.productDetailsList?.map { details ->
-            mapProductDetails(details).also { priceInfoCache[it.id] = it }
+            mapProductDetails(details).also {
+                priceInfoCache[it.id] = it
+                // Play answered this id under ProductType.SUBS → it auto-renews.
+                subscriptionProductIds.add(it.id)
+            }
         } ?: emptyList()
     }
 

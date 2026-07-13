@@ -197,7 +197,17 @@ internal class RevenueCatBridge {
      * AppDNA billing delegate. Mirrors iOS auto-fire on `Purchases.shared.purchase`
      * (RevenueCatBridge.swift:42-58).
      */
-    fun forwardPurchaseSuccess(productId: String, transactionId: String) {
+    /**
+     * @param isSubscription does this product AUTO-RENEW? Drives the `subscription_started` emit —
+     *   one of the three MTPU-metered events, which NO SDK used to emit, leaving the subscription funnel
+     *   unable to tell a new subscription from a one-off purchase. The host drove this purchase through
+     *   RevenueCat, so it holds the `StoreProduct` and knows the answer
+     *   (`storeProduct.subscriptionPeriod != null`) — pass it. Left `null`, the SDK infers from the
+     *   verified entitlement / Play SUBS catalogue ([NativeBillingManager.isKnownSubscriptionProduct]),
+     *   which can answer "not a subscription" if the server has not synced the entitlement yet.
+     */
+    @JvmOverloads
+    fun forwardPurchaseSuccess(productId: String, transactionId: String, isSubscription: Boolean? = null) {
         val txInfo = TransactionInfo(
             transactionId = transactionId,
             productId = productId,
@@ -210,7 +220,16 @@ internal class RevenueCatBridge {
         val props = AppDNA.billing.manager
             ?.purchaseEventProps(productId, "revenuecat")
             ?: mapOf("product_id" to productId, "provider" to "revenuecat")
+        val isSub = isSubscription
+            ?: AppDNA.billing.manager?.isKnownSubscriptionProduct(productId)
+            ?: false
         AppDNA.track("purchase_completed", props)
+        // Same envelope, purchase-time, once. NOT emitted from the UpdatedCustomerInfoListener above:
+        // that fires on renewals, restores and cross-device syncs too, so `subscription_started` there
+        // would fire once per RENEWAL — an over-count on a metered event.
+        if (isSub) {
+            AppDNA.track("subscription_started", props)
+        }
         delegate?.onPurchaseCompleted(productId, txInfo)
     }
 

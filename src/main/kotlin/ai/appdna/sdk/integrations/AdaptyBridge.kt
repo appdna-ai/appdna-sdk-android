@@ -142,7 +142,16 @@ internal class AdaptyBridge {
      * billing delegate. Mirrors iOS auto-fire on `Adapty.makePurchase`
      * (AdaptyBridge.swift:42-69).
      */
-    fun forwardPurchaseSuccess(productId: String, transactionId: String) {
+    /**
+     * @param isSubscription does this product AUTO-RENEW? Drives the `subscription_started` emit — one
+     *   of the three MTPU-metered events, which NO SDK used to emit. The host drove this purchase
+     *   through Adapty and holds the `AdaptyPaywallProduct`, so it knows the answer — pass it. Left
+     *   `null`, the SDK infers via [NativeBillingManager.isKnownSubscriptionProduct] (verified
+     *   entitlement, then the Play SUBS catalogue), which can answer "not a subscription" if the server
+     *   has not synced the entitlement yet.
+     */
+    @JvmOverloads
+    fun forwardPurchaseSuccess(productId: String, transactionId: String, isSubscription: Boolean? = null) {
         val txInfo = TransactionInfo(
             transactionId = transactionId,
             productId = productId,
@@ -152,7 +161,15 @@ internal class AdaptyBridge {
         val props = AppDNA.billing.manager
             ?.purchaseEventProps(productId, "adapty")
             ?: mapOf("product_id" to productId, "provider" to "adapty")
+        val isSub = isSubscription
+            ?: AppDNA.billing.manager?.isKnownSubscriptionProduct(productId)
+            ?: false
         AppDNA.track("purchase_completed", props)
+        // Same envelope, purchase-time, once. Renewals stay the reconcile diff's business
+        // (`subscription_renewed`) — emitting `subscription_started` there would double-count.
+        if (isSub) {
+            AppDNA.track("subscription_started", props)
+        }
         delegate?.onPurchaseCompleted(productId, txInfo)
     }
 
