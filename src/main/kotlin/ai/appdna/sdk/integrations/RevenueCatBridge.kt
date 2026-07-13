@@ -119,20 +119,26 @@ internal class RevenueCatBridge {
                 if (method.name == "onReceived") {
                     val customerInfo = args?.getOrNull(0)
                     if (customerInfo != null) {
-                        val active = customerInfoToActiveEntitlementKeys(customerInfo)
-                        if (active.isNotEmpty()) {
-                            AppDNA.track(
-                                "purchase_completed",
-                                mapOf(
-                                    "provider" to "revenuecat",
-                                    "entitlements" to active,
-                                ),
-                            )
-                            // Also fan out to host's billing delegate.
-                            delegate?.onEntitlementsChanged(
-                                customerInfoToEntitlements(customerInfo),
-                            )
-                        }
+                        // 🔴 TWO BUGS LIVED IN THIS BLOCK, AND THE `isNotEmpty()` GUARD CAUSED BOTH.
+                        //
+                        // 1. It emitted `purchase_completed` whenever the entitlement set was non-empty.
+                        //    That is not a CHANGE — RevenueCat delivers customerInfo on app launch, on
+                        //    refresh, on restore and on cross-device sync. So every launch by an existing
+                        //    subscriber emitted a purchase that never happened. `purchase_completed` is
+                        //    MTPU-metered (`COUNT(DISTINCT user)`), so a subscriber who merely OPENED the
+                        //    app was billed as a transacting user, every month, forever. The real purchase
+                        //    is already emitted exactly once by `purchase(...)` below. Removed — and
+                        //    `check-purchase-emit-chokepoint.ts` now fails the build if it comes back.
+                        //
+                        // 2. The host's `onEntitlementsChanged` fan-out was INSIDE the same guard — so an
+                        //    EXPIRY, which arrives precisely as an empty `active` set, never reached the
+                        //    host at all. A lapsed subscriber kept their premium content until the next
+                        //    cold start. The fan-out now runs on every delivery, empty or not: "the
+                        //    entitlements are now none" is the single most important thing this callback
+                        //    can say.
+                        delegate?.onEntitlementsChanged(
+                            customerInfoToEntitlements(customerInfo),
+                        )
                     }
                 }
                 null
@@ -143,21 +149,6 @@ internal class RevenueCatBridge {
             Log.debug("RevenueCatBridge: UpdatedCustomerInfoListener installed")
         } catch (e: Throwable) {
             Log.warning("RevenueCatBridge: UpdatedCustomerInfoListener install failed: ${e.message}")
-        }
-    }
-
-    /** Extract list of active entitlement-keys from a RevenueCat CustomerInfo. */
-    @Suppress("UNCHECKED_CAST")
-    private fun customerInfoToActiveEntitlementKeys(customerInfo: Any): List<String> {
-        return try {
-            val entitlementsObj = customerInfo.javaClass.getMethod("getEntitlements").invoke(customerInfo)
-                ?: return emptyList()
-            val activeMap = entitlementsObj.javaClass.getMethod("getActive").invoke(entitlementsObj)
-                as? Map<String, Any> ?: return emptyList()
-            activeMap.keys.toList()
-        } catch (e: Throwable) {
-            Log.debug("customerInfoToActiveEntitlementKeys parse failure: ${e.message}")
-            emptyList()
         }
     }
 
