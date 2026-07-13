@@ -1465,8 +1465,22 @@ internal fun OnboardingFlowHost(
                         raw as Map<String, Any>
                     },
                     onNext = { data ->
-                        if (data != null) {
-                            responses[step.id] = data
+                        // 🔴 THE PASSWORD GOES TO THE HOST — AND NOWHERE ELSE.
+                        //
+                        // Both sinks below used to take the RAW field map, which on a `login` /
+                        // `register` / `change_password` step contains the password the user just
+                        // typed: (1) `SessionDataStore` persists it to SharedPreferences in plaintext
+                        // and exposes it to the `{{…}}` template namespace, and (2) `onStepCompleted`
+                        // emits `onboarding_step_completed` with `selection_data` = this map verbatim,
+                        // which is uploaded and lands in `raw.sdk_events`. Every login attempt shipped
+                        // an end-user's plaintext password into the warehouse.
+                        //
+                        // The delegate still receives the credentials in full (`stepData` in
+                        // `onBeforeStepAdvance`) — that is how the host signs the user in. See
+                        // `AuthSecretRedactor`; iOS does the same, at the same two sinks.
+                        val safeData = AuthSecretRedactor.redact(data, step)
+                        if (safeData != null) {
+                            responses[step.id] = safeData
                         }
                         // SPEC-087: Persist responses incrementally so TemplateEngine has fresh data for next step.
                         // SPEC-070-A finalization spec audit-4 — was unsafe
@@ -1477,7 +1491,7 @@ internal fun OnboardingFlowHost(
                         // `Map<String, Any>` (SessionDataStore.kt:70) so
                         // pass-through is type-safe.
                         ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses.toMap())
-                        onStepCompleted(step.id, currentIndex, data)
+                        onStepCompleted(step.id, currentIndex, safeData)
 
                         // SPEC-083: Determine hook type — client delegate takes priority
                         if (delegate != null) {
