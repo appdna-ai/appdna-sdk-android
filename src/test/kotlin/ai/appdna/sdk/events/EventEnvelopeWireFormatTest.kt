@@ -1,6 +1,9 @@
 package ai.appdna.sdk.events
 
+import ai.appdna.sdk.AppDNA
+import ai.appdna.sdk.AppDNAOptions
 import ai.appdna.sdk.DeviceIdentity
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -218,5 +221,83 @@ class EventEnvelopeWireFormatTest {
         // Must not be empty or null
         assertNotNull(locale)
         assertTrue(locale.isNotBlank())
+    }
+
+    /**
+     * SPEC-070-B §7 rule 4 — `device.framework_version` is the WRAPPER's version.
+     *
+     * `device.sdk_version` is always this native core's version, so in BigQuery a React Native app was
+     * indistinguishable from a native one on every version column: all 79 `react_native` rows in
+     * `raw.sdk_events` carried `sdk_version = 1.0.70`, the core they wrap. The wrapper's own version
+     * reached `options.frameworkVersion` and was then read by exactly ONE thing — `diagnose()` —
+     * which prints to the developer's console and never leaves the device. So "is the fix in the
+     * version they are running?" had no answer for any wrapper user.
+     *
+     * Omitted (not null, not empty-string) for a native host, so a native envelope keeps the exact
+     * shape iOS emits — the server schema is strip-mode and the BQ column is nullable, and a
+     * fabricated version would be worse than a missing one.
+     */
+    @After
+    fun resetOptions() {
+        AppDNA.options = AppDNAOptions()
+    }
+
+    @Test
+    fun deviceFrameworkVersion_isOmitted_forNativeHost() {
+        AppDNA.options = AppDNAOptions()
+        val device = EventSchema.buildEnvelope(
+            eventName = "evt",
+            properties = null,
+            identity = identity,
+            sessionId = "s1",
+            appVersion = "1.2.3",
+            analyticsConsent = true,
+        ).getJSONObject("device")
+
+        assertEquals("native", device.getString("framework"))
+        assertFalse(
+            "a native host has no wrapper version — the key must be absent, not null",
+            device.has("framework_version")
+        )
+    }
+
+    @Test
+    fun deviceFrameworkVersion_isEmitted_forWrapperHost_besideTheNativeSdkVersion() {
+        AppDNA.options = AppDNAOptions(framework = "react_native", frameworkVersion = "1.0.7")
+        val device = EventSchema.buildEnvelope(
+            eventName = "evt",
+            properties = null,
+            identity = identity,
+            sessionId = "s1",
+            appVersion = "1.2.3",
+            analyticsConsent = true,
+        ).getJSONObject("device")
+
+        assertEquals("react_native", device.getString("framework"))
+        assertEquals("1.0.7", device.getString("framework_version"))
+        // BESIDE, not instead of: sdk_version stays the native core's, which is what it has always
+        // meant. Overloading it would silently rewrite the meaning of an existing BQ column.
+        assertEquals(
+            "sdk_version must remain the NATIVE core version",
+            AppDNA.sdkVersion,
+            device.getString("sdk_version")
+        )
+    }
+
+    @Test
+    fun deviceFrameworkVersion_isOmitted_whenAWrapperReportsBlank() {
+        // A wrapper that forgets to inject its version must not stamp an empty string into the column:
+        // "" reads like an answer in a GROUP BY, and it is not one.
+        AppDNA.options = AppDNAOptions(framework = "react_native", frameworkVersion = "   ")
+        val device = EventSchema.buildEnvelope(
+            eventName = "evt",
+            properties = null,
+            identity = identity,
+            sessionId = "s1",
+            appVersion = "1.2.3",
+            analyticsConsent = true,
+        ).getJSONObject("device")
+
+        assertFalse(device.has("framework_version"))
     }
 }

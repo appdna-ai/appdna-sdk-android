@@ -70,6 +70,11 @@ internal object EventSchema {
                 put("platform", "android")
                 // SPEC-070-C D4: SDK-wrapper attribution (native|flutter|react_native).
                 put("framework", ai.appdna.sdk.AppDNA.framework)
+                // SPEC-070-B §7 rule 4: the WRAPPER's own version. `sdk_version` below is always the
+                // NATIVE core's, so without this the warehouse cannot name the artifact an RN or
+                // Flutter developer actually installed. OMITTED (not null) for a native host, so a
+                // native envelope keeps the exact shape iOS emits.
+                ai.appdna.sdk.AppDNA.frameworkVersion?.let { put("framework_version", it) }
                 // SPEC-070-A G.15: emit `device.os` as a 3-part dotted string so it
                 // matches the iOS shape `"<major>.<minor>.<patch>"`. Android
                 // `Build.VERSION.RELEASE` is just the major (e.g. "14") on most

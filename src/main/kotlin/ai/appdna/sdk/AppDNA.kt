@@ -307,6 +307,22 @@ object AppDNA {
     val framework: String get() = options.framework
 
     /**
+     * SPEC-070-B §7 rule 4 — the WRAPPER's own version (e.g. the npm package's `1.0.7`), injected by
+     * the bridge and tagged on every event's device context as `framework_version`.
+     *
+     * `device.sdk_version` is always this NATIVE core's version, so before this field existed an RN
+     * app was indistinguishable from a native one in the warehouse on every version column — every
+     * `react_native` row in `raw.sdk_events` carried the core's version, never the wrapper's. The
+     * value reached `options.frameworkVersion` and was then read by exactly one thing, `diagnose()`,
+     * which prints to the developer's own console and never leaves the device.
+     *
+     * Null for a native host (there is no wrapper to name), and the envelope omits it in that case.
+     */
+    @JvmStatic
+    val frameworkVersion: String?
+        get() = if (options.framework == "native") null else options.frameworkVersion?.takeIf { it.isNotBlank() }
+
+    /**
      * Firestore instance used by the SDK.
      * Uses a secondary Firebase app ("appdna") if google-services-appdna.json is found in assets,
      * otherwise falls back to the default Firebase app's Firestore instance.
@@ -317,7 +333,11 @@ object AppDNA {
     // Internal managers
     private var apiKey: String? = null
     private var environment: Environment = Environment.PRODUCTION
-    private var options: AppDNAOptions = AppDNAOptions()
+    // `internal`, not `private`: the unit tests are a friend module, and the wrapper-attribution
+    // fields (`framework`, `frameworkVersion`) are only observable through a configured options
+    // object. They were untestable while this was private — which is why no test ever covered the
+    // envelope's `framework` tag either. Still invisible to SDK consumers.
+    internal var options: AppDNAOptions = AppDNAOptions()
 
     /**
      * SPEC-070-B PN row 6 — retained so the Adapty bridge (and its delegate) outlive
