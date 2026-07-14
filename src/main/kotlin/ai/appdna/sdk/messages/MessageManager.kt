@@ -426,17 +426,41 @@ class MessageManager internal constructor(
         else -> null
     }
 
-    // MARK: - Date range (yyyy-MM-dd, UTC, matching iOS `en_US_POSIX`)
+    // MARK: - Date range
+
+    /**
+     * The server serializes `start_date`/`end_date` via `.toISOString()` — a full ISO-8601 instant
+     * with time-of-day and `Z`. Parse that instant first (exact precision, and identical to iOS's
+     * `ISO8601` parser), and only fall back to a date-only `yyyy-MM-dd` shape (hand-authored/legacy
+     * configs) at UTC midnight. The old code used the `yyyy-MM-dd` formatter directly, which
+     * leniently read the date prefix of the full string and silently dropped the authored
+     * time-of-day; combined with iOS's device-local midnight that produced a same-field, different-
+     * day divergence across platforms. Unparsable → null (treated as no scheduling constraint).
+     */
+    private fun parseWindowDate(iso: String): Date? {
+        return try {
+            Date(java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli())
+        } catch (_: Throwable) {
+            try {
+                Date(java.time.Instant.parse(iso).toEpochMilli())
+            } catch (_: Throwable) {
+                try {
+                    SimpleDateFormat("yyyy-MM-dd", Locale.US)
+                        .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                        .parse(iso)
+                } catch (_: Throwable) { null }
+            }
+        }
+    }
 
     private fun checkDateRange(config: MessageConfig): Boolean {
         val now = Date()
-        val df = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply { timeZone = TimeZone.getTimeZone("UTC") }
         config.start_date?.let { startStr ->
-            val start = try { df.parse(startStr) } catch (_: Throwable) { null }
+            val start = parseWindowDate(startStr)
             if (start != null && now.before(start)) return false
         }
         config.end_date?.let { endStr ->
-            val end = try { df.parse(endStr) } catch (_: Throwable) { null }
+            val end = parseWindowDate(endStr)
             if (end != null && now.after(end)) return false
         }
         return true

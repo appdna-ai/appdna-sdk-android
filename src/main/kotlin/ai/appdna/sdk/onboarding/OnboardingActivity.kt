@@ -1398,6 +1398,10 @@ internal fun OnboardingFlowHost(
                     IconButton(
                         onClick = {
                             HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_button_tap, hapticConfig)
+                            // Same race as Back/Skip (see :1381): dismissing during the hook grace-window
+                            // must discard a completion waiting on that hook — the in-flight hook can still
+                            // resolve into applyOutcome and emit a phantom completion for the dismissed step.
+                            pendingStepCompletion = null
                             if (currentIndex < flow.steps.size) {
                                 onFlowDismissed(flow.steps[currentIndex].id, currentIndex)
                             }
@@ -1422,6 +1426,8 @@ internal fun OnboardingFlowHost(
                     onClick = {
                         // SPEC-070-A J.2 — dismiss reuses on_button_tap haptic.
                         HapticEngine.triggerIfEnabled(hostView, hapticConfig?.triggers?.on_button_tap, hapticConfig)
+                        // See leading-close above: clear a hook-pending completion before dismissing.
+                        pendingStepCompletion = null
                         if (currentIndex < flow.steps.size) {
                             val step = flow.steps[currentIndex]
                             onFlowDismissed(step.id, currentIndex)
