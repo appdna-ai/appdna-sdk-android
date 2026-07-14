@@ -328,14 +328,20 @@ class ScreenManager private constructor() {
 
         val flowManager = FlowManager(config, screens)
         flowManager.onComplete = { result ->
-            // iOS ScreenManager.swift:231-247 — same event names, same property set.
-            val eventName = if (result.completed) "flow_completed" else "flow_abandoned"
-            AppDNA.track(eventName, mapOf(
+            // iOS ScreenManager.swift — same event names, same property set. Emit the LITERAL name per
+            // terminal: the catalog-provenance gate harvests real `track("…")` literals, and a
+            // ternary-built name is invisible to it (that is why `flow_completed` could not be catalogued).
+            val props = mapOf(
                 "flow_id" to flowId,
                 "flow_name" to config.name,
                 "screens_viewed" to result.screensViewed,
                 "duration_ms" to result.durationMs,
-            ))
+            )
+            if (result.completed) {
+                AppDNA.track("flow_completed", props)
+            } else {
+                AppDNA.track("flow_abandoned", props)
+            }
             // SPEC-070-A B.6 — fire onFlowCompleted delegate (fires on both
             // completed and abandoned paths — host reads result.completed).
             fireOnFlowCompleted(flowId, result)
