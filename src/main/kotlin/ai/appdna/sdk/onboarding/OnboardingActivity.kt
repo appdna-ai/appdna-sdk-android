@@ -1375,6 +1375,10 @@ internal fun OnboardingFlowHost(
                             val previousIndex = previousId
                                 ?.let { id -> flow.steps.indexOfFirst { it.id == id }.takeIf { it >= 0 } }
                                 ?: maxOf(currentIndex - 1, 0)
+                            // 🔴 Discard a completion waiting on an in-flight hook — going back means
+                            // the user did NOT complete this step; the next applyOutcome would otherwise
+                            // record a completion for the step they just abandoned. iOS does the same.
+                            pendingStepCompletion = null
                             if (navigationHistory.isNotEmpty()) {
                                 navigationHistory.removeAt(navigationHistory.lastIndex)
                             }
@@ -1652,6 +1656,8 @@ internal fun OnboardingFlowHost(
                         }
                     },
                     onSkip = {
+                        // Skipping is not completing — discard any completion waiting on a hook.
+                        pendingStepCompletion = null
                         onStepSkipped(step.id, currentIndex)
                         advanceOrComplete()
                     },
