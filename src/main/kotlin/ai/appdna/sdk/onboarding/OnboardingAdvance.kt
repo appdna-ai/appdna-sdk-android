@@ -40,6 +40,26 @@ internal object OnboardingAdvance {
 
         /** Remain on the current step (hook returned `Block` / `Stay`). */
         object Stay : Navigation()
+
+        /**
+         * 🔴 DID THE STEP ACTUALLY COMPLETE?
+         *
+         * The only honest definition: the flow LEFT the step. [Stay] is the hook saying no — a wrong
+         * password, a failed sign-in, a validation error — and the user is still looking at the very
+         * same step. Nothing completed.
+         *
+         * `onboarding_step_completed` used to be emitted the moment the user tapped the button, before
+         * the hook had decided anything. A user who mistyped their password three times emitted FOUR
+         * completions of a step they never completed; the successful fourth attempt made five. That
+         * corrupts step-completion and funnel conversion — the metrics the product is sold on — and it
+         * over-counts worst at the credential step, the step users actually fail at, so the flows that
+         * convert worst looked the healthiest.
+         *
+         * It lives on the pure machine, not in either renderer, so both platforms answer the question
+         * identically and a test can ask it without a host.
+         */
+        val completesStep: Boolean
+            get() = this !is Stay
     }
 
     data class AdvanceOutcome(

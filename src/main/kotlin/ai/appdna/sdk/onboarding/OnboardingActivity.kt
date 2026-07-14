@@ -948,11 +948,36 @@ internal fun OnboardingFlowHost(
         }
     }
 
+    /**
+     * A step submission whose completion event is waiting on the hook's verdict.
+     *
+     * Null unless a hook is in flight. [applyOutcome] fires it if — and only if — the outcome actually
+     * navigates away from the step, and clears it otherwise so a blocked attempt cannot leak into the
+     * next one. Deliberately a plain `var`, not Compose state: nothing renders from it, and a
+     * recomposition must not resurrect a consumed completion.
+     */
+    var pendingStepCompletion: Triple<String, Int, Map<String, Any>?>? = null
+
     // SPEC-070-B — the advance/skip/merge/hook-result logic moved verbatim into the pure
     // [OnboardingAdvance] state machine (it was unreachable from any test while it lived in
     // these closures). This is the only place that turns its description of what should happen
     // into the Compose-scoped side effects: haptic, history push, analytics, navigation.
     fun applyOutcome(outcome: OnboardingAdvance.AdvanceOutcome) {
+        // 🔴 THE STEP COMPLETES WHEN THE FLOW LEAVES IT — NOT WHEN THE USER TAPS THE BUTTON.
+        //
+        // `Stay` means the hook said no (wrong password, failed sign-in, validation error): the user is
+        // still looking at the same step and nothing completed. Emitting only on a navigating outcome is
+        // what makes `onboarding_step_completed` mean what its name says.
+        //
+        // Cleared either way — a blocked attempt must not leak into the next one, and a user who fixes
+        // their password and succeeds emits exactly ONE completion.
+        pendingStepCompletion?.let { (stepId, index, data) ->
+            pendingStepCompletion = null
+            if (outcome.navigation.completesStep) {
+                onStepCompleted(stepId, index, data)
+            }
+        }
+
         // SPEC-070-A J.2 — `on_step_advance` haptic fires before any analytics or navigation,
         // and only on a natural advance (mirrors iOS HapticController in advanceStep()).
         if (outcome.hapticOnAdvance) {
@@ -1491,7 +1516,25 @@ internal fun OnboardingFlowHost(
                         // `Map<String, Any>` (SessionDataStore.kt:70) so
                         // pass-through is type-safe.
                         ai.appdna.sdk.core.SessionDataStore.instance?.setOnboardingResponses(responses.toMap())
-                        onStepCompleted(step.id, currentIndex, safeData)
+
+                        // 🔴 `onboarding_step_completed` USED TO FIRE HERE — BEFORE THE HOOK DECIDED.
+                        //
+                        // On a hook step the HOOK decides whether the step completes. A `login` step
+                        // whose delegate answers `Block("Wrong password")` does NOT complete — the user
+                        // stays exactly where they were. But the event had already gone out. Mistype a
+                        // password three times and the funnel records FOUR completions of a step you
+                        // never completed; the successful fourth attempt makes five.
+                        //
+                        // It corrupts the metric the product is sold on — step-completion and funnel
+                        // conversion — and it over-counts worst at the credential step, the step users
+                        // actually fail at. So the flows that convert worst look healthiest.
+                        //
+                        // The emit now happens in [applyOutcome], the single place a decision becomes
+                        // navigation, and only when the flow ACTUALLY LEAVES the step. iOS does the
+                        // same, at the same seam.
+                        if (delegate != null || step.hook?.enabled == true) {
+                            pendingStepCompletion = Triple(step.id, currentIndex, safeData)
+                        }
 
                         // SPEC-083: Determine hook type — client delegate takes priority
                         if (delegate != null) {
@@ -1602,6 +1645,8 @@ internal fun OnboardingFlowHost(
                                 }
                             }
                             } else {
+                                // No hook — nothing can veto, so the step completes on submit.
+                                onStepCompleted(step.id, currentIndex, safeData)
                                 advanceOrComplete()
                             }
                         }
