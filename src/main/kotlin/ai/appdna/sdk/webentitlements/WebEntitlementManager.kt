@@ -127,6 +127,12 @@ internal class WebEntitlementManager(
                 if (data == null) {
                     if (currentEntitlement != null) {
                         currentEntitlement = null
+                        // 🔴 RESET previousStatus, or a later re-activation never emits
+                        // web_entitlement_activated. `active → doc deleted → doc re-created active`
+                        // otherwise leaves previousStatus at "active", so the activation guard below
+                        // (prevStatus == null || canceled || past_due) is false for the genuine
+                        // re-activation and the event silently never fires. Mirrors iOS.
+                        previousStatus = null
                         cacheEntitlement(null)
                         notifyListeners(null)
                     }
