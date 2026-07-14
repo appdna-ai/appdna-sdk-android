@@ -125,7 +125,9 @@ internal class WebEntitlementManager(
 
                 val data = snapshot?.data
                 if (data == null) {
-                    if (currentEntitlement != null) {
+                    val previous = currentEntitlement
+                    if (previous != null) {
+                        val prevStatus = previousStatus
                         currentEntitlement = null
                         // 🔴 RESET previousStatus, or a later re-activation never emits
                         // web_entitlement_activated. `active → doc deleted → doc re-created active`
@@ -135,6 +137,16 @@ internal class WebEntitlementManager(
                         previousStatus = null
                         cacheEntitlement(null)
                         notifyListeners(null)
+                        // Deletion of an active/trialing entitlement IS an expiry — emit it (mirrors iOS),
+                        // symmetric with the in-place status→inactive transition below. Resetting
+                        // previousStatus alone would make the delete path silent for expiry — a real
+                        // undercount, so emit here.
+                        if (prevStatus in listOf("active", "trialing")) {
+                            eventTracker?.track("web_entitlement_expired", mapOf(
+                                "plan_name" to (previous.planName ?: ""),
+                                "reason" to "deleted"
+                            ))
+                        }
                     }
                     return@addSnapshotListener
                 }
