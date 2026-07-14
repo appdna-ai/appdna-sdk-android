@@ -337,7 +337,12 @@ class BillingModule internal constructor() {
                 TransactionInfo(
                     transactionId = ent.productId, // Google Play exposes the orderId via the receipt; entitlement productId is the closest stable handle
                     productId = ent.productId,
-                    purchaseDate = ent.expiresAt ?: "",
+                    // 🔴 THIS RETURNED THE EXPIRY AS THE PURCHASE DATE — a FUTURE date for a subscription,
+                    // an empty string for a one-off. iOS returns `Date()` (the purchase moment); a host
+                    // reading `transaction.purchaseDate` off a direct RN/Flutter purchase on Android got a
+                    // date that had not happened yet. The `Entitlement` carries no purchase time, so —
+                    // like iOS — the honest value is now.
+                    purchaseDate = java.time.Instant.now().toString(),
                     environment = "production",
                 )
             }
