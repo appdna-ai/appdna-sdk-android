@@ -358,7 +358,19 @@ object AppDNA {
     private var experimentManager: ExperimentManager? = null
     private var pushTokenManager: PushTokenManager? = null
     private var revenueCatBridge: RevenueCatBridge? = null
-    private var paywallManager: PaywallManager? = null
+    /**
+     * 🔴 `internal`, NOT `private` — SO A TEST CAN REACH THE PATH WHERE THE RETURN VALUE IS DECIDED.
+     *
+     * `presentPaywall` returns `hasPaywall(id)`: false for a typo'd id, so a wrapper's promise no longer
+     * resolves "shown" when nothing was. But every test of that Boolean either called `PaywallManager`
+     * directly, or called the facade on an UNCONFIGURED SDK — which returns early at the null-manager
+     * guard and never reaches `val known` at all.
+     *
+     * So the line that computes the answer was untested, and `val known = true` passed the whole suite:
+     * a typo'd paywall id would report success again, and nothing would catch it. The test could not
+     * fail, because it could not get to the code.
+     */
+    internal var paywallManager: PaywallManager? = null
     private var onboardingFlowManager: OnboardingFlowManager? = null
     private var surveyManager: SurveyManager? = null
     private var webEntitlementManager: WebEntitlementManager? = null

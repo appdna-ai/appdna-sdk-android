@@ -85,4 +85,44 @@ class PaywallPresentReportsWhetherItPresentedTest {
         assertFalse(AppDNA.presentPaywall(activity, "pw_real"))
         assertFalse(AppDNA.presentPaywallByPlacement(activity, "upgrade"))
     }
+
+    /**
+     * 🔴 THE TEST ABOVE COULD NOT FAIL, BECAUSE IT COULD NOT REACH THE CODE.
+     *
+     * Every test of this Boolean either called [PaywallManager] directly, or called the facade on an
+     * UNCONFIGURED SDK — which returns early at the null-manager guard and never reaches the line that
+     * computes the answer (`val known = manager.hasPaywall(id)`). So that line was untested, and
+     * mutating it to `val known = true` passed the entire suite: a typo'd paywall id would once again
+     * report success to the wrapper while nothing was shown, and no test anywhere would notice.
+     *
+     * This one drives the FACADE with a CONFIGURED manager — the state a real host is in — so the
+     * mutation now has somewhere to be caught.
+     */
+    @Test
+    fun `a CONFIGURED SDK reports true for a real id and false for a typo`() {
+        val activity: Activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        AppDNA.paywallManager = managerWith("pw_real" to paywallDoc("pw_real", placement = "upgrade"))
+
+        try {
+            assertTrue(
+                "a published paywall id reported that nothing was shown",
+                AppDNA.presentPaywall(activity, "pw_real"),
+            )
+            assertFalse(
+                "a TYPO'D paywall id reported success — the wrapper resolves its promise \"shown\" and " +
+                    "the host believes a paywall appeared. Nothing did.",
+                AppDNA.presentPaywall(activity, "pw_reall"),
+            )
+
+            assertTrue(AppDNA.presentPaywallByPlacement(activity, "upgrade"))
+            assertFalse(
+                "no paywall is authored for this placement, and the facade said one was shown",
+                AppDNA.presentPaywallByPlacement(activity, "onboarding_end"),
+            )
+        } finally {
+            // `AppDNA` is a process-global singleton — leaving a manager behind would leak into every
+            // test that runs after this one.
+            AppDNA.paywallManager = null
+        }
+    }
 }

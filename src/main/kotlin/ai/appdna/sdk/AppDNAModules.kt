@@ -511,12 +511,26 @@ class PaywallModule internal constructor() {
     var skipNextAutoDismissOnRestore: Boolean = false
 
     /** Present a paywall. */
+    /**
+     * 🔴 THIS DISCARDED THE ANSWER — ON THE SURFACE THAT TAKES THE MONEY.
+     *
+     * [AppDNA.presentPaywall] returns a Boolean: false when the id is not in the published config, when
+     * the SDK is not configured, or when it is runtime-locked. This facade — the one the docs tell hosts
+     * to call, and the one BOTH wrappers route through — threw it away and returned Unit. So
+     * `AppDNA.paywall.present(activity, "typo_id")` looked like a success to every caller, native and
+     * wrapper alike, and no paywall ever appeared.
+     *
+     * [OnboardingModule.present] has always returned Boolean. The paywall — where the revenue is — was
+     * the one that did not.
+     *
+     * @return false if nothing was presented.
+     */
     fun present(
         activity: Activity,
         paywallId: String,
         context: PaywallContext? = null
-    ) {
-        AppDNA.presentPaywall(activity, paywallId, context, listener)
+    ): Boolean {
+        return AppDNA.presentPaywall(activity, paywallId, context, listener)
     }
 
     /** Set a delegate for paywall events. */
