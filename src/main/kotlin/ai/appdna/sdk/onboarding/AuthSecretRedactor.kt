@@ -26,19 +26,38 @@ package ai.appdna.sdk.onboarding
  */
 internal object AuthSecretRedactor {
 
-    /** Block types whose VALUE is a secret and must never be persisted or emitted. */
-    private val SECRET_BLOCK_TYPES = setOf("input_password")
+    /**
+     * Block types whose VALUE is a secret and must never be persisted or emitted.
+     *
+     * 🔴 `otp_input` WAS MISSING — a `verify_otp` step captures the one-time code in an `otp_input`
+     * block into the same `inputValues` map, so the code shipped to `selection_data` → `raw.sdk_events`.
+     * A one-time code is a credential; it belongs here beside `input_password`.
+     */
+    private val SECRET_BLOCK_TYPES = setOf("input_password", "otp_input")
 
-    /** The field ids on this step whose values are secrets. */
+    /**
+     * The field ids on this step whose values are secrets — INCLUDING nested blocks.
+     *
+     * 🔴 THE ORIGINAL SCAN WAS TOP-LEVEL ONLY, so a password inside a `row` / `stack` (its
+     * `children` / `stack_children`) sailed past it, while the renderer wrote it into the same shared
+     * `inputValues` map. `flow.schema.ts` validates content blocks as `z.array(z.unknown())`, so
+     * nothing rejects a nested `input_password`. This walks the whole tree.
+     */
     fun secretFieldIds(step: OnboardingStep): Set<String> {
         val ids = mutableSetOf<String>()
-        step.config.content_blocks
-            ?.filter { it.type in SECRET_BLOCK_TYPES }
-            ?.forEach { ids.add(it.field_id ?: it.id) }
+        collectSecretBlockIds(step.config.content_blocks, ids)
         step.config.fields
             ?.filter { it.type == FormFieldType.PASSWORD }
             ?.forEach { ids.add(it.id) }
         return ids
+    }
+
+    private fun collectSecretBlockIds(blocks: List<ContentBlock>?, ids: MutableSet<String>) {
+        blocks?.forEach { block ->
+            if (block.type in SECRET_BLOCK_TYPES) ids.add(block.field_id ?: block.id)
+            collectSecretBlockIds(block.children, ids)
+            collectSecretBlockIds(block.stack_children, ids)
+        }
     }
 
     /**

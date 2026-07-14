@@ -20,8 +20,19 @@ import org.junit.Test
  */
 class AuthSecretRedactionTest {
 
-    private fun block(id: String, type: String, fieldId: String? = null) =
-        ContentBlock(id = id, type = type, field_id = fieldId)
+    private fun block(
+        id: String,
+        type: String,
+        fieldId: String? = null,
+        children: List<ContentBlock>? = null,
+        stackChildren: List<ContentBlock>? = null,
+    ) = ContentBlock(
+        id = id,
+        type = type,
+        field_id = fieldId,
+        children = children?.toImmutableList(),
+        stack_children = stackChildren?.toImmutableList(),
+    )
 
     /** A login step as the console publishes it: email input, password input, button. */
     private fun loginStep() = OnboardingStep(
@@ -134,5 +145,81 @@ class AuthSecretRedactionTest {
     fun `secret ids are collected from blocks and fields alike`() {
         assertEquals(setOf("password"), AuthSecretRedactor.secretFieldIds(loginStep()))
         assertEquals(setOf("passcode"), AuthSecretRedactor.secretFieldIds(formStepWithPasswordField()))
+    }
+
+    /**
+     * 🔴 A PASSWORD NESTED IN A `row` STILL SHIPPED TO THE WAREHOUSE — the scan was top-level only.
+     * The renderer writes nested inputs into the SAME value map, so the redactor must walk the tree.
+     */
+    @Test
+    fun `a password nested inside a row is redacted`() {
+        val step = OnboardingStep(
+            id = "step_login_row",
+            type = OnboardingStep.StepType.CUSTOM,
+            config = StepConfig(
+                content_blocks = listOf(
+                    block(
+                        "row1", "row",
+                        children = listOf(
+                            block("b1", "input_email", "email"),
+                            block("b2", "input_password", "password"),
+                        ),
+                    ),
+                    block("b3", "button"),
+                ).toImmutableList(),
+            ),
+        )
+
+        assertEquals(setOf("password"), AuthSecretRedactor.secretFieldIds(step))
+        val safe = AuthSecretRedactor.redact(mapOf("email" to "a@b.com", "password" to "hunter2"), step)
+        assertNull("a password nested inside a row block leaked to the warehouse", safe?.get("password"))
+        assertEquals("a@b.com", safe?.get("email"))
+    }
+
+    /** ...and two levels deep, via `stack_children`. */
+    @Test
+    fun `a password nested two levels deep is redacted`() {
+        val step = OnboardingStep(
+            id = "s",
+            type = OnboardingStep.StepType.CUSTOM,
+            config = StepConfig(
+                content_blocks = listOf(
+                    block(
+                        "outer", "stack",
+                        stackChildren = listOf(
+                            block(
+                                "inner", "row",
+                                children = listOf(block("p", "input_password", "pw")),
+                            ),
+                        ),
+                    ),
+                ).toImmutableList(),
+            ),
+        )
+        assertEquals(setOf("pw"), AuthSecretRedactor.secretFieldIds(step))
+    }
+
+    /**
+     * 🔴 THE OTP CODE WAS NOT REDACTED. A `verify_otp` step captures the one-time code in an
+     * `otp_input` block; it shipped to `raw.sdk_events` in the clear.
+     */
+    @Test
+    fun `the otp code is redacted`() {
+        val step = OnboardingStep(
+            id = "step_verify",
+            type = OnboardingStep.StepType.CUSTOM,
+            config = StepConfig(
+                content_blocks = listOf(
+                    block("b1", "otp_input", "code"),
+                    block("b2", "button"),
+                ).toImmutableList(),
+            ),
+        )
+
+        val safe = AuthSecretRedactor.redact(
+            mapOf("code" to "418302", "action" to "verify_otp", "channel" to "sms"), step,
+        )
+        assertNull("the one-time code shipped to the warehouse unredacted", safe?.get("code"))
+        assertEquals("verify_otp", safe?.get("action"))
     }
 }
