@@ -4223,11 +4223,16 @@ private fun AnimatedLoadingBlock(block: ContentBlock, onAction: (String) -> Unit
             return@LaunchedEffect
         }
         if (items.isNotEmpty()) {
+            // Round-33 — TIME-weighted progress (cumulative item duration / total), matching iOS
+            // ContentBlockStandaloneViews. Was count-weighted (i/size), so a [1000ms,3000ms] loader
+            // jumped to 50% when item 0 finished (t=1s) where iOS shows 25%.
+            val totalMs = items.sumOf { it.duration_ms.toLong() }.coerceAtLeast(1L)
+            var cumulativeBeforeMs = 0L
             for (i in items.indices) {
                 val durationMs = items[i].duration_ms.toLong()
-                // Animate progress within this item
-                val startProgress = if (items.isNotEmpty()) i.toFloat() / items.size else 0f
-                val endProgress = if (items.isNotEmpty()) (i + 1).toFloat() / items.size else 1f
+                val startProgress = cumulativeBeforeMs.toFloat() / totalMs
+                val endProgress = (cumulativeBeforeMs + durationMs).toFloat() / totalMs
+                cumulativeBeforeMs += durationMs
 
                 val steps = (durationMs / 50).toInt().coerceAtLeast(1)
                 val stepDelay = durationMs / steps

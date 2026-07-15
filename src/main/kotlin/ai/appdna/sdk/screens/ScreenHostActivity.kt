@@ -426,32 +426,67 @@ private fun ScreenHostBody(
                     onAction(action)
                     return@dispatchScreenAction
                 }
-                when (action) {
-                    // SPEC-070-B PN row 18 (W11): config-driven URLs — scheme-checked before the OS sees them.
-                    is SectionAction.OpenURL -> {
-                        ai.appdna.sdk.core.URLSafety.sanitized(action.url, activityContext)?.let { uri ->
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, uri)
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                activityContext.startActivity(intent)
-                            } catch (_: Throwable) { /* best-effort */ }
-                        }
+                // Round-33 — full standalone-screen action dispatch, mirroring iOS
+                // ScreenManager.performAction. Previously only 6 of 16 verbs were handled and the
+                // DEFAULT `next`/`back` CTA fell to `else -> {}`, leaving the user STUCK on the
+                // screen. `next`/`back` on a standalone (non-flow) screen dismiss it (iOS :305-311).
+                // SPEC-070-B PN row 18 (W11): config-driven URLs are scheme-checked before the OS.
+                fun openUri(raw: String) {
+                    ai.appdna.sdk.core.URLSafety.sanitized(raw, activityContext)?.let { uri ->
+                        try {
+                            activityContext.startActivity(
+                                Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Throwable) { /* best-effort */ }
                     }
-                    is SectionAction.DeepLink -> {
-                        ai.appdna.sdk.core.URLSafety.sanitized(action.url, activityContext)?.let { uri ->
-                            try {
-                                val intent = Intent(Intent.ACTION_VIEW, uri)
-                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                activityContext.startActivity(intent)
-                            } catch (_: Throwable) { /* best-effort */ }
-                        }
+                }
+                when (action) {
+                    is SectionAction.Next, is SectionAction.Back, is SectionAction.Dismiss -> onDismiss()
+                    is SectionAction.Navigate -> { onDismiss(); ScreenManager.shared.showScreen(action.screenId) }
+                    is SectionAction.OpenURL -> openUri(action.url)
+                    is SectionAction.OpenWebview -> openUri(action.url)
+                    is SectionAction.DeepLink -> openUri(action.url)
+                    is SectionAction.OpenAppSettings -> {
+                        try {
+                            activityContext.startActivity(
+                                Intent(
+                                    android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    android.net.Uri.fromParts("package", activityContext.packageName, null),
+                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Throwable) { /* best-effort */ }
+                    }
+                    is SectionAction.Share -> {
+                        try {
+                            val send = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, action.text)
+                            }
+                            activityContext.startActivity(
+                                Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            )
+                        } catch (_: Throwable) { /* best-effort */ }
                     }
                     is SectionAction.ShowScreen -> ScreenManager.shared.showScreen(action.id)
                     is SectionAction.ShowPaywall -> action.id?.let { AppDNA.showPaywall(it) }
                     is SectionAction.ShowSurvey -> action.id?.let { AppDNA.showSurvey(it) }
-                    is SectionAction.Dismiss -> onDismiss()
+                    is SectionAction.SubmitForm -> AppDNA.track(
+                        "screen_response_submitted",
+                        mapOf("screen_id" to config.id, "field_count" to action.data.size),
+                    )
+                    is SectionAction.Track -> AppDNA.track(action.event, action.properties)
+                    is SectionAction.Haptic -> ai.appdna.sdk.core.HapticType.fromString(action.type)?.let {
+                        ai.appdna.sdk.core.HapticEngine.trigger(currentView, it)
+                    }
+                    // Custom: host already notified via the veto gate; no built-in handling (iOS :379).
+                    is SectionAction.Custom -> {}
                     else -> {}
                 }
+                // iOS parity (ScreenManager.swift:390) — emit screen_action for every native action.
+                AppDNA.track(
+                    "screen_action",
+                    mapOf("screen_id" to config.id, "action_type" to (payload["type"]?.toString() ?: "unknown")),
+                )
             }
         },
     )
