@@ -125,9 +125,17 @@ internal object AudienceRuleEvaluator {
             "between" -> {
                 val v = ConditionEvaluator.toDoubleOrNull(traitValue) ?: return false
                 val (rawMin, rawMax) = betweenBounds(rule)
-                val lo = ConditionEvaluator.toDoubleOrNull(rawMin) ?: return false
-                val hi = ConditionEvaluator.toDoubleOrNull(rawMax) ?: return false
-                v >= lo && v <= hi
+                val lo = ConditionEvaluator.toDoubleOrNull(rawMin)
+                val hi = ConditionEvaluator.toDoubleOrNull(rawMax)
+                // Round-31 — allow a ONE-SIDED bound (e.g. {between, min:18} with no max), matching
+                // iOS which checks only the present bound. Previously a missing bound `?: return
+                // false` failed the rule, so {min:18} excluded everyone on Android but passed on iOS.
+                when {
+                    lo == null && hi == null -> false
+                    lo != null && v < lo -> false
+                    hi != null && v > hi -> false
+                    else -> true
+                }
             }
             else -> true
         }

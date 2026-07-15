@@ -43,7 +43,11 @@ internal class SurveyManager(
     fun onEvent(eventName: String, properties: Map<String, Any>?) {
         if (isPresenting.get()) return
 
-        for ((surveyId, config) in surveyConfigs) {
+        // Round-31 — iterate in ASCENDING surveyId order for a DETERMINISTIC winner when multiple
+        // surveys match one event (mirrors iOS SurveyManager + MessageManager's id-asc tie-break).
+        // The unordered map + `break` previously picked a nondeterministic survey that diverged
+        // from iOS. SurveyConfig has no priority field, so surveyId is the tie-break.
+        for ((surveyId, config) in surveyConfigs.toSortedMap()) {
             // 1. Event match
             if (config.triggerRules.event != eventName) continue
 
