@@ -72,7 +72,18 @@ object ReviewPromptManager {
             Log.info("Review prompt suppressed due to rate limiting")
             return
         }
+        launchNativeReview(context, emitDirectShown = true)
+    }
 
+    /**
+     * Launch the Play in-app review flow. When [emitDirectShown] is false the caller already emitted the
+     * `review_prompt_shown` event (the two-step path emits `{two_step}` when its dialog appears), so this
+     * must NOT emit a second `{direct}` one. Round-17 — the two-step positive handler previously called
+     * the public [triggerReview], which re-emitted `review_prompt_shown{direct}` → the two-step-accept
+     * path logged TWO shown events (two_step + direct) vs iOS's one, and mis-labelled the second `direct`
+     * inside a two-step interaction. Mirrors iOS's private `requestNativeReview()`.
+     */
+    private fun launchNativeReview(context: Context, emitDirectShown: Boolean) {
         val reviewManager = ReviewManagerFactory.create(context)
         val request = reviewManager.requestReviewFlow()
 
@@ -86,7 +97,9 @@ object ReviewPromptManager {
                     }
                 }
                 recordPromptShown(context)
-                AppDNA.track("review_prompt_shown", mapOf("prompt_type" to "direct"))
+                if (emitDirectShown) {
+                    AppDNA.track("review_prompt_shown", mapOf("prompt_type" to "direct"))
+                }
             } else {
                 Log.warning("Failed to request review flow: ${task.exception?.message}")
             }
@@ -110,7 +123,9 @@ object ReviewPromptManager {
             .setMessage("We'd love to hear your feedback!")
             .setPositiveButton("Yes! \uD83D\uDE0A") { _, _ ->
                 AppDNA.track("review_prompt_accepted")
-                triggerReview(activity)
+                // Launch WITHOUT re-emitting review_prompt_shown \u2014 the `{two_step}` event already fired
+                // when this dialog appeared (matches iOS's private requestNativeReview path).
+                launchNativeReview(activity, emitDirectShown = false)
             }
             .setNegativeButton("Not really") { _, _ ->
                 AppDNA.track("review_prompt_declined")
