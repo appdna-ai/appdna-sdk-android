@@ -223,19 +223,12 @@ class MessageManager internal constructor(
             return
         }
 
-        // SPEC-036-F §1.2 — experiment-aware presentation, attached inside the
-        // candidate/present path (not a host present() call). A running in-app-
-        // message experiment targeting this message + a treatment bucket renders
-        // the treatment payload; control / non-bucketed / old-doc → active.
-        var config = activeConfig
-        val resolution = experimentManager?.resolveSurfacePresentation("in_app_message", messageId)
-        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
-            val treatment = MessageConfigParser.parseSingleMessage(resolution.payload)
-            if (treatment != null) {
-                Log.info("[Messages] $messageId rendering experiment treatment variant")
-                config = treatment
-            }
-        }
+        // Round-13 F1 — experiment resolution (which records an experiment_exposure as a side effect) is
+        // deferred into presentBody, so it runs ONLY after EVERY synchronous suppression gate
+        // (runtimeLock above + isPresenting + shouldShowMessage veto + async veto below) AND the
+        // foreground-activity check. Previously it ran here, above the isPresenting/veto gates, so a
+        // host that vetoed the message via shouldShowMessage still recorded an exposure for a surface it
+        // never saw — inflating the message-experiment denominator vs iOS (which resolves after its gate).
 
         // Re-check the gate inside the main-thread runnable in case a
         // previous async dispatch flipped it.
@@ -272,12 +265,12 @@ class MessageManager internal constructor(
                     isPresenting.set(false)
                     return@launch
                 }
-                presentBody(messageId, config, triggerEvent)
+                presentBody(messageId, activeConfig, triggerEvent)
             }
             return
         }
 
-        presentBody(messageId, config, triggerEvent)
+        presentBody(messageId, activeConfig, triggerEvent)
     }
 
     /**
@@ -286,12 +279,27 @@ class MessageManager internal constructor(
      * experiment-resolved config computed by [present]. The [isPresenting] gate
      * has already been claimed by the caller.
      */
-    private fun presentBody(messageId: String, config: MessageConfig, triggerEvent: String) {
+    private fun presentBody(messageId: String, activeConfig: MessageConfig, triggerEvent: String) {
         val activity = currentActivity()
         if (activity == null) {
             Log.warning("[Messages] No foreground activity for $messageId")
             isPresenting.set(false)
             return
+        }
+
+        // SPEC-036-F §1.2 — experiment-aware presentation. A running in-app-message experiment
+        // targeting this message + a treatment bucket renders the treatment payload; control /
+        // non-bucketed / old-doc → active. Round-13 F1 — resolved HERE (after every suppression gate +
+        // the foreground-activity check) rather than in present(), so `resolveSurfacePresentation`'s
+        // experiment_exposure side effect records ONLY for a message actually being shown.
+        var config = activeConfig
+        val resolution = experimentManager?.resolveSurfacePresentation("in_app_message", messageId)
+        if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
+            val treatment = MessageConfigParser.parseSingleMessage(resolution.payload)
+            if (treatment != null) {
+                Log.info("[Messages] $messageId rendering experiment treatment variant")
+                config = treatment
+            }
         }
 
         // Record shown BEFORE rendering so concurrent `onEvent` calls

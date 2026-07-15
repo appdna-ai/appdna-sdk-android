@@ -118,10 +118,17 @@ internal class SurveyManager(
             return
         }
 
+        if (!isPresenting.compareAndSet(false, true)) return
+        currentSurveyId = surveyId
+
         // SPEC-036-F §1.2 — experiment-aware presentation, attached inside the
         // present path (surveys are event-auto-triggered). A running survey
         // experiment targeting this survey + a treatment bucket renders the
         // treatment payload; control / none / old-doc → active.
+        // Round-13 F2 — resolveSurfacePresentation records an experiment_exposure as a side effect, so it
+        // must run AFTER every synchronous suppression gate (runtimeLock above + isPresenting here): a
+        // survey never shown must never count as exposed. Was above the isPresenting gate, so a
+        // concurrent already-presenting call over-recorded exposures.
         var config = activeConfig
         val resolution = experimentManager?.resolveSurfacePresentation("survey", surveyId)
         if (resolution is ai.appdna.sdk.config.ExperimentManager.SurfaceResolution.RenderTreatment) {
@@ -131,9 +138,6 @@ internal class SurveyManager(
                 config = treatment
             }
         }
-
-        if (!isPresenting.compareAndSet(false, true)) return
-        currentSurveyId = surveyId
 
         eventTracker.track("survey_shown", mapOf(
             "survey_id" to surveyId,
