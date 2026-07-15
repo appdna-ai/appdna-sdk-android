@@ -3679,7 +3679,10 @@ private fun RatingBlock(
                 // when allow_half ("2.5 of 5"). Was `Double.toString` which
                 // produced "3.0 of 5 stars" for every full-star rating.
                 stateDescription = if (allowHalf) {
-                    "${"%.1f".format(selectedRating)} of $maxStars stars"
+                    // Round-30 — Locale.US (POSIX) like iOS String(format:); default JVM locale
+                    // renders "2,5"/Arabic-Indic "٢٫٥" in TalkBack. Twin of the iOS a11y line fixed
+                    // in Round-29 (ContentBlockStandaloneViews.swift); this Android half was missed.
+                    "${"%.1f".format(java.util.Locale.US, selectedRating)} of $maxStars stars"
                 } else {
                     "${selectedRating.toInt()} of $maxStars stars"
                 }
@@ -8032,9 +8035,11 @@ private fun FormInputSliderBlock(
     // SPEC-401-A R55 (Lens C R55 #2 cont., P2) — value formatting honors
     // fractional step so 7.5 doesn't display as 8. Matches iOS
     // String(format: "%.1f", value) when step < 1.
-    val displayValue = if (stepVal > 0f && stepVal < 1f) {
-        // Round-29 — Locale.US (POSIX) like iOS String(format:); default JVM locale renders "2,5" on
-        // de/fr/etc and Arabic-Indic digits ("٢٫٥") on ar/fa. Matches the sibling formatters at ~:6020.
+    // Round-30 — decimal for ANY fractional step (not just step<1), so a step of 2.5 shows "2.5"
+    // on both platforms instead of iOS truncating to "2" / Android rounding to "3". Whole-number
+    // steps → rounded int (roundToInt, matching iOS Int(value.rounded()); avoids FP-drift off-by-one).
+    // Locale.US (POSIX) like iOS String(format:); default JVM locale renders "2,5"/Arabic-Indic "٢٫٥".
+    val displayValue = if (stepVal > 0f && stepVal % 1f != 0f) {
         "%.1f".format(java.util.Locale.US, value)
     } else {
         "${value.roundToInt()}"
@@ -8428,9 +8433,10 @@ private fun FormInputRangeSliderBlock(
     val stepCount = if (stepVal > 0f) {
         ((maxVal - minVal) / stepVal - 1).toInt().coerceAtLeast(0)
     } else 0
-    // Round-29 — Locale.US (POSIX) like iOS; default JVM locale would render comma/Arabic-Indic decimals.
-    val low = if (stepVal > 0f && stepVal < 1f) "%.1f".format(java.util.Locale.US, lowValue) else "${lowValue.roundToInt()}"
-    val high = if (stepVal > 0f && stepVal < 1f) "%.1f".format(java.util.Locale.US, highValue) else "${highValue.roundToInt()}"
+    // Round-30 — decimal for ANY fractional step (see single-slider note above); Locale.US (POSIX)
+    // like iOS; default JVM locale would render comma/Arabic-Indic decimals.
+    val low = if (stepVal > 0f && stepVal % 1f != 0f) "%.1f".format(java.util.Locale.US, lowValue) else "${lowValue.roundToInt()}"
+    val high = if (stepVal > 0f && stepVal % 1f != 0f) "%.1f".format(java.util.Locale.US, highValue) else "${highValue.roundToInt()}"
 
     Column(
         modifier = Modifier.fillMaxWidth(),
