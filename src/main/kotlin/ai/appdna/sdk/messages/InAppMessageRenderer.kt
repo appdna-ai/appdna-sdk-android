@@ -46,6 +46,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 // SPEC-070-A J.11 — accessibility string resources for in-app message chrome.
 import ai.appdna.sdk.R
 
@@ -119,6 +120,7 @@ private fun BannerMessageView(
     val isTop = content.banner_position != "bottom"
     var isVisible by remember { mutableStateOf(false) }
     val currentView = LocalView.current
+    val dismissScope = rememberCoroutineScope()
 
     LaunchedEffect(Unit) {
         isVisible = true
@@ -210,7 +212,12 @@ private fun BannerMessageView(
                         // CTA button with optional icon
                         content.cta_text?.let { ctaText ->
                             Button(
-                                onClick = onCTATap,
+                                onClick = {
+                                    // Round-25 — fire the on_button_tap haptic like modal/fullscreen +
+                                    // iOS BannerView; banner CTA silently dropped a configured haptic.
+                                    HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+                                    onCTATap()
+                                },
                                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                                 // SPEC-401-A R86 (Lens C F1) — CTA shape uses
                                 // `content.button_corner_radius ?? 8` matching
@@ -234,8 +241,14 @@ private fun BannerMessageView(
                         val dismissCd = stringResource(R.string.appdna_a11y_message_close)
                         IconButton(
                             onClick = {
-                                isVisible = false
-                                onDismiss()
+                                // Round-25 \u2014 flip visible + delay 300ms so the slide/fade exit plays
+                                // before the ComposeView is torn down, matching iOS BannerView + Android's
+                                // own banner auto-dismiss path (was tearing down synchronously \u2192 instant).
+                                dismissScope.launch {
+                                    isVisible = false
+                                    delay(300L)
+                                    onDismiss()
+                                }
                             },
                             // SPEC-070-A J.11 \u2014 close X uses Material Close
                             // icon (was Text glyph); mirrors iOS SF Symbol
@@ -738,6 +751,7 @@ private fun TooltipMessageView(
     val cornerRadius = content.corner_radius ?: 12
     val currentView = LocalView.current
     var isDismissed by remember { mutableStateOf(false) }
+    val dismissScope = rememberCoroutineScope()
 
     // SPEC-070-A finalization parity (Lens B P1):
     // - haptic on appear (iOS TooltipView.swift:23)
@@ -828,7 +842,15 @@ private fun TooltipMessageView(
                             // TooltipView.swift:56-63 so the user has a
                             // visible affordance even if backdrop tap is
                             // blocked or unclear.
-                            IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                            IconButton(onClick = {
+                                // Round-25 — animate the fade/scale-out before teardown (matches iOS
+                                // TooltipView), rather than tearing the ComposeView down instantly.
+                                dismissScope.launch {
+                                    tooltipVisible = false
+                                    delay(300L)
+                                    onDismiss()
+                                }
+                            }, modifier = Modifier.size(24.dp)) {
                                 androidx.compose.material3.Icon(
                                     imageVector = Icons.Filled.Close,
                                     contentDescription = "Close",
@@ -862,7 +884,11 @@ private fun TooltipMessageView(
                     content.cta_text?.let { ctaText ->
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
-                            onClick = onCTATap,
+                            onClick = {
+                                // Round-25 — on_button_tap haptic like modal/fullscreen + iOS TooltipView.
+                                HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
+                                onCTATap()
+                            },
                             colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                             shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
                             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),

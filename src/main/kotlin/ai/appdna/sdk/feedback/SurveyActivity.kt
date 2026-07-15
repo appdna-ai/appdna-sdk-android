@@ -435,7 +435,10 @@ fun SurveyScreen(
         }
 
         // Progress
-        if (config.appearance.showProgress && visibleQuestions.isNotEmpty()) {
+        // Round-25 — hide the whole question UI (progress + question + nav + "Not now") once the
+        // thank-you celebration starts, matching iOS SurveyRenderer's `if showThankYou {..} else {..}`.
+        // Android left the final question + Submit + "Not now" visible+interactive during the 2.5s window.
+        if (config.appearance.showProgress && visibleQuestions.isNotEmpty() && !showCompletion) {
             // SPEC-401-A R70 (Lens C P2) — animate progress fill via
             // `animateFloatAsState` (300ms tween) matching iOS SwiftUI
             // ProgressView's implicit ~0.35s easeInOut animation on value
@@ -459,7 +462,7 @@ fun SurveyScreen(
         Spacer(Modifier.weight(1f))
 
         // Current question
-        if (currentIndex < visibleQuestions.size) {
+        if (currentIndex < visibleQuestions.size && !showCompletion) {
             val question = visibleQuestions[currentIndex]
             val answer = answers[question.id]
 
@@ -544,6 +547,7 @@ fun SurveyScreen(
         Spacer(Modifier.weight(1f))
 
         // Navigation
+        if (!showCompletion) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
@@ -647,9 +651,10 @@ fun SurveyScreen(
                 }
             }
         }
+        } // end if (!showCompletion) — hide the nav Row during the thank-you celebration
 
         // Dismiss
-        if (config.appearance.dismissAllowed) {
+        if (config.appearance.dismissAllowed && !showCompletion) {
             val dismissCd = stringResource(R.string.appdna_a11y_survey_dismiss)
             TextButton(
                 onClick = { onDismiss(answers.size) },
