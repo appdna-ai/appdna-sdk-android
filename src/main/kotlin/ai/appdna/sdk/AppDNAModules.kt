@@ -338,11 +338,15 @@ class BillingModule internal constructor() {
                     transactionId = ent.productId, // Google Play exposes the orderId via the receipt; entitlement productId is the closest stable handle
                     productId = ent.productId,
                     // 🔴 THIS RETURNED THE EXPIRY AS THE PURCHASE DATE — a FUTURE date for a subscription,
-                    // an empty string for a one-off. iOS returns `Date()` (the purchase moment); a host
-                    // reading `transaction.purchaseDate` off a direct RN/Flutter purchase on Android got a
-                    // date that had not happened yet. The `Entitlement` carries no purchase time, so —
-                    // like iOS — the honest value is now.
-                    purchaseDate = java.time.Instant.now().toString(),
+                    // an empty string for a one-off. The `Entitlement` carries no purchase time, so the
+                    // honest value is now.
+                    // Round-11 Finding 2 — emit epoch-MILLIS (String), NOT `Instant.now().toString()`
+                    // (ISO). Every OTHER Android purchaseDate is epoch-millis (NativeBillingManager
+                    // `purchaseTime.toString()`, RC/Adapty `System.currentTimeMillis().toString()`), and
+                    // the RN wrapper passes this field through verbatim — so an ISO string here made the
+                    // RN `purchase()` facade return ISO on Android but epoch-millis on iOS, breaking the
+                    // mapper's stated epoch-millis contract.
+                    purchaseDate = System.currentTimeMillis().toString(),
                     environment = "production",
                 )
             }

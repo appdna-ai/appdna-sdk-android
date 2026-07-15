@@ -50,16 +50,25 @@ internal class IdentityManager(private val storage: LocalStorage) {
      * is supplied (Sources/AppDNASDK/Core/Identity/IdentityManager.swift:49-58).
      */
     fun identify(userId: String, traits: Map<String, Any>?) {
+        // Round-11 Finding 1 — on a null `traits`, clear traits ONLY when the user actually CHANGES (an
+        // account switch — the prior user's traits don't apply to the new one), and retain them on a
+        // same-user re-identify (the common per-launch call). Previously Android retained traits even
+        // across a user switch, so user B was evaluated against user A's stale traits; iOS wiped them on
+        // every nil-traits identify. Both now converge on this correct behavior.
+        val userChanged: Boolean
         synchronized(lock) {
+            userChanged = _userId != userId
             _userId = userId
-            if (traits != null) {
-                _traits = traits
+            when {
+                traits != null -> _traits = traits
+                userChanged -> _traits = null
+                // else: same user, no new traits → keep existing traits.
             }
         }
         storage.setString("user_id", userId)
-        // G.21: only re-persist when caller passed traits.
-        if (traits != null) {
-            persistTraits(traits)
+        when {
+            traits != null -> persistTraits(traits)
+            userChanged -> storage.remove("user_traits")
         }
         Log.info { "Identified user: $userId" }
     }
