@@ -124,12 +124,21 @@ internal object AudienceRuleEvaluator {
             // Inclusive on both ends; a non-numeric trait or a missing bound fails closed.
             "between" -> {
                 val v = ConditionEvaluator.toDoubleOrNull(traitValue) ?: return false
-                val (rawMin, rawMax) = betweenBounds(rule)
-                val lo = ConditionEvaluator.toDoubleOrNull(rawMin)
-                val hi = ConditionEvaluator.toDoubleOrNull(rawMax)
-                // Round-31 — allow a ONE-SIDED bound (e.g. {between, min:18} with no max), matching
-                // iOS which checks only the present bound. Previously a missing bound `?: return
-                // false` failed the rule, so {min:18} excluded everyone on Android but passed on iOS.
+                var lo = ConditionEvaluator.toDoubleOrNull(rule.min)
+                var hi = ConditionEvaluator.toDoubleOrNull(rule.max)
+                // Round-32 — read a 2-element `value` list ONLY when NEITHER min nor max yields a
+                // number, so sibling min/max keys WIN when present. iOS AudienceRule.swift has this
+                // exact precedence; the old betweenBounds preferred the list unconditionally, so
+                // {min:18,max:65,value:[30,40]} used [30,40] on Android but [18,65] on iOS.
+                if (lo == null && hi == null) {
+                    val list = rule.value as? List<*>
+                    if (list != null && list.size >= 2) {
+                        lo = ConditionEvaluator.toDoubleOrNull(list[0])
+                        hi = ConditionEvaluator.toDoubleOrNull(list[1])
+                    }
+                }
+                // Round-31 — allow a ONE-SIDED bound (e.g. {min:18} with no max); iOS checks only
+                // the present bound. Inclusive on both ends.
                 when {
                     lo == null && hi == null -> false
                     lo != null && v < lo -> false
@@ -139,12 +148,5 @@ internal object AudienceRuleEvaluator {
             }
             else -> true
         }
-    }
-
-    /** `between` bounds arrive as sibling `min`/`max` keys, or as a two-element `value` list. */
-    private fun betweenBounds(rule: AudienceRule): Pair<Any?, Any?> {
-        val list = rule.value as? List<*>
-        if (list != null && list.size >= 2) return list[0] to list[1]
-        return rule.min to rule.max
     }
 }
