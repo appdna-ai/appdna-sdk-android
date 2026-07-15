@@ -1873,7 +1873,9 @@ object AppDNA {
         // resulting in silent no-ops every time the host called billing.
         initBillingModuleIfNeeded(tracker, client)
 
-        val result = client.get("/api/v1/sdk/bootstrap")
+        // Round-10 #14 — retry the cold-start bootstrap on transient 5xx/network blips (iOS parity),
+        // instead of degrading to cached config on the first failure.
+        val result = client.getWithRetry("/api/v1/sdk/bootstrap")
         if (result != null) {
             try {
                 val orgId = result.optString("orgId", "").ifEmpty { throw IllegalArgumentException("Missing orgId") }
@@ -2317,6 +2319,21 @@ object AppDNA {
             bootstrapAppId = null
             apiKey = null
             adaptyBridge = null
+
+            // Round-10 #9 — the PUBLIC module facades (`AppDNA.onboarding`/`paywall`/`remoteConfig`/
+            // `features`/`surveys`/`experiments`/`push`) hold their OWN strong `.manager` ref, assigned
+            // in configure(). Nulling the private `*Manager` fields above does NOT clear these, so after
+            // shutdown `AppDNA.surveys.present(id)` / `remoteConfig.get()` / `features.isEnabled()` /
+            // `experiments.getVariant()` still ran against a torn-down instance and kept EventTracker/
+            // ApiClient/Firestore pinned. iOS holds these `weak`, so nilling `shared.*` makes the facades
+            // inert automatically; Android must clear them explicitly, exactly like `billing.manager` above.
+            onboarding.manager = null
+            paywall.manager = null
+            remoteConfig.manager = null
+            features.manager = null
+            surveys.manager = null
+            experiments.manager = null
+            push.manager = null
 
             // SPEC-070-B PN row 10: these three are OBJECT-scoped statics, so nulling the managers
             // above leaves them holding the previous run's values. A re-configure()d SDK then renders

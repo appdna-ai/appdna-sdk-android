@@ -220,6 +220,59 @@ internal class ApiClient(
     }
 
     /**
+     * Round-10 #14 — GET with bounded retry on TRANSIENT failures only (5xx + network), used for the
+     * cold-start bootstrap. iOS retries the `.bootstrap` request 3× with 1/2/4s backoff
+     * (Network/APIClient.swift); the plain [get] made a single attempt and immediately degraded to
+     * cached config on any blip, stranding Android on stale config for the whole session. A 401/4xx is
+     * permanent — returned immediately without retry (retrying an auth/permanent error is pointless).
+     */
+    suspend fun getWithRetry(path: String, maxAttempts: Int = 3): JSONObject? {
+        return withContext(Dispatchers.IO) {
+            var attempt = 0
+            while (true) {
+                attempt++
+                try {
+                    val request = Request.Builder()
+                        .url("${environment.baseUrl}$path")
+                        .header("x-api-key", apiKey)
+                        .get()
+                        .build()
+
+                    client.newCall(request).execute().use { response ->
+                        if (response.isSuccessful) {
+                            return@withContext response.body?.string()?.let { JSONObject(it) }
+                        }
+                        if (response.code == 401) {
+                            val (errCode, errMsg) = decodeErrorBody(response)
+                            Log.error(
+                                "API auth failed (HTTP 401, GET): Invalid API key or SDK suspended. " +
+                                    "path=$path code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
+                            )
+                            return@withContext null
+                        }
+                        // Only 5xx is transient; other 4xx are permanent. Give up once attempts exhausted.
+                        if (response.code < 500 || attempt >= maxAttempts) {
+                            Log.warning("GET failed (${response.code}): $path")
+                            return@withContext null
+                        }
+                        Log.warning("GET transient (${response.code}), retry $attempt/$maxAttempts: $path")
+                    }
+                } catch (e: IOException) {
+                    if (attempt >= maxAttempts) {
+                        Log.error("GET error (final attempt $attempt): ${e.message}")
+                        return@withContext null
+                    }
+                    Log.warning("GET network error, retry $attempt/$maxAttempts: ${e.message}")
+                }
+                // Exponential backoff: 1s, 2s, 4s (mirrors iOS bootstrap policy).
+                delay(1000L * (1L shl (attempt - 1)))
+            }
+            @Suppress("UNREACHABLE_CODE")
+            null
+        }
+    }
+
+    /**
      * SPEC-070-A A.16: Single-attempt event-batch upload with structured result.
      *
      * Unlike [postCompressed] (which performs its own internal retry loop), this method

@@ -181,7 +181,15 @@ internal class WebEntitlementManager(
 
     private fun notifyListeners(entitlement: WebEntitlement?) {
         for (cb in changeListeners) {
-            cb(entitlement)
+            // Round-10 #12 — a throwing host callback must NOT propagate out of the snapshot handler:
+            // notifyListeners runs BEFORE the web_entitlement_activated/_expired tracking block, so an
+            // unguarded throw here skipped the analytics emit entirely. The sibling EntitlementCache
+            // already wraps its listener calls for exactly this reason.
+            try {
+                cb(entitlement)
+            } catch (e: Throwable) {
+                Log.warning("Web-entitlement change listener threw: ${e.message}")
+            }
         }
     }
 }

@@ -853,10 +853,18 @@ class NativeBillingManager internal constructor(
         // Resolve offer (only meaningful for SUBS).
         val selectedOffer = if (productType == BillingClient.ProductType.SUBS) {
             val token = options?.offerToken
+            val offers = productDetails.subscriptionOfferDetails
             if (token != null) {
-                productDetails.subscriptionOfferDetails?.find { it.offerToken == token }
+                offers?.find { it.offerToken == token }
             } else {
-                productDetails.subscriptionOfferDetails?.firstOrNull()
+                // Round-10 #1 — when the caller (e.g. the paywall, which carries only product_id) doesn't
+                // name an offer, DON'T take an arbitrary `firstOrNull()`: Play may return promotional/intro
+                // offers first, so the user could be charged a promo/trial price they're ineligible for, or
+                // a different price than the paywall card advertised. Prefer the base-plan offer (no
+                // offerId) — the standard recurring price — so the default is safe and deterministic.
+                // Per-plan base-plan/offer targeting from the card still needs a console-authored field on
+                // PaywallPlan (tracked follow-up); this only makes the no-hint default correct.
+                offers?.firstOrNull { it.offerId == null } ?: offers?.firstOrNull()
             }
         } else null
 
@@ -1100,13 +1108,11 @@ class NativeBillingManager internal constructor(
                 ))
             }
 
-            // SPEC-070-A G.7 — aggregate event with restored_count, matching
-            // iOS `Paywalls/PaywallManager.swift:340` shape.
-            // SPEC-402 C1 — emit as Int (not String) to match iOS. Looker
-            // number filters silently misbehave on String-typed numerics.
-            AppDNA.track("purchase_restored", mapOf(
-                "restored_count" to entitlements.size
-            ))
+            // NOTE: the aggregate `purchase_restored {restored_count}` is emitted by the caller that
+            // owns the paywall context (PaywallManager.restoreOutcome), WITH the `paywall_id` — exactly
+            // as iOS does (PaywallManager.swift only; the native bridge restore emits no aggregate).
+            // Emitting a second, paywall_id-less aggregate here double-counted restore analytics (~2×)
+            // on the paywall restore path. Removed to match iOS.
 
             // SPEC-070-A B.2 — typed delegate fan-out.
             fireOnRestoreCompleted(entitlements.map { it.productId })
