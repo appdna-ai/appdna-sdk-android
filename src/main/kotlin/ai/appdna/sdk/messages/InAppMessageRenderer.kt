@@ -324,9 +324,14 @@ private fun ModalMessageView(
             .then(
                 // SPEC-085: Blur backdrop for glassmorphism
                 if (content.blur_backdrop != null) {
-                    Modifier.applyBlurBackdrop(content.blur_backdrop, 0f)
+                    // Round-36 — iOS ModalView keeps a 0.3 black dim UNDER the blur material; Android
+                    // had only the blur tint (no dark dim). Layer the dim then the blur, matching iOS.
+                    Modifier
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .applyBlurBackdrop(content.blur_backdrop, 0f)
                 } else {
-                    Modifier.background(Color.Black.copy(alpha = 0.5f))
+                    // Round-36 — non-blur scrim = black @ 0.4, matching iOS ModalView:21 (was 0.5).
+                    Modifier.background(Color.Black.copy(alpha = 0.4f))
                 }
             )
             // SPEC-401-A R86 (Lens C F3) — null indication suppresses Material
@@ -883,15 +888,18 @@ private fun TooltipMessageView(
                     // corner_radius, diverging from banner/modal/fullscreen).
                     content.cta_text?.let { ctaText ->
                         Spacer(modifier = Modifier.height(12.dp))
-                        Button(
+                        // Round-36 — the tooltip CTA is a colored TEXT-LINK on iOS (TooltipView:
+                        // `button_color` colors the TEXT, no fill/shape), NOT a filled pill like the
+                        // other three message types. Android had unified it into a filled Button, so
+                        // `button_color` meant the opposite (background fill, white text). Match iOS:
+                        // unfilled TextButton, button_color as the text color.
+                        TextButton(
                             onClick = {
                                 // Round-25 — on_button_tap haptic like modal/fullscreen + iOS TooltipView.
                                 HapticEngine.triggerIfEnabled(currentView, content.haptic?.triggers?.on_button_tap, content.haptic)
                                 onCTATap()
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
-                            shape = RoundedCornerShape((content.button_corner_radius ?: 8).dp),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            contentPadding = PaddingValues(horizontal = 0.dp, vertical = 8.dp),
                         ) {
                             // SPEC-085: CTA icon
                             val ctaIcon = resolveIcon(content.cta_icon)
@@ -899,7 +907,7 @@ private fun TooltipMessageView(
                                 IconView(ref = ctaIcon, defaultSize = 12f)
                                 Spacer(modifier = Modifier.width(4.dp))
                             }
-                            Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text(ctaText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = buttonColor)
                         }
                     }
 

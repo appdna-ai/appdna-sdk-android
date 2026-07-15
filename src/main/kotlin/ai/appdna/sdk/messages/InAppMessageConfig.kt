@@ -3,6 +3,24 @@ package ai.appdna.sdk.messages
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 
+// Round-36 — parse `blur_backdrop` from EITHER a bare Boolean (the console/Zod toggle shape production
+// uses: `blur_backdrop: true`) OR the full {radius,tint,saturation} object, mirroring iOS BlurConfig.init
+// (true → radius 30 / saturation 1.8; false/absent → null = no blur). The Boolean form was previously
+// dropped (`as? Map` failed), so the blur backdrop feature was entirely INERT on Android.
+private fun parseBlurBackdrop(value: Any?): ai.appdna.sdk.core.BlurConfig? = when (value) {
+    is Boolean -> if (value) ai.appdna.sdk.core.BlurConfig(radius = 30f, tint = null, saturation = 1.8f) else null
+    is Map<*, *> -> {
+        @Suppress("UNCHECKED_CAST")
+        val b = value as Map<String, Any>
+        ai.appdna.sdk.core.BlurConfig(
+            radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
+            tint = b["tint"] as? String,
+            saturation = (b["saturation"] as? Number)?.toFloat(),
+        )
+    }
+    else -> null
+}
+
 /**
  * SPEC-084: In-app message config models matching Firestore schema.
  *
@@ -277,13 +295,7 @@ internal object MessageConfigParser {
                     colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
                 )
             },
-            blur_backdrop = (contentMap["blur_backdrop"] as? Map<String, Any>)?.let { b ->
-                ai.appdna.sdk.core.BlurConfig(
-                    radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
-                    tint = b["tint"] as? String,
-                    saturation = (b["saturation"] as? Number)?.toFloat(),
-                )
-            },
+            blur_backdrop = parseBlurBackdrop(contentMap["blur_backdrop"]),
             // SPEC-205 / SPEC-070-A F.2: dark mode sparse overrides
             dark = (contentMap["dark"] as? Map<String, Any>)?.let { d ->
                 MessageContentDark(
@@ -309,13 +321,7 @@ internal object MessageConfigParser {
                             colors = (p["colors"] as? List<*>)?.filterIsInstance<String>(),
                         )
                     },
-                    blur_backdrop = (d["blur_backdrop"] as? Map<String, Any>)?.let { b ->
-                        ai.appdna.sdk.core.BlurConfig(
-                            radius = (b["radius"] as? Number)?.toFloat() ?: 0f,
-                            tint = b["tint"] as? String,
-                            saturation = (b["saturation"] as? Number)?.toFloat(),
-                        )
-                    },
+                    blur_backdrop = parseBlurBackdrop(d["blur_backdrop"]),
                 )
             },
         )
