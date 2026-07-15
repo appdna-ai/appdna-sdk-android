@@ -482,11 +482,9 @@ private fun ScreenHostBody(
                     is SectionAction.Custom -> {}
                     else -> {}
                 }
-                // iOS parity (ScreenManager.swift:390) — emit screen_action for every native action.
-                AppDNA.track(
-                    "screen_action",
-                    mapOf("screen_id" to config.id, "action_type" to (payload["type"]?.toString() ?: "unknown")),
-                )
+                // NOTE: `screen_action` is emitted once by the veto gate (ScreenManager
+                // .handleScreenAction) that wraps this perform lambda — do NOT emit it again here
+                // (Round-34 fix: an added emit here double-counted the event on the native path).
             }
         },
     )
