@@ -364,12 +364,15 @@ internal class RemoteConfigManager(
         val done = fetchCompletionCounter.incrementAndGet()
         val expected = fetchExpectedTotal.get()
         if (expected > 0 && done >= expected) {
-            val successes = fetchSuccessCounter.get()
             try {
-                eventTracker?.track("config_fetched", mapOf(
-                    "success_count" to successes,
-                    "total_count" to expected,
-                ))
+                // Round-21 F1(non-render) — emit `config_fetched` WITHOUT properties, matching iOS
+                // (RemoteConfigManager.swift emits `properties: nil`). Android previously attached
+                // {success_count,total_count}; iOS attached none, so the same event had a divergent
+                // property shape across platforms (iOS rows had empty properties). The counters are still
+                // used above to fire this exactly once when the batch completes — they just aren't
+                // emitted. (Partial-fetch telemetry can be re-added to BOTH platforms later, with matching
+                // count semantics + a shared fixture, as a proper feature.)
+                eventTracker?.track("config_fetched", emptyMap())
             } catch (e: Exception) {
                 Log.warning { "config_fetched event emit failed: ${e.message}" }
             }

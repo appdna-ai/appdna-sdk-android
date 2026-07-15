@@ -1137,7 +1137,11 @@ internal object PaywallConfigParser {
                 // Pass raw — renderer decodes Bool|String|null into elevation.
                 card_shadow = d["card_shadow"],
                 badge_position = d["badge_position"] as? String,
-                badge_shape = d["badge_shape"] as? String,
+                // Round-21 F1 — the console writes the badge shape under `badge_style` (matching iOS
+                // `badgeStyle="badge_style"`); Android read only `badge_shape`, which the console NEVER
+                // writes, so the shape was always null → always a pill. Read `badge_style` first,
+                // `badge_shape` as a back-compat fallback.
+                badge_shape = (d["badge_style"] ?: d["badge_shape"]) as? String,
                 badge_bg_color = d["badge_bg_color"] as? String,
                 badge_text_color = d["badge_text_color"] as? String,
                 badge_font_size = (d["badge_font_size"] as? Number)?.toFloat(),

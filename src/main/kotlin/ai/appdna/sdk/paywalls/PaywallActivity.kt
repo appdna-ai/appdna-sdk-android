@@ -1511,7 +1511,11 @@ private fun PaywallSectionView(
             // `PlanCard.swift:259` (`cardStyle.badgePosition ?? "top_right"`).
             // Was `"inline"` which forced the badge inside the card body, on
             // top of the plan name and price.
-            val badgePosition = section.data?.badge_position ?: "top_right"
+            // Round-21 F2 — the console writes HYPHENATED positions ("top-right" etc.) but the `when`
+            // blocks below match UNDERSCORED constants, so an authored value hit the `else` (top-right)
+            // while iOS's default hit top-LEFT — opposite corners. Normalize hyphen→underscore so
+            // "top-left"/"top-center"/"top-right" route correctly and match iOS.
+            val badgePosition = (section.data?.badge_position ?: "top_right").replace("-", "_").lowercase()
 
             @Composable
             fun BadgeView(badgeText: String) {
