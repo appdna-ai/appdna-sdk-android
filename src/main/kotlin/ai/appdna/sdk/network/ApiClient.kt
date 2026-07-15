@@ -98,6 +98,13 @@ internal class ApiClient(
                                 "API request failed (${response.code}): $path " +
                                     "code=${errCode ?: "n/a"} msg=${errMsg ?: "n/a"}"
                             )
+                            // Round-18 — a 4xx is a PERMANENT client error (bad request / rejected receipt
+                            // / not-found / unprocessable / rate-limited). Retrying won't help and only
+                            // triples load + delays the user-facing failure ~7s. iOS's generic request()
+                            // treats ANY 4xx as terminal, and the event-upload disposition table already
+                            // drops 4xx permanently — this path was the lone exception, falling through to
+                            // the retry loop. Return terminal now, matching iOS.
+                            return@withContext null
                         } else {
                             Log.warning("API request failed (${response.code}): $path")
                         }
