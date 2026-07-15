@@ -577,14 +577,22 @@ fun SurveyScreen(
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
                             .background(buttonBrush)
-                            .clickable { currentIndex++ }
+                            // Round-26 — fire on_step_advance haptic like iOS SurveyRenderer + Android
+                            // onboarding; the survey Next button fired no haptic on either variant.
+                            .clickable {
+                                HapticEngine.triggerIfEnabled(currentView, config.appearance.haptic?.triggers?.on_step_advance, config.appearance.haptic)
+                                currentIndex++
+                            }
                             .padding(horizontal = 24.dp, vertical = 10.dp)
                             .semantics { contentDescription = nextCd },
                         contentAlignment = Alignment.Center,
                     ) { Text("Next", color = Color.White, fontWeight = FontWeight.SemiBold) }
                 } else {
                     Button(
-                        onClick = { currentIndex++ },
+                        onClick = {
+                            HapticEngine.triggerIfEnabled(currentView, config.appearance.haptic?.triggers?.on_step_advance, config.appearance.haptic)
+                            currentIndex++
+                        },
                         enabled = canAdvance,
                         colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                         modifier = Modifier.semantics { contentDescription = nextCd },
