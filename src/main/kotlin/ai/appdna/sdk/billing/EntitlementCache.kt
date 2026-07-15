@@ -253,9 +253,22 @@ internal class EntitlementCache(
      * Mirrors iOS `EntitlementCache.swift` `NotificationCenter .entitlementsChanged`
      * fan-out.
      */
+    /** Active product-id set at the last change fan-out — diff-guards spurious callbacks (iOS parity). */
+    private var lastNotifiedProductIds: Set<String> = emptySet()
+
     private fun setEntitlements(newEntitlements: List<Entitlement>) {
         entitlements = newEntitlements
         saveToDisk(newEntitlements)
+        // Round-35 — diff-guard the change fan-out (listeners + billing delegate) on the active
+        // product-id set, matching iOS BillingModule.refreshEntitlementCache (posts only when
+        // newIds != lastKnownEntitlementIds). Android previously notified UNCONDITIONALLY on every
+        // update()/replaceAll(), so re-purchasing an already-held entitlement or a restore that
+        // returned the already-cached set fired a spurious onEntitlementsChanged that iOS never did.
+        // The cache itself (entitlements + disk) still updates every call so a same-id expiry change
+        // is persisted; only the notification is gated.
+        val newIds = newEntitlements.map { it.productId }.toSet()
+        if (newIds == lastNotifiedProductIds) return
+        lastNotifiedProductIds = newIds
         notifyListeners()
         notifyBillingDelegate()
     }
