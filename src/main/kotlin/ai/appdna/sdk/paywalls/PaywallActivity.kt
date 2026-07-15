@@ -2268,6 +2268,18 @@ private fun PaywallSectionView(
                                                 ?: Color(0xFF1B2540))
                                     )
                                 ) {
+                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                    // Round-31 — plan image, full-width at the card top (iOS
+                                    // PlanCard.swift:75). Dropped on the DEFAULT layout like
+                                    // trial/savings/features were; Android's own fun PlanCard (:1618)
+                                    // already renders it for the other layouts.
+                                    if (showPlanImages && !plan.image_url.isNullOrBlank()) {
+                                        ai.appdna.sdk.core.NetworkImage(
+                                            url = plan.image_url,
+                                            modifier = Modifier.fillMaxWidth().height(80.dp),
+                                            contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        )
+                                    }
                                     Row(
                                         modifier = Modifier.fillMaxWidth().padding(cardPad),
                                         verticalAlignment = Alignment.CenterVertically
@@ -2325,6 +2337,19 @@ private fun PaywallSectionView(
                                                 }
                                             }
                                         }
+                                        // Round-31 — plan icon, trailing before the radio (iOS
+                                        // PlanCard.swift:178). Dropped on the DEFAULT layout; Android's
+                                        // fun PlanCard (:1606) renders it for the other layouts.
+                                        if (showPlanIcons && !plan.icon.isNullOrBlank()) {
+                                            ai.appdna.sdk.core.IconView(
+                                                ref = ai.appdna.sdk.core.IconReference(
+                                                    library = "material",
+                                                    name = plan.icon,
+                                                    size = 24f,
+                                                ),
+                                            )
+                                            Spacer(Modifier.width(8.dp))
+                                        }
                                         // iOS PlanCard.swift:182-184 — trailing radio indicator.
                                         Icon(
                                             imageVector = if (isSelected) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked,
@@ -2332,6 +2357,7 @@ private fun PaywallSectionView(
                                             tint = radioColor,
                                             modifier = Modifier.padding(start = 12.dp).size(24.dp),
                                         )
+                                    }
                                     }
                                 }
                                 // iOS PlanCard.swift:225-238 — badge straddles the top edge.
