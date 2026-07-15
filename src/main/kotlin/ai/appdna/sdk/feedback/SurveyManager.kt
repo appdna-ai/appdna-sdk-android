@@ -261,8 +261,10 @@ internal class SurveyManager(
                 put("app_version", getAppVersion())
                 // SPEC-070-A G.20 — `device_type` (not `device`) per backend schema.
                 put("device_type", Build.MODEL)
-                val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
-                put("session_count", prefs.getInt("session_count", 0))
+                // Read the REAL per-install session counter (SessionManager.sessionsThisInstall), not the
+                // dead `ai.appdna.sdk`/`session_count` pref that nothing writes — which reported 0 on every
+                // response. Mirrors ScreenManager.evaluateTriggers.
+                put("session_count", AppDNA.sessionManager?.sessionsThisInstall()?.toInt() ?: 0)
                 put("days_since_install", daysSinceInstall())
             })
         }
@@ -489,8 +491,9 @@ internal class SurveyManager(
     private fun meetsMinSessions(minSessions: Int?): Boolean {
         val min = minSessions ?: return true
         if (min <= 0) return true
-        val prefs = context.getSharedPreferences("ai.appdna.sdk", Context.MODE_PRIVATE)
-        return prefs.getInt("session_count", 0) >= min
+        // Read the REAL per-install session counter, not the dead `session_count` pref that nothing
+        // writes — which made every `min_sessions >= 1` survey trigger permanently unsatisfiable.
+        return (AppDNA.sessionManager?.sessionsThisInstall()?.toInt() ?: 0) >= min
     }
 }
 
