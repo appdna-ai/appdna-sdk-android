@@ -55,20 +55,24 @@ internal class IdentityManager(private val storage: LocalStorage) {
         // same-user re-identify (the common per-launch call). Previously Android retained traits even
         // across a user switch, so user B was evaluated against user A's stale traits; iOS wiped them on
         // every nil-traits identify. Both now converge on this correct behavior.
-        val userChanged: Boolean
+        // "Switched" = a known user → a DIFFERENT known user. The first anonymous→login transition
+        // (previous == null) is NOT a switch, so device-scoped traits (e.g. bootstrap geo merged before
+        // the host's first identify) survive first login.
+        val switchedUser: Boolean
         synchronized(lock) {
-            userChanged = _userId != userId
+            val previous = _userId
+            switchedUser = previous != null && previous != userId
             _userId = userId
             when {
                 traits != null -> _traits = traits
-                userChanged -> _traits = null
-                // else: same user, no new traits → keep existing traits.
+                switchedUser -> _traits = null
+                // else: same user or first login, no new traits → keep existing traits.
             }
         }
         storage.setString("user_id", userId)
         when {
             traits != null -> persistTraits(traits)
-            userChanged -> storage.remove("user_traits")
+            switchedUser -> storage.remove("user_traits")
         }
         Log.info { "Identified user: $userId" }
     }
