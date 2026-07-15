@@ -413,8 +413,13 @@ internal class RemoteConfigManager(
                                     ?: (vm["config"] as? Map<String, Any>)
                                     ?: emptyMap()
                             ExperimentVariant(
-                                id = vm["id"] as? String ?: return@mapNotNull null,
-                                weight = (vm["weight"] as? Number)?.toDouble() ?: return@mapNotNull null,
+                                // Round-35 — retain variants with a missing id/weight (default
+                                // "unknown"/0.0) instead of dropping them, matching iOS's optional
+                                // decode. Dropping diverged the variant LIST, so the same user could
+                                // bucket into a DIFFERENT variant per platform (corrupting experiment
+                                // analytics). Well-formed console configs always carry id + weight.
+                                id = vm["id"] as? String ?: "unknown",
+                                weight = (vm["weight"] as? Number)?.toDouble() ?: 0.0,
                                 config = variantData,
                                 // SPEC-036-F §1.2 — served per-variant fields.
                                 configRef = vm["config_ref"] as? String,
