@@ -193,6 +193,32 @@ internal class PriceResolver(
             offerToken = offer?.offerToken
         )
     }
+
+    /**
+     * Round-34 — warm the price cache directly from the ProductDetails resolved during a purchase,
+     * so `trackPurchaseCompleted` emits `price`/`currency` on purchase_completed/subscription_started
+     * even when the host never called getProducts() (the common AppDNA-paywall path, which renders
+     * console-authored price strings and never touches PriceResolver). iOS always includes these
+     * (its StoreKit Product is fetched in the same purchase call); Android silently omitted them and
+     * undercounted revenue value on two of the three MTPU-metered events. Handles SUBS (base-plan,
+     * last pricing phase) and INAPP (one-time offer).
+     */
+    fun cacheFromPurchase(details: ProductDetails) {
+        val base = details.subscriptionOfferDetails?.firstOrNull()?.pricingPhases?.pricingPhaseList?.lastOrNull()
+        val oneTime = details.oneTimePurchaseOfferDetails
+        val micros = base?.priceAmountMicros ?: oneTime?.priceAmountMicros ?: 0L
+        val currency = base?.priceCurrencyCode ?: oneTime?.priceCurrencyCode ?: ""
+        if (micros <= 0L && currency.isBlank()) return
+        priceInfoCache[details.productId] = ProductInfo(
+            id = details.productId,
+            name = details.name,
+            description = details.description,
+            formattedPrice = base?.formattedPrice ?: oneTime?.formattedPrice ?: "",
+            priceMicros = micros,
+            currencyCode = currency,
+            offerToken = details.subscriptionOfferDetails?.firstOrNull()?.offerToken,
+        )
+    }
 }
 
 /**

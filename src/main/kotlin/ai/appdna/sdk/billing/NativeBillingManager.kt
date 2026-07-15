@@ -850,6 +850,12 @@ class NativeBillingManager internal constructor(
         val productDetails = resolved.productDetails
         val productType = resolved.productType
 
+        // Round-34 — warm the price cache from the just-resolved ProductDetails so the purchase
+        // event (purchase_completed / subscription_started, both MTPU-metered) carries price/currency
+        // even when the host never called getProducts() (parity with iOS, which always includes them).
+        // Best-effort; a failure must never block the purchase.
+        try { priceResolver.cacheFromPurchase(productDetails) } catch (_: Throwable) { /* best-effort */ }
+
         // Resolve offer (only meaningful for SUBS).
         val selectedOffer = if (productType == BillingClient.ProductType.SUBS) {
             val token = options?.offerToken
