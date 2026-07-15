@@ -767,10 +767,23 @@ class NativeBillingManager internal constructor(
         val isAutoRenewing: Boolean,
     )
 
-    private companion object {
+    internal companion object {
         // SPEC-070-A A.20 — snapshot key persisted in LocalStorage so the
         // foreground reconcile-and-diff survives process death.
         const val KEY_LAST_SUB_SNAPSHOT = "billing_last_sub_snapshot_v1"
+
+        /**
+         * Clear the persisted subscription snapshot. MUST be called on any identity change (sign-out
+         * `reset()` and sign-in to a DIFFERENT user via `identify()`). The snapshot is device-global but
+         * the reconcile filters entitlements to the currently-identified user — so without clearing, the
+         * new user's first reconcile diffs their entitlements against the previous user's snapshot, sees
+         * the previous user's product "vanish", and fabricates a phantom subscription_canceled /
+         * subscription_renewal_failed. A fresh (empty) snapshot makes the next reconcile a clean baseline.
+         * Mirrors iOS `SubscriptionStatusObserver.clearPersistedSnapshot()`.
+         */
+        fun clearPersistedSnapshot(storage: LocalStorage?) {
+            storage?.setString(KEY_LAST_SUB_SNAPSHOT, "[]")
+        }
     }
 
     // -- Purchase Flow --

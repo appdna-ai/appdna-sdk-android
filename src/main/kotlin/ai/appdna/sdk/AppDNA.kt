@@ -812,6 +812,15 @@ object AppDNA {
         // different threads will agree on a single "first" winner.
         ai.appdna.sdk.billing.AppAccountTokenResolver.recordFirstIdentifiedUserIdIfNeeded(userId)
 
+        // Identity changed → clear the device-global subscription snapshot, or the new user's first
+        // reconcile diffs their (user-filtered) entitlements against the PREVIOUS user's snapshot and
+        // fabricates a phantom subscription_canceled/_renewal_failed. A fresh baseline emits nothing.
+        if (previousUserId != userId) {
+            appContext?.let {
+                ai.appdna.sdk.billing.NativeBillingManager.clearPersistedSnapshot(ai.appdna.sdk.storage.LocalStorage(it))
+            }
+        }
+
         identityManager?.identify(userId, traits)
 
         // SPEC-070-A G.3: emit local `identify` event so the existing client
@@ -897,6 +906,12 @@ object AppDNA {
         pendingMessageListener?.stopObserving()
         // SPEC-070-A A.9: clear in-session message frequency counters + queue.
         messageManager?.resetSession()
+        // The subscription snapshot is device-global; identity is not. Clear it on sign-out so the next
+        // user's first reconcile does not diff their entitlements against this user's snapshot and
+        // fabricate a phantom subscription_canceled/_renewal_failed. Mirrors iOS.
+        appContext?.let {
+            ai.appdna.sdk.billing.NativeBillingManager.clearPersistedSnapshot(ai.appdna.sdk.storage.LocalStorage(it))
+        }
 
         // 🔴 USER A'S ONBOARDING ANSWERS SURVIVED THE SIGN-OUT AND RENDERED INTO USER B'S PAYWALL.
         //
