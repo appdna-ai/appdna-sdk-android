@@ -232,8 +232,11 @@ fun FormStep(
                 if (errors.isEmpty()) {
                     // Round-22 — TimeField writes a display-only `${id}_time` companion into `values`;
                     // strip those before submit so they don't ship in selection_data/responses (iOS has
-                    // no such companion key). Identify them from the TIME/DATETIME fields.
-                    val timeCompanions = visibleFields
+                    // no such companion key). Round-23 — key off ALL `fields` (not `visibleFields`): a
+                    // TIME/DATETIME field filled then HIDDEN by a depends_on change keeps its companion in
+                    // `values`, and scoping to visible fields would leak it. Mirrors iOS building its
+                    // date-field type map from all `fields`.
+                    val timeCompanions = fields
                         .filter { it.type == FormFieldType.TIME || it.type == FormFieldType.DATETIME }
                         .map { "${it.id}_time" }
                         .toSet()
