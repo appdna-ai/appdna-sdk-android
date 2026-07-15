@@ -2274,11 +2274,49 @@ private fun PaywallSectionView(
                                     ) {
                                         // iOS leading VStack — full width, no truncation.
                                         Column(modifier = Modifier.weight(1f)) {
+                                            // Round-30 — subtitle/description text color falls back to a
+                                            // muted grey (iOS PlanCard.swift secondary); accent for trial.
+                                            val subtitleColor = planTextColor.takeIf { it != Color.Unspecified } ?: Color.Gray
+                                            val trialColor = planTextColor.takeIf { it != Color.Unspecified } ?: ai.appdna.sdk.AppDNA.brandAccentColor()
                                             Text(text = loc("plan.$planIdx.name", plan.displayName), style = planNameStyle, color = planTextColor)
                                             Spacer(Modifier.height(2.dp))
+                                            // Round-30 — subtitle ABOVE price (iOS PlanCard.swift:105).
+                                            if (showPlanSubtitles && subtitlePosition == "above_price" && !plan.description.isNullOrBlank()) {
+                                                Text(text = loc("plan.$planIdx.description", plan.description), fontSize = 12.sp, color = subtitleColor)
+                                                Spacer(Modifier.height(2.dp))
+                                            }
                                             Text(text = loc("plan.$planIdx.price", plan.displayPrice), style = priceStyle, color = planTextColor)
                                             plan.period?.let {
                                                 Text(text = loc("plan.$planIdx.period", it), style = periodStyle, color = planTextColor)
+                                            }
+                                            // Round-30 — PARITY FIX: the default vertical_stack path
+                                            // silently dropped trial/subtitle/savings/features that iOS
+                                            // PlanCard.swift renders (free-trial + discount merchandising
+                                            // was invisible on Android's DEFAULT paywall layout — revenue).
+                                            // Mirror iOS order: trial → subtitle(below) → savings → features.
+                                            plan.trialLabel?.takeIf { it.isNotBlank() }?.let { trialText ->
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(text = loc("plan.$planIdx.trial", trialText), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = trialColor)
+                                            }
+                                            if (showPlanSubtitles && subtitlePosition != "above_price" && !plan.description.isNullOrBlank()) {
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(text = loc("plan.$planIdx.description", plan.description), fontSize = 12.sp, color = subtitleColor)
+                                            }
+                                            if (showSavings && !plan.savings_text.isNullOrBlank()) {
+                                                Spacer(Modifier.height(4.dp))
+                                                val savingsColor = if (isSelected && selectedTextColor != null) selectedTextColor else Color(0xFF22C55E)
+                                                Text(text = loc("plan.$planIdx.savings", plan.savings_text), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = savingsColor)
+                                            }
+                                            if (showPlanFeatures && !plan.features.isNullOrEmpty()) {
+                                                Spacer(Modifier.height(8.dp))
+                                                val featureCheckColor = if (isSelected && planTextColor != Color.Unspecified) planTextColor else ai.appdna.sdk.AppDNA.brandAccentColor()
+                                                plan.features.forEachIndexed { fIdx, feature ->
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(text = "✓ ", color = featureCheckColor, fontSize = 13.sp)
+                                                        Text(text = loc("plan.$planIdx.feature.$fIdx", feature), fontSize = 13.sp, color = planTextColor)
+                                                    }
+                                                    Spacer(Modifier.height(2.dp))
+                                                }
                                             }
                                             plan.badge?.takeIf { it.isNotBlank() }?.let {
                                                 if (badgePosition == "inline") {
@@ -2504,29 +2542,43 @@ private fun PaywallSectionView(
                     contentAlignment = Alignment.Center,
                 ) {
                     if (isPurchasing) {
-                        // QA-R9 — spinner color follows the authored CTA
-                        // text color so a white-CTA + black-text config produces
-                        // a BLACK spinner (not white-on-white), and an authored
-                        // primary-coloured CTA shows a white spinner on top.
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            color = buttonTextColor,
-                            strokeWidth = 2.dp,
-                        )
+                        // Round-30 — mirror iOS CTAButton.swift:58-69 which shows a spinner
+                        // AND "Processing..." text; Android previously showed a bare spinner,
+                        // so an in-flight purchase read "Processing..." on iOS but was text-less
+                        // on Android. QA-R9 — spinner color follows the authored CTA text color
+                        // so a white-CTA + black-text config produces a BLACK spinner (not
+                        // white-on-white), and an authored primary-coloured CTA shows white.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                color = buttonTextColor,
+                                strokeWidth = 2.dp,
+                            )
+                            Text(
+                                text = "Processing...",
+                                style = buttonTextStyle.copy(color = buttonTextColor),
+                            )
+                        }
                     } else {
                         Text(
-                            // SPEC-070-A finalization PW-3 — iOS resolution chain.
-                            // `config.cta?.text ?? section.data?.cta?.text ??
-                            // section.data?.cta_text ?? section.data?.text ?? "Continue"`.
-                            // Inlined here (not via helper) because PaywallSectionView
-                            // is a separate @Composable scope from PaywallScreen.
+                            // SPEC-070-A finalization PW-3 / Round-30 — iOS resolution chain.
+                            // The CTA-SECTION path (this one, the common case) routes through
+                            // iOS CTAButton.swift:63/66 whose default is "Subscribe" — NOT
+                            // "Continue" (that's only iOS's no-cta-section top-level fallback,
+                            // PaywallRenderer.swift:194). The old "Continue" default here made
+                            // an unauthored paywall read "Continue" on Android vs "Subscribe" on
+                            // iOS. Inlined (not via helper) because PaywallSectionView is a
+                            // separate @Composable scope from PaywallScreen.
                             text = loc(
                                 "cta.text",
                                 config.cta?.text?.takeIf { it.isNotBlank() }
                                     ?: section.data?.cta?.text?.takeIf { it.isNotBlank() }
                                     ?: section.data?.cta_text?.takeIf { it.isNotBlank() }
                                     ?: section.data?.text?.takeIf { it.isNotBlank() }
-                                    ?: "Continue",
+                                    ?: "Subscribe",
                             ),
                             // QA-R8 — apply resolved CTA text color
                             // (was hardcoded Color.White). An authored white-bg

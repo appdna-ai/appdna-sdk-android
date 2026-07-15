@@ -417,7 +417,11 @@ data class PaywallPlan(
     // computed Codable accessors.
     val displayName: String get() = label.ifBlank { name }
     val displayPrice: String get() = price_display.ifBlank { price }
-    val trialLabel: String? get() = trial?.label ?: trial_duration
+    // Round-30 — an authored trial.label wins verbatim; a bare trial_duration
+    // ("7-day") is enriched to "7-day free trial" to match iOS PaywallConfig.swift
+    // (the suffix used to be appended only at the iOS grid render site, so Android
+    // showed "7-day" where iOS grid cards showed "7-day free trial").
+    val trialLabel: String? get() = trial?.label ?: trial_duration?.let { "$it free trial" }
 }
 
 data class PaywallCTA(
