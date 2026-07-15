@@ -417,7 +417,11 @@ internal class PaywallManager(
                     // slot watched by the live PaywallActivity composition
                     // (mirrors iOS NotificationCenter `.paywallPurchaseSuccess`).
                     PaywallActivity.postPurchaseOverlay = PostPurchaseOverlayState(
-                        message = config.message,
+                        // Round-29 — default to "Welcome to Premium!" like iOS (PaywallManager.swift). A
+                        // show_message action with a blank message (the console field is optional and its
+                        // placeholder IS this string) rendered a blank overlay on Android; iOS shows the
+                        // default success copy.
+                        message = config.message?.takeIf { it.isNotBlank() } ?: "Welcome to Premium!",
                         confetti = config.confetti ?: false,
                         lottieUrl = config.lottie_url,
                     )

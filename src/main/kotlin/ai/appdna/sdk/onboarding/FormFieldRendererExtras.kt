@@ -394,7 +394,7 @@ internal fun ImagePickerField(
                 context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
                     val sizeMb = afd.length.toDouble() / (1024.0 * 1024.0)
                     if (sizeMb > maxSizeMb) {
-                        errors[field.id] = "Image too large (${"%.1f".format(sizeMb)} MB max ${maxSizeMb} MB)"
+                        errors[field.id] = "Image too large (${"%.1f".format(java.util.Locale.US, sizeMb)} MB max ${maxSizeMb} MB)"
                         return@rememberLauncherForActivityResult
                     }
                 }

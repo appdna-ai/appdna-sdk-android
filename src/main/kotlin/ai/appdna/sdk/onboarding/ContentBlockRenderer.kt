@@ -8033,7 +8033,9 @@ private fun FormInputSliderBlock(
     // fractional step so 7.5 doesn't display as 8. Matches iOS
     // String(format: "%.1f", value) when step < 1.
     val displayValue = if (stepVal > 0f && stepVal < 1f) {
-        "%.1f".format(value)
+        // Round-29 — Locale.US (POSIX) like iOS String(format:); default JVM locale renders "2,5" on
+        // de/fr/etc and Arabic-Indic digits ("٢٫٥") on ar/fa. Matches the sibling formatters at ~:6020.
+        "%.1f".format(java.util.Locale.US, value)
     } else {
         "${value.roundToInt()}"
     }
@@ -8426,8 +8428,9 @@ private fun FormInputRangeSliderBlock(
     val stepCount = if (stepVal > 0f) {
         ((maxVal - minVal) / stepVal - 1).toInt().coerceAtLeast(0)
     } else 0
-    val low = if (stepVal > 0f && stepVal < 1f) "%.1f".format(lowValue) else "${lowValue.roundToInt()}"
-    val high = if (stepVal > 0f && stepVal < 1f) "%.1f".format(highValue) else "${highValue.roundToInt()}"
+    // Round-29 — Locale.US (POSIX) like iOS; default JVM locale would render comma/Arabic-Indic decimals.
+    val low = if (stepVal > 0f && stepVal < 1f) "%.1f".format(java.util.Locale.US, lowValue) else "${lowValue.roundToInt()}"
+    val high = if (stepVal > 0f && stepVal < 1f) "%.1f".format(java.util.Locale.US, highValue) else "${highValue.roundToInt()}"
 
     Column(
         modifier = Modifier.fillMaxWidth(),

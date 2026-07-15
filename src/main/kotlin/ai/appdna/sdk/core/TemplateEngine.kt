@@ -136,12 +136,19 @@ object TemplateEngine {
             is String -> value
             is Boolean -> value.toString()
             is Number -> {
-                // Round-28 — match iOS NSNumber.stringValue: a whole-valued Double/Float renders WITHOUT
-                // the trailing ".0" ("30", not "30.0") in interpolated copy (paywall/message/onboarding
-                // titles like "{{input.goal_weight}} lbs"). An onboarding number answer is stored as a
-                // Double, so this was Android-only ".0" on conversion copy in the first session.
-                val d = value.toDouble()
-                if (d.isFinite() && d == d.toLong().toDouble()) d.toLong().toString() else value.toString()
+                // Round-28/29 — match iOS NSNumber.stringValue: a whole-valued Double/Float renders
+                // WITHOUT the trailing ".0" ("30", not "30.0") in interpolated copy (paywall/message/
+                // onboarding titles like "{{input.goal_weight}} lbs"). An onboarding number answer is
+                // stored as a Double, so this was Android-only ".0" on conversion copy in the first session.
+                // ONLY Double/Float — integer types (Int/Long) must NOT round-trip through Double: a Long
+                // beyond 2^53 (a snowflake id / ns timestamp in {{session.*}}) would lose precision. iOS
+                // never round-trips int64 through Double either.
+                if (value is Double || value is Float) {
+                    val d = value.toDouble()
+                    if (d.isFinite() && d == d.toLong().toDouble()) d.toLong().toString() else value.toString()
+                } else {
+                    value.toString()
+                }
             }
             else -> value.toString()
         }
