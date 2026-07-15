@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import kotlin.math.abs
+import androidx.compose.ui.geometry.Offset
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -250,32 +250,15 @@ object StyleEngine {
                                     0.0 -> Brush.verticalGradient(colors.reversed())
                                     90.0 -> Brush.horizontalGradient(colors)
                                     270.0 -> Brush.horizontalGradient(colors.reversed())
-                                    else -> {
-                                        // Round-15 F2 — non-cardinal angles previously used FIXED 4000px
-                                        // offsets, so a small element (button/card/badge) sampled only the
-                                        // gradient's very start → rendered near-flat, while iOS uses
-                                        // bounds-relative UnitPoints that always fill the element. Use a
-                                        // ShaderBrush that reads the ACTUAL draw size and spans the box's
-                                        // diagonal along the angle (CSS gradient-line length =
-                                        // |w·sinθ| + |h·cosθ|), matching iOS at every element size.
-                                        val rads = Math.toRadians(angle)
-                                        val dx = sin(rads).toFloat()
-                                        val dy = -cos(rads).toFloat()
-                                        object : ShaderBrush() {
-                                            override fun createShader(size: Size): Shader {
-                                                val len = abs(size.width * dx) + abs(size.height * dy)
-                                                val cx = size.width / 2f
-                                                val cy = size.height / 2f
-                                                return LinearGradientShader(
-                                                    from = androidx.compose.ui.geometry.Offset(cx - dx * len / 2f, cy - dy * len / 2f),
-                                                    to = androidx.compose.ui.geometry.Offset(cx + dx * len / 2f, cy + dy * len / 2f),
-                                                    colors = colors,
-                                                    colorStops = null,
-                                                    tileMode = TileMode.Clamp,
-                                                )
-                                            }
-                                        }
-                                    }
+                                    // Round-15 F2 — non-cardinal angles previously used FIXED 4000px
+                                    // offsets, so a small element (button/card/badge) sampled only the
+                                    // gradient's start → rendered near-flat, while iOS fills the element.
+                                    // AngledGradientBrush reads the ACTUAL draw size and applies iOS's exact
+                                    // per-axis UnitPoint math (0.5±dx/2, 0.5±dy/2) × size. Round-16 — a NAMED
+                                    // class with value equals/hashCode (not an anonymous object) so identical
+                                    // gradients compare equal across recompositions and Modifier.background
+                                    // can skip re-creating the shader.
+                                    else -> AngledGradientBrush(angle, colors)
                                 }
                             }
                         }
@@ -461,4 +444,35 @@ object LocalizationEngine {
         defaultLocale?.let { localizations?.get(it)?.get(key)?.let { v -> return v } }
         return fallback
     }
+}
+
+/**
+ * A linear-gradient brush for a non-cardinal angle that spans the ACTUAL element bounds, applying iOS's
+ * exact per-axis UnitPoint math: start = ((0.5 - dx/2)·W, (0.5 - dy/2)·H), end = ((0.5 + dx/2)·W,
+ * (0.5 + dy/2)·H), where dx = sin(angle), dy = -cos(angle). SwiftUI maps a `UnitPoint(u,v)` to pixel
+ * `(u·W, v·H)`, so this reproduces iOS byte-for-byte at every element size (the old code used a fixed
+ * 4000px in place of W/H, collapsing to near-flat on small elements). A named class with value
+ * equals/hashCode (not an anonymous object) so recompositions with identical params skip re-creation.
+ */
+private class AngledGradientBrush(
+    private val angleDeg: Double,
+    private val colors: List<Color>,
+) : ShaderBrush() {
+    override fun createShader(size: Size): Shader {
+        val rads = Math.toRadians(angleDeg)
+        val dx = sin(rads).toFloat()
+        val dy = -cos(rads).toFloat()
+        return LinearGradientShader(
+            from = Offset((0.5f - dx / 2f) * size.width, (0.5f - dy / 2f) * size.height),
+            to = Offset((0.5f + dx / 2f) * size.width, (0.5f + dy / 2f) * size.height),
+            colors = colors,
+            colorStops = null,
+            tileMode = TileMode.Clamp,
+        )
+    }
+
+    override fun equals(other: Any?): Boolean =
+        other is AngledGradientBrush && other.angleDeg == angleDeg && other.colors == colors
+
+    override fun hashCode(): Int = 31 * angleDeg.hashCode() + colors.hashCode()
 }
