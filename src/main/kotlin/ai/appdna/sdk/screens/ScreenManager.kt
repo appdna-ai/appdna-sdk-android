@@ -449,27 +449,20 @@ class ScreenManager private constructor() {
      * type-specific fields).
      */
     fun handleScreenAction(screenId: String, action: Map<String, Any?>): Boolean {
-        val actionType = (action["type"] as? String) ?: "unknown"
         // SPEC-070-A B.6 — veto hook: false from delegate prevents default handling. Synchronous
         // because the caller relies on the return value to skip default behavior. Errors swallowed →
         // treat as "no veto" (allow).
-        val delegate = screenDelegate
-        val allowed = if (delegate == null) true else try {
+        // Round-35/36 — this no longer emits `screen_action`. The PERFORMER emits it (the standalone
+        // ScreenHostActivity dispatch, after side-effects, only when BOTH vetoes allow), matching iOS
+        // performAction: NO emit on a vetoed action (sync OR async), NO emit for inline slots, and the
+        // emit ordered AFTER the action's side-effects. Emitting in the gate fired BEFORE the async
+        // wrapper-veto (so RN/Flutter async-vetoed actions over-emitted) and fired for slots too.
+        val delegate = screenDelegate ?: return true
+        return try {
             delegate.onScreenAction(screenId, action)
         } catch (_: Throwable) {
             true
         }
-        // Round-35 — emit screen_action ONLY for an ALLOWED action, AFTER the veto (was emitted
-        // BEFORE the veto), matching iOS (performAction runs post-veto) and the shared fixture
-        // on_screen_action_bool_veto (expect.events: []): a vetoed action must produce NO
-        // screen_action. Same shape as iOS ScreenManager.performAction.
-        if (allowed) {
-            AppDNA.track("screen_action", mapOf(
-                "screen_id" to screenId,
-                "action_type" to actionType,
-            ))
-        }
-        return allowed
     }
 
     /**

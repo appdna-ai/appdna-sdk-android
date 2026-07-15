@@ -24,8 +24,8 @@ internal class EntitlementCache(
 ) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    /** Current cached entitlements. */
-    var entitlements: List<Entitlement> = emptyList()
+    /** Current cached entitlements. Round-36 — @Volatile: written from the Firestore listener thread + purchase/restore, read from getters on other threads. */
+    @Volatile var entitlements: List<Entitlement> = emptyList()
         private set
 
     /** Whether the user has any active subscription. */
@@ -37,6 +37,11 @@ internal class EntitlementCache(
 
     /** Firestore real-time listener registration. */
     private var firestoreListener: ListenerRegistration? = null
+
+    /** Active product-id set at the last change fan-out — diff-guards spurious callbacks (iOS parity). */
+    @Volatile private var lastNotifiedProductIds: Set<String> = emptySet()
+    /** Guards the diff-guard compare-and-set; setEntitlements runs from the Firestore listener thread AND purchase/restore callbacks. */
+    private val notifyLock = Any()
 
     init {
         loadFromDisk()
@@ -217,6 +222,12 @@ internal class EntitlementCache(
                 ))
             }
             entitlements = loaded
+            // Round-36 — seed the notify diff-guard from the disk-loaded set so the FIRST Firestore
+            // snapshot that merely CONFIRMS the persisted entitlements doesn't fire a spurious
+            // onEntitlementsChanged. loadFromDisk bypasses setEntitlements, so without this the guard
+            // stayed empty and `empty != {persisted}` fired one no-op callback on every cold start.
+            // Runs at init (single-threaded, before any listener); @Volatile makes it visible.
+            lastNotifiedProductIds = loaded.map { it.productId }.toSet()
             Log.debug("EntitlementCache: loaded ${loaded.size} entitlements from disk")
         } catch (e: Exception) {
             Log.warning("EntitlementCache: failed to load from disk: ${e.message}")
@@ -253,22 +264,28 @@ internal class EntitlementCache(
      * Mirrors iOS `EntitlementCache.swift` `NotificationCenter .entitlementsChanged`
      * fan-out.
      */
-    /** Active product-id set at the last change fan-out — diff-guards spurious callbacks (iOS parity). */
-    private var lastNotifiedProductIds: Set<String> = emptySet()
-
     private fun setEntitlements(newEntitlements: List<Entitlement>) {
         entitlements = newEntitlements
         saveToDisk(newEntitlements)
-        // Round-35 — diff-guard the change fan-out (listeners + billing delegate) on the active
+        // Round-35/36 — diff-guard the change fan-out (listeners + billing delegate) on the active
         // product-id set, matching iOS BillingModule.refreshEntitlementCache (posts only when
         // newIds != lastKnownEntitlementIds). Android previously notified UNCONDITIONALLY on every
         // update()/replaceAll(), so re-purchasing an already-held entitlement or a restore that
         // returned the already-cached set fired a spurious onEntitlementsChanged that iOS never did.
-        // The cache itself (entitlements + disk) still updates every call so a same-id expiry change
-        // is persisted; only the notification is gated.
+        // The cache (entitlements + disk) still updates every call so a same-id expiry change persists;
+        // only the notification is gated. Round-36 — the compare-and-set runs under `notifyLock`
+        // because setEntitlements is reachable from the Firestore listener thread AND purchase/restore
+        // callbacks concurrently; notify OUTSIDE the lock (like iOS releases its lock before posting).
         val newIds = newEntitlements.map { it.productId }.toSet()
-        if (newIds == lastNotifiedProductIds) return
-        lastNotifiedProductIds = newIds
+        val changed = synchronized(notifyLock) {
+            if (newIds == lastNotifiedProductIds) {
+                false
+            } else {
+                lastNotifiedProductIds = newIds
+                true
+            }
+        }
+        if (!changed) return
         notifyListeners()
         notifyBillingDelegate()
     }

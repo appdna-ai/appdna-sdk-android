@@ -482,9 +482,16 @@ private fun ScreenHostBody(
                     is SectionAction.Custom -> {}
                     else -> {}
                 }
-                // NOTE: `screen_action` is emitted once by the veto gate (ScreenManager
-                // .handleScreenAction) that wraps this perform lambda — do NOT emit it again here
-                // (Round-34 fix: an added emit here double-counted the event on the native path).
+                // Round-36 — emit screen_action HERE (in the standalone performer, after the veto gate
+                // allowed the action AND the native dispatch above ran), matching iOS performAction:
+                // ONCE, AFTER side-effects, only when BOTH the sync AND async vetoes allow (this perform
+                // lambda runs only then). The veto gate (ScreenManager.handleScreenAction) no longer
+                // emits it — that fired BEFORE the async veto (wrapper over-emit) and for inline slots
+                // (which iOS does not emit for).
+                AppDNA.track(
+                    "screen_action",
+                    mapOf("screen_id" to config.id, "action_type" to (payload["type"]?.toString() ?: "unknown")),
+                )
             }
         },
     )
