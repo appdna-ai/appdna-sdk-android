@@ -135,7 +135,14 @@ object TemplateEngine {
         return when (value) {
             is String -> value
             is Boolean -> value.toString()
-            is Number -> value.toString()
+            is Number -> {
+                // Round-28 — match iOS NSNumber.stringValue: a whole-valued Double/Float renders WITHOUT
+                // the trailing ".0" ("30", not "30.0") in interpolated copy (paywall/message/onboarding
+                // titles like "{{input.goal_weight}} lbs"). An onboarding number answer is stored as a
+                // Double, so this was Android-only ".0" on conversion copy in the first session.
+                val d = value.toDouble()
+                if (d.isFinite() && d == d.toLong().toDouble()) d.toLong().toString() else value.toString()
+            }
             else -> value.toString()
         }
     }
