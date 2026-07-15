@@ -11,6 +11,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.LinearGradientShader
+import androidx.compose.ui.graphics.Shader
+import androidx.compose.ui.graphics.ShaderBrush
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -19,6 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -245,14 +251,30 @@ object StyleEngine {
                                     90.0 -> Brush.horizontalGradient(colors)
                                     270.0 -> Brush.horizontalGradient(colors.reversed())
                                     else -> {
+                                        // Round-15 F2 — non-cardinal angles previously used FIXED 4000px
+                                        // offsets, so a small element (button/card/badge) sampled only the
+                                        // gradient's very start → rendered near-flat, while iOS uses
+                                        // bounds-relative UnitPoints that always fill the element. Use a
+                                        // ShaderBrush that reads the ACTUAL draw size and spans the box's
+                                        // diagonal along the angle (CSS gradient-line length =
+                                        // |w·sinθ| + |h·cosθ|), matching iOS at every element size.
                                         val rads = Math.toRadians(angle)
                                         val dx = sin(rads).toFloat()
                                         val dy = -cos(rads).toFloat()
-                                        Brush.linearGradient(
-                                            colors = colors,
-                                            start = androidx.compose.ui.geometry.Offset((0.5f - dx / 2f) * 4000f, (0.5f - dy / 2f) * 4000f),
-                                            end = androidx.compose.ui.geometry.Offset((0.5f + dx / 2f) * 4000f, (0.5f + dy / 2f) * 4000f),
-                                        )
+                                        object : ShaderBrush() {
+                                            override fun createShader(size: Size): Shader {
+                                                val len = abs(size.width * dx) + abs(size.height * dy)
+                                                val cx = size.width / 2f
+                                                val cy = size.height / 2f
+                                                return LinearGradientShader(
+                                                    from = androidx.compose.ui.geometry.Offset(cx - dx * len / 2f, cy - dy * len / 2f),
+                                                    to = androidx.compose.ui.geometry.Offset(cx + dx * len / 2f, cy + dy * len / 2f),
+                                                    colors = colors,
+                                                    colorStops = null,
+                                                    tileMode = TileMode.Clamp,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
