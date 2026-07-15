@@ -414,12 +414,21 @@ class PaywallActivity : ComponentActivity() {
          * `viewController.dismiss(animated:true)`.
          */
         @JvmStatic
-        internal fun dismissCurrent() {
+        internal fun dismissCurrent(suppressDismissCallback: Boolean = false) {
             val handler = android.os.Handler(android.os.Looper.getMainLooper())
             activePaywallInstances.values.forEach { ref ->
                 ref.get()?.let { activity ->
                     handler.post {
-                        if (!activity.isFinishing) activity.finish()
+                        if (!activity.isFinishing) {
+                            // Round-13 — when the CALLER already handles the dismiss notification (the
+                            // post-purchase success branches fire onPaywallDismissed / onPostPurchase*
+                            // themselves, matching iOS which does NOT re-route on_dismiss or emit
+                            // paywall_close after a purchase), mark the dismiss as dispatched so the
+                            // onDestroy backstop (which fires the onDismiss lambda → paywall_close +
+                            // onPaywallDismissed) does NOT double-fire.
+                            if (suppressDismissCallback) activity.dispatchedDismiss = true
+                            activity.finish()
+                        }
                     }
                 }
             }

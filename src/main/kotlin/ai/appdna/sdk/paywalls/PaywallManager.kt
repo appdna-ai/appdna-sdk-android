@@ -400,15 +400,17 @@ internal class PaywallManager(
         scope.launch {
             // Round-12 Finding 1 — after a successful purchase, iOS DISMISSES the paywall in EVERY
             // success action (PaywallManager.swift:355-391 `viewController.dismiss`). Android fired the
-            // delegates but NEVER finished the Activity, so the paywall stayed on screen — and for
-            // show_message/deep_link/next_step the host's onPaywallDismissed fired while the paywall was
-            // still visible (contradictory state). `dismissCurrent()` (used already by the FAILURE path)
-            // finishes the Activity; its onDestroy fires the slot's onDismiss backstop, NOT
-            // onPaywallDismissed, so the explicit delegate calls below do not double-fire.
+            // delegates but NEVER finished the Activity, so the paywall stayed on screen.
+            // Round-13 fix — dismiss with `suppressDismissCallback = true` so the Activity's onDestroy
+            // backstop does NOT re-run the onDismiss lambda (which would emit `paywall_close` AND
+            // onPaywallDismissed). iOS fires neither a paywall_close nor a second onPaywallDismissed on
+            // the post-purchase path — it just dismisses and fires onPaywallDismissed ONCE (in the
+            // completion) for show_message/deep_link/next_step, and NOTHING for plain `dismiss`. This
+            // mirrors that exactly; the explicit delegate calls below are the single source.
             when (config.action) {
                 "dismiss" -> {
                     delay(delayMs)
-                    PaywallActivity.dismissCurrent()
+                    PaywallActivity.dismissCurrent(suppressDismissCallback = true)
                 }
                 "show_message" -> {
                     // Surface confetti + lottie overlay through the companion
@@ -420,12 +422,12 @@ internal class PaywallManager(
                         lottieUrl = config.lottie_url,
                     )
                     delay(delayMs)
-                    PaywallActivity.dismissCurrent()
+                    PaywallActivity.dismissCurrent(suppressDismissCallback = true)
                     listener?.onPaywallDismissed(paywallId = paywallId)
                 }
                 "deep_link" -> {
                     delay(delayMs)
-                    PaywallActivity.dismissCurrent()
+                    PaywallActivity.dismissCurrent(suppressDismissCallback = true)
                     listener?.onPaywallDismissed(paywallId = paywallId)
                     config.deep_link_url?.let { url ->
                         listener?.onPostPurchaseDeepLink(paywallId = paywallId, url = url)
@@ -433,7 +435,7 @@ internal class PaywallManager(
                 }
                 "next_step" -> {
                     delay(delayMs)
-                    PaywallActivity.dismissCurrent()
+                    PaywallActivity.dismissCurrent(suppressDismissCallback = true)
                     listener?.onPaywallDismissed(paywallId = paywallId)
                     listener?.onPostPurchaseNextStep(paywallId = paywallId)
                 }
