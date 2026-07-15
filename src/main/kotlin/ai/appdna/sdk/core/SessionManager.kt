@@ -29,10 +29,11 @@ import java.util.concurrent.atomic.AtomicReference
  *   creates a fresh session id and emits `session_start`.
  * - On a real background→foreground `ON_START`, if `lastActiveAt` is older
  *   than 30 min the previous session is ended (`session_end`) and a new one
- *   started; otherwise the same session resumes. Emits `app_open`. The ONE
- *   synchronous `ON_START` that replays on a foreground cold launch is
- *   swallowed (iOS has no cold-launch `app_open`; `start()` already handled
- *   cold-start) — see `suppressNextForeground`.
+ *   started; otherwise the same session resumes. Emits `app_open`. Foregrounds
+ *   BEFORE the first background (the cold-launch initial `ON_START`, whether it
+ *   replays synchronously at register time or arrives async) are skipped — iOS
+ *   has no cold-launch `app_open` and `start()` already handled cold-start.
+ *   See `hasBackgrounded`.
  * - On `ON_STOP` (background entry), persists `lastActiveAt` and emits
  *   `app_close`. Does NOT emit `session_end` on backgrounding — iOS
  *   parity (session ends only on the next cold start gap).
@@ -65,14 +66,16 @@ internal class SessionManager(
     private val sessionsCountRef: AtomicLong = AtomicLong(0L)
     private var observer: LifecycleEventObserver? = null
     private var started = false
-    // Round-32 — swallow exactly the ONE synchronous ON_START that ProcessLifecycleOwner
-    // replays when we register the observer during a foreground cold launch. iOS has no
-    // equivalent event (UIApplication.willEnterForeground does NOT fire on a direct cold
-    // launch), and letting it run re-read the still-stale lastActiveAt and rotated the session
-    // a SECOND time (phantom session_end + doubled session_start/session_count) plus fired a
-    // cold-launch app_open iOS never sends. A background launch (state < STARTED at register
-    // time) gets no replay, so its eventual real foreground still emits app_open — also iOS.
-    private val suppressNextForeground = AtomicBoolean(false)
+    // Round-32/33 — `app_open` + idle-rotation fire only on a foreground that FOLLOWS a background,
+    // mirroring iOS (UIApplication.willEnterForeground does NOT fire on a direct cold launch). The
+    // initial cold-launch foreground — whether ON_START replays synchronously at register time OR
+    // arrives async when the first Activity starts (configure() runs in Application.onCreate, where
+    // ProcessLifecycleOwner is only CREATED) — is skipped, because `start()` already handled the
+    // cold-start session. Without this, that first handleForeground re-read the stale lastActiveAt
+    // (start() never persists it) and rotated a SECOND time: phantom session_end + doubled
+    // session_start/session_count for every returning user, plus a cold-launch app_open iOS omits.
+    // Flips true on the first ON_STOP so real background→foreground returns process normally.
+    private val hasBackgrounded = AtomicBoolean(false)
 
     /** Stable session id for the current session. Safe to call from any thread. */
     fun currentSessionId(): String = sessionIdRef.get()
@@ -114,14 +117,6 @@ internal class SessionManager(
         // requires registration on main.
         try {
             val owner: LifecycleOwner = ProcessLifecycleOwner.get()
-            // If the process is ALREADY foregrounded when we register, addObserver replays
-            // ON_START synchronously below — that replay is the cold-launch→foreground moment
-            // iOS does not emit, and it would double-rotate the session (see suppressNextForeground
-            // field doc). Mark it to be swallowed. A background launch (state < STARTED) gets no
-            // replay, so we leave the flag clear and its real foreground fires app_open normally.
-            if (owner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
-                suppressNextForeground.set(true)
-            }
             val obs = LifecycleEventObserver { _, event ->
                 when (event) {
                     Lifecycle.Event.ON_START -> handleForeground()
@@ -155,11 +150,11 @@ internal class SessionManager(
     // MARK: - Lifecycle handlers (visible for testing)
 
     internal fun handleForeground() {
-        // Round-32 — swallow the synchronous ON_START replay from a foreground cold launch
-        // (see suppressNextForeground). start() already handled cold-start rotation; iOS emits
-        // no app_open / no rotation on a direct cold launch. Real background→foreground returns
-        // fall through (the flag is only ever set once, for the initial replay).
-        if (suppressNextForeground.getAndSet(false)) return
+        // Round-33 — skip every foreground until the app has been backgrounded at least once, so the
+        // initial cold-launch foreground (start() already handled the session) fires neither app_open
+        // nor a second rotation. Real background→foreground returns (hasBackgrounded == true) proceed.
+        // Mirrors iOS, where willEnterForeground does not fire on a direct cold launch.
+        if (!hasBackgrounded.get()) return
         val now = System.currentTimeMillis()
         val lastActive = lastActiveAtMs()
         if (lastActive != null && now - lastActive >= SESSION_TIMEOUT_MS) {
@@ -172,6 +167,9 @@ internal class SessionManager(
     }
 
     internal fun handleBackground() {
+        // Mark that a background has occurred so the NEXT foreground is treated as a real return
+        // (fires app_open + idle-rotation) rather than a cold-launch initial foreground.
+        hasBackgrounded.set(true)
         eventTracker.track("app_close", null)
         persistLastActiveAt(System.currentTimeMillis())
     }
