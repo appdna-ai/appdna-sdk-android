@@ -432,6 +432,9 @@ object AppDNA {
     // Cap = 200; on overflow we log + drop the OLDEST so the most recent action
     // (e.g. a deep-link tap that triggered the configure call) survives.
     private const val PRE_INIT_BUFFER_CAP = 200
+    // Last push_id whose tap was handled by handlePushTap — persisted to dedup re-delivery across
+    // Activity re-creation / process death (see handlePushTap).
+    private const val KEY_LAST_HANDLED_PUSH_TAP = "appdna.last_handled_push_tap_id"
     // SPEC-428 CL-10/CL-1: pre-init overflow drops can't touch the persisted DroppedEventsCounter yet
     // (no app Context before configure()), so accrue them in memory and fold into the durable counter
     // once configure() initializes it.
@@ -1544,6 +1547,17 @@ object AppDNA {
         val pushId = intent.getStringExtra("push_id") ?: return false
         if (pushId.isBlank()) return false
 
+        // 🔴 DEDUP RE-DELIVERY. On Activity re-creation (rotation, "don't keep activities", process-death
+        // restore) `onCreate` re-runs `handlePushTap(getIntent())` with the SAME push_id — re-emitting
+        // push_tapped and re-routing every time, over-counting push-tap conversions. iOS emits from the
+        // one-shot OS `didReceive` callback and cannot double-fire. Skip if we already handled this
+        // push_id (persisted so it survives process death); still return true (it IS a push tap).
+        val handledStore = appContext?.let { ai.appdna.sdk.storage.LocalStorage(it) }
+        if (handledStore?.getString(KEY_LAST_HANDLED_PUSH_TAP) == pushId) {
+            intent.removeExtra("push_id") // also clear the in-memory extra so it stops re-triggering
+            return true
+        }
+
         val actionId = intent.getStringExtra("action_id")
         val actionType = intent.getStringExtra("action_type")
         val actionValue = intent.getStringExtra("action_value")
@@ -1619,6 +1633,11 @@ object AppDNA {
         } catch (e: Throwable) {
             Log.warning("handlePushTap: auto-route failed: ${e.message}")
         }
+
+        // Mark this push_id handled (persisted) + clear the extra so a re-created Activity re-running
+        // handlePushTap(getIntent()) with the same intent cannot re-fire push_tapped. See top guard.
+        handledStore?.setString(KEY_LAST_HANDLED_PUSH_TAP, pushId)
+        intent.removeExtra("push_id")
         return true
     }
 
