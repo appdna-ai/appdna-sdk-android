@@ -158,6 +158,13 @@ internal class EventTracker(
     /** SPEC-428 CL-1/D2: build + enqueue the _sdk_events_dropped meta-event directly (NOT via track(),
      * to avoid re-entrancy). Count = events evicted since the last drain. */
     private fun emitDroppedMeta(count: Int) {
+        // Round-14 F2 — enrich the meta-event with the same screen / experiment-exposure / push context a
+        // normal track() attaches, matching iOS emitDroppedMeta. Was omitting all three, so
+        // _sdk_events_dropped landed with null screen/experiment_exposures/push_id on Android while iOS
+        // populated them — a field-level envelope divergence on the same event name.
+        val exposures = try { exposureProvider?.invoke() } catch (e: Exception) { null }
+        val screen = try { screenProvider?.invoke() } catch (e: Exception) { null }
+        val pushId = try { pushIdProvider?.invoke() } catch (e: Exception) { null }
         val envelope = EventSchema.buildEnvelope(
             eventName = "_sdk_events_dropped",
             properties = mapOf("count" to count),
@@ -165,7 +172,10 @@ internal class EventTracker(
             sessionId = identityManager.sessionId,
             appVersion = appVersion,
             analyticsConsent = analyticsConsent,
-            environment = environmentTag
+            experimentExposures = exposures,
+            environment = environmentTag,
+            screen = screen,
+            pushId = pushId
         )
         // SPEC-428 STEP-4: decrement by exactly `count` ONLY after the meta is durably persisted (never a
         // zero-reset). Crash before persist → counter keeps `count` → re-emit (no under-count).
