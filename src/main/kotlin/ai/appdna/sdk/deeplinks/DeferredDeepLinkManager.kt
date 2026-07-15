@@ -136,16 +136,15 @@ internal class DeferredDeepLinkManager(
                         "visitor_id" to visitorId
                     ))
 
-                    callback(deepLink)
-
-                    // SPEC-070-A H.11(b): if the doc carries a screen_id (the
-                    // canonical iOS-aligned shape), or the legacy `screen`
-                    // field is non-empty, auto-route to it after a short
-                    // delay so ScreenManager has a surface to attach to.
-                    val screenId = (data["screen_id"] as? String)
-                        ?.takeIf { it.isNotBlank() }
-                        ?: deepLink.screen.takeIf { it.isNotBlank() }
-                    if (!screenId.isNullOrBlank()) {
+                    // SPEC-070-A H.11(b) / Round-32 parity — auto-route ONLY when the doc
+                    // carries an explicit `screen_id` (a server-driven screen), matching iOS
+                    // (DeferredDeepLinkManager.swift). The legacy `screen` field is a host ROUTE
+                    // PATH (e.g. "/workout/123"), NOT a screen id — feeding it to showScreen pushed
+                    // a route into the server-driven screen presenter (no-op-with-warning at best,
+                    // double-handling alongside the host's own routing at worst). The host still
+                    // gets `deepLink` (incl. `screen`) via the callback to route it itself.
+                    val screenId = (data["screen_id"] as? String)?.takeIf { it.isNotBlank() }
+                    if (screenId != null) {
                         scope.launch {
                             delay(AUTO_SHOW_DELAY_MS)
                             try {
@@ -156,6 +155,9 @@ internal class DeferredDeepLinkManager(
                             }
                         }
                     }
+
+                    // Callback LAST (matches iOS `completion(deepLink)` ordering).
+                    callback(deepLink)
                 }
                 .addOnFailureListener { e ->
                     markLaunched()
