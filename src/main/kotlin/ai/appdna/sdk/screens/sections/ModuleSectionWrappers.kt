@@ -300,20 +300,40 @@ private fun PaywallCountdownSection(section: ScreenSection) {
             remaining -= 1
         }
     }
-    Row(
+    // Round-24 — the SDUI countdown section rendered NO label at all, while iOS + the main paywall
+    // countdown render the "Offer ends in" label. Add it (label_text ?? label, 14sp/SemiBold/#7F1D1D
+    // defaults, honoring label_font_size + label_color) so the two platforms + the two paywall paths agree.
+    val labelText = (section.data["label_text"] as? String) ?: (section.data["label"] as? String)
+    androidx.compose.foundation.layout.Column(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        val h = remaining / 3600
-        val m = (remaining % 3600) / 60
-        val s = remaining % 60
-        Text(
-            String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s),
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.primary,
-        )
+        if (!labelText.isNullOrBlank()) {
+            val labelColor = (section.data["label_color"] as? String)?.let {
+                try { androidx.compose.ui.graphics.Color(android.graphics.Color.parseColor(it)) } catch (_: Exception) { null }
+            } ?: androidx.compose.ui.graphics.Color(0xFF7F1D1D)
+            Text(
+                labelText,
+                fontSize = ((section.data["label_font_size"] as? Number)?.toFloat() ?: 14f).sp,
+                fontWeight = FontWeight.SemiBold,
+                color = labelColor,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            val h = remaining / 3600
+            val m = (remaining % 3600) / 60
+            val s = remaining % 60
+            Text(
+                String.format(java.util.Locale.US, "%02d:%02d:%02d", h, m, s),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
     }
 }
 
