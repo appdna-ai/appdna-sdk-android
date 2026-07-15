@@ -230,7 +230,16 @@ fun FormStep(
                     }
                 }
                 if (errors.isEmpty()) {
-                    val response = values.mapValues { (_, v) -> v ?: "" }
+                    // Round-22 — TimeField writes a display-only `${id}_time` companion into `values`;
+                    // strip those before submit so they don't ship in selection_data/responses (iOS has
+                    // no such companion key). Identify them from the TIME/DATETIME fields.
+                    val timeCompanions = visibleFields
+                        .filter { it.type == FormFieldType.TIME || it.type == FormFieldType.DATETIME }
+                        .map { "${it.id}_time" }
+                        .toSet()
+                    val response = values
+                        .filterKeys { it !in timeCompanions }
+                        .mapValues { (_, v) -> v ?: "" }
                     @Suppress("UNCHECKED_CAST")
                     onNext(response as Map<String, Any>)
                 }
@@ -736,20 +745,20 @@ private fun TimeField(
                     // their native numerals here).
                     val formatted = String.format(Locale.US, "%02d:%02d", hour, minute)
                     values[timeKey] = formatted
-                    // SPEC-401-A R50 (Lens A #8, P1) — time-only submit MUST
-                    // serialize as full ISO8601 datetime so server payloads
-                    // match iOS, which always passes Date through
-                    // `ISO8601DateFormatter().string(from:)` at
-                    // FormStepView.swift:527-535. Bare "HH:mm" broke
-                    // backend parsing for any flow with time-only fields
-                    // when comparing native A/B test cohorts.
+                    // Round-22 — deterministic LOCAL-component serialization matching iOS FormStepView
+                    // (which now formats date/time by field type with no UTC conversion):
+                    //   datetime → "yyyy-MM-dd'T'HH:mm:ss"  (append :00 seconds to the date+time)
+                    //   time     → "HH:mm"                  (bare, no anchor date)
+                    // The old code emitted "yyyy-MM-ddTHH:mm" (no seconds) for datetime and a
+                    // 1970-01-01 UTC anchor for time-only — neither matched iOS.
                     val dateStr = values[field.id]?.toString() ?: ""
-                    if (dateStr.isNotEmpty() && field.type == FormFieldType.DATETIME) {
-                        values[field.id] = "${dateStr}T$formatted"
+                    if (field.type == FormFieldType.DATETIME) {
+                        // The DateField already wrote "yyyy-MM-dd" into the same key. If the date hasn't
+                        // been picked yet, store just the time; it's combined once the date is chosen.
+                        val datePart = dateStr.substringBefore('T').takeIf { it.isNotEmpty() }
+                        values[field.id] = if (datePart != null) "${datePart}T$formatted:00" else formatted
                     } else {
-                        // Anchor time-only fields to 1970-01-01 UTC mirroring
-                        // iOS Date(timeIntervalSinceReferenceDate-style payloads.
-                        values[field.id] = "1970-01-01T${formatted}:00Z"
+                        values[field.id] = formatted
                     }
                     errors.remove(field.id)
                 },
