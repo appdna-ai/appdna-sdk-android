@@ -460,14 +460,14 @@ internal class PaywallManager(
         when (config.action) {
             "dismiss" -> {
                 // SPEC-401-A R83 (Lens B P1) — actually finish the
-                // PaywallActivity matching iOS PaywallManager.swift:322-324
+                // PaywallActivity matching iOS PaywallManager.swift:402-403
                 // `viewController.dismiss(animated: true)`. Was only firing
-                // delegate but leaving Activity on-screen — paywall stayed
-                // visible after card-decline while host code's
-                // `onPaywallDismissed` callback already fired (host
-                // navigation broke).
-                PaywallActivity.dismissCurrent()
-                listener?.onPaywallDismissed(paywallId = paywallId)
+                // delegate but leaving Activity on-screen.
+                // Round-14 — match iOS's failure-dismiss exactly: NO delegate, no paywall_close. Suppress
+                // the onDestroy backstop (which would emit paywall_close + onPaywallDismissed) so this
+                // path doesn't double-fire onPaywallDismissed + a spurious paywall_close — the same fix
+                // applied to the SUCCESS branches in f2b524ff, previously left unfixed here.
+                PaywallActivity.dismissCurrent(suppressDismissCallback = true)
             }
             "show_error", "retry" -> {
                 PaywallActivity.postPurchaseOverlay = PostPurchaseOverlayState(
