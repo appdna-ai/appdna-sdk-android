@@ -93,9 +93,11 @@ fun MultiChoiceView(
                             },
                         ),
                     shape = RoundedCornerShape(8.dp),
-                    // R88 — match iOS MultiChoiceView.swift:27 `Color(hex: "#6366F1")`
-                    // (indigo brand color) for selected border.
-                    border = BorderStroke(1.dp, if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.3f))
+                    // R89 — honor the survey theme's resolved accent_color for the selected
+                    // border (console parity). `MaterialTheme.colorScheme.primary` is seeded
+                    // from SurveyTheme.accent_color (SurveyActivity.kt:152), matching the
+                    // Checkbox tick (also primary) instead of the global brand accent.
+                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),

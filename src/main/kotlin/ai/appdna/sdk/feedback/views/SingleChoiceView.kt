@@ -86,10 +86,13 @@ fun SingleChoiceView(
                             onClick = { onAnswer(SurveyAnswer(question.id, option.id)) },
                         ),
                     shape = RoundedCornerShape(8.dp),
-                    // R88 — match iOS SingleChoiceView.swift:27 `Color(hex: "#6366F1")`
-                    // (indigo brand color) for selected border. Was using
-                    // Material3 primary which defaults to #6750A4 (purple).
-                    border = BorderStroke(1.dp, if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.3f))
+                    // R89 — honor the survey theme's resolved accent_color for the selected
+                    // border (console SurveyPreview.tsx:179 paints the selected radio border
+                    // with accent_color). `MaterialTheme.colorScheme.primary` is seeded from
+                    // SurveyTheme.accent_color (SurveyActivity.kt:152), so this matches the
+                    // RadioButton dot (also primary) instead of diverging to the global brand
+                    // accent. Falls back to the brand indigo via the seeded scheme default.
+                    border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else Color.Gray.copy(alpha = 0.3f))
                 ) {
                     Row(
                         modifier = Modifier.padding(12.dp),
