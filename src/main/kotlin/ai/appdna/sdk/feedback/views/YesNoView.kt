@@ -18,7 +18,13 @@ fun YesNoView(
     answer: SurveyAnswer?,
     onAnswer: (SurveyAnswer) -> Unit,
     // SPEC-084: Gap #20 — question text style token
-    questionTextStyle: TextStyle = TextStyle.Default
+    questionTextStyle: TextStyle = TextStyle.Default,
+    // R89 — honor the survey theme's resolved colors (was hardcoded brandAccentColor() fill +
+    // Color.White label, which ignored SurveyTheme.accent_color/button_text_color). Defaults
+    // preserve prior behavior for callers (e.g. SurveyPreview) that do not pass them.
+    accentColor: Color = ai.appdna.sdk.AppDNA.brandAccentColor(),
+    buttonTextColor: Color = Color.White,
+    textColor: Color = Color.Unspecified
 ) {
     val selected = answer?.answer as? String
 
@@ -38,8 +44,8 @@ fun YesNoView(
                 onClick = { onAnswer(SurveyAnswer(question.id, "yes")) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "yes") ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f),
-                    contentColor = if (selected == "yes") Color.White else Color.Unspecified
+                    containerColor = if (selected == "yes") accentColor else Color.Gray.copy(alpha = 0.1f),
+                    contentColor = if (selected == "yes") buttonTextColor else textColor
                 )
             ) { Text("Yes") }
 
@@ -47,8 +53,8 @@ fun YesNoView(
                 onClick = { onAnswer(SurveyAnswer(question.id, "no")) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (selected == "no") ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f),
-                    contentColor = if (selected == "no") Color.White else Color.Unspecified
+                    containerColor = if (selected == "no") accentColor else Color.Gray.copy(alpha = 0.1f),
+                    contentColor = if (selected == "no") buttonTextColor else textColor
                 )
             ) { Text("No") }
         }

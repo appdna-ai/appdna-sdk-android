@@ -310,6 +310,9 @@ fun SurveyScreen(
         ?: if (isDark) Color.White else Color(0xFF1A1A1A)
     val accentColor = theme?.accentColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
     val buttonColor = theme?.buttonColor?.let { parseColor(it) } ?: Color(0xFF6366F1)
+    // R89 — resolved button_text_color, used as the contrasting label on the accent-filled
+    // selected state of yes/no + NPS (avoids white-on-white when accent is white).
+    val buttonTextColor = theme?.buttonTextColor?.let { parseColor(it) } ?: Color.White
     val fontFamily = theme?.fontFamily?.let { FontResolver.resolve(it) }
     val containerRadius = (config.appearance.cornerRadius ?: 0).dp
     // SPEC-070-A finalization S-4 — gradient + button_gradient. Mirrors
@@ -527,14 +530,17 @@ fun SurveyScreen(
             )
 
             when (q.type) {
-                "nps" -> NpsQuestionView(q, answer, onAnswer, questionTextStyle)
+                // R89 — thread the resolved theme colors so the selected score honors accent_color.
+                "nps" -> NpsQuestionView(q, answer, onAnswer, questionTextStyle, accentColor, buttonTextColor, textColor)
                 "csat" -> CsatQuestionView(q, answer, onAnswer, questionTextStyle)
-                "rating" -> RatingQuestionView(q, answer, onAnswer, questionTextStyle)
+                // R89 — thread the resolved accent so filled rating icons honor accent_color.
+                "rating" -> RatingQuestionView(q, answer, onAnswer, questionTextStyle, accentColor)
                 // SPEC-084: Gap #21 — pass optionStyle to choice views
                 "single_choice" -> SingleChoiceView(q, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
                 "multi_choice" -> MultiChoiceView(q, answer, onAnswer, questionTextStyle, config.appearance.optionStyle)
                 "free_text" -> FreeTextView(q, answer, onAnswer, questionTextStyle)
-                "yes_no" -> YesNoView(q, answer, onAnswer, questionTextStyle)
+                // R89 — thread the resolved theme colors so the selected button honors accent_color.
+                "yes_no" -> YesNoView(q, answer, onAnswer, questionTextStyle, accentColor, buttonTextColor, textColor)
                 "emoji_scale" -> EmojiScaleView(q, answer, onAnswer, questionTextStyle)
                 // SPEC-070-A J.1: Likert scale (numeric scale with optional
                 // anchor labels). Accept both `likert` (canonical) and

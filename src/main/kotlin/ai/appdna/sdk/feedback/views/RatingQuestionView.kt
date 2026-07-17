@@ -30,7 +30,11 @@ fun RatingQuestionView(
     answer: SurveyAnswer?,
     onAnswer: (SurveyAnswer) -> Unit,
     // SPEC-084: Gap #20 — question text style token
-    questionTextStyle: TextStyle = TextStyle.Default
+    questionTextStyle: TextStyle = TextStyle.Default,
+    // R89 — filled rating icons honor the survey theme's resolved accent_color, matching the
+    // console SurveyPreview (which fills rating icons with accentColor for every style). Was
+    // hardcoded per-style (heart red / thumb #6366F1 / star gold), ignoring accent_color.
+    accentColor: Color = ai.appdna.sdk.AppDNA.brandAccentColor()
 ) {
     // SPEC-070-A finalization S-35 — prefer Firestore-canonical `max`
     // over legacy `max_rating`. `resolvedMax` already does this resolution.
@@ -53,15 +57,6 @@ fun RatingQuestionView(
         "thumb" -> Icons.Outlined.ThumbUp
         else -> Icons.Outlined.Star
     }
-    // R88 — match iOS RatingQuestionView.swift:56-61. heart = .red (system),
-    // thumb = #6366F1 indigo (was Color.Blue pure blue → off-brand),
-    // star default = #FBBF24 warm gold (was #FFD700 pure gold).
-    val activeColor = when (style) {
-        "heart" -> Color.Red
-        "thumb" -> ai.appdna.sdk.AppDNA.brandAccentColor()
-        else -> Color(0xFFFBBF24)
-    }
-
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Text(
             text = question.text,
@@ -77,7 +72,7 @@ fun RatingQuestionView(
                 Icon(
                     imageVector = if (selectedRating >= rating) filledIcon else outlinedIcon,
                     contentDescription = ratingCd,
-                    tint = if (selectedRating >= rating) activeColor else Color.Gray.copy(alpha = 0.3f),
+                    tint = if (selectedRating >= rating) accentColor else Color.Gray.copy(alpha = 0.3f),
                     modifier = Modifier
                         .size(36.dp)
                         .clickable { onAnswer(SurveyAnswer(question.id, rating)) }

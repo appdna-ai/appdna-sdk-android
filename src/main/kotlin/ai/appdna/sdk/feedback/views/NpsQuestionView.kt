@@ -29,7 +29,12 @@ fun NpsQuestionView(
     answer: SurveyAnswer?,
     onAnswer: (SurveyAnswer) -> Unit,
     // SPEC-084: Gap #20 — question text style token
-    questionTextStyle: TextStyle = TextStyle.Default
+    questionTextStyle: TextStyle = TextStyle.Default,
+    // R89 — honor the survey theme's resolved colors (was hardcoded brandAccentColor() fill +
+    // Color.White label). Defaults preserve prior behavior for callers that do not pass them.
+    accentColor: Color = ai.appdna.sdk.AppDNA.brandAccentColor(),
+    buttonTextColor: Color = Color.White,
+    textColor: Color = Color.Unspecified
 ) {
     val selectedScore = answer?.answer as? Int
 
@@ -51,20 +56,18 @@ fun NpsQuestionView(
                     modifier = Modifier
                         .size(width = 30.dp, height = 40.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        // R88 — match iOS NPSQuestionView.swift:25 hardcoded
-                        // `Color(hex: "#6366F1")` (indigo) for selected score
-                        // background. Was MaterialTheme.colorScheme.primary
-                        // which defaults to Material3 `#6750A4` (purple),
-                        // visibly different brand color from iOS at default
-                        // theme.
-                        .background(if (isSelected) ai.appdna.sdk.AppDNA.brandAccentColor() else Color.Gray.copy(alpha = 0.1f))
+                        // R89 — selected score fill honors the survey theme's resolved
+                        // accent_color (threaded from SurveyActivity). Was hardcoded
+                        // brandAccentColor() (R88 "match iOS #6366F1"), which ignored
+                        // SurveyTheme.accent_color.
+                        .background(if (isSelected) accentColor else Color.Gray.copy(alpha = 0.1f))
                         .clickable { onAnswer(SurveyAnswer(question.id, score)) }
                         .semantics { contentDescription = scoreCd },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         "$score",
-                        color = if (isSelected) Color.White else Color.Unspecified,
+                        color = if (isSelected) buttonTextColor else textColor,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Medium
                     )
