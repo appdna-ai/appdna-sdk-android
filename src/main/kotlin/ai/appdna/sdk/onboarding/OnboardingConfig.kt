@@ -141,6 +141,8 @@ data class OnboardingStep(
     val hook: StepHookConfig? = null,
     /** When true, the progress indicator is hidden on this step but the step still counts toward total progress. */
     val hide_progress: Boolean? = null,
+    /** When true, the back button is hidden on this step (the step still counts toward total progress). */
+    val hide_back: Boolean? = null,
     val next_step_rules: ImmutableList<NextStepRule>? = null
 ) {
     enum class StepType(val value: String) {
@@ -1041,7 +1043,11 @@ internal object OnboardingConfigParser {
             type = OnboardingStep.StepType.fromString(typeStr),
             config = configWithLayoutRules,
             hook = hook,
-            hide_progress = map["hide_progress"] as? Boolean,
+            // The console writes hide_progress/hide_back INSIDE the step's layout object
+            // (`configMap`), not at the step root — read layout first with a root fallback
+            // (mirrors iOS OnboardingConfig.swift LayoutFlagKeys decode).
+            hide_progress = map["hide_progress"] as? Boolean ?: configMap["hide_progress"] as? Boolean,
+            hide_back = map["hide_back"] as? Boolean ?: configMap["hide_back"] as? Boolean,
             next_step_rules = nextStepRules
         )
     }

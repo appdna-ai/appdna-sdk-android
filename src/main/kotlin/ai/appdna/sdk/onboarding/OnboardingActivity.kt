@@ -1317,7 +1317,10 @@ internal fun OnboardingFlowHost(
             // child in that case (OnboardingRenderer.swift:46-49); on
             // Android the IconButton spacers reserve ~48dp regardless,
             // so authored "no-chrome" flows had a phantom band at top.
-            val navBackVisible = flow.settings.allow_back && navigationHistory.isNotEmpty()
+            // Per-step `hide_back` (authored in the step's layout) suppresses the back affordance on
+            // this step — mirrors `hide_progress`. iOS: OnboardingRenderer.swift currentStepHidesBack.
+            val navBackVisible = flow.settings.allow_back && navigationHistory.isNotEmpty() &&
+                currentStep?.hide_back != true
             val navDismissAllowed = flow.settings.dismiss_allowed ?: true
             // EPIC-2 — back-arrow⇄X switch: on the first/no-history step show the dismiss "✕" in the
             // LEADING slot (Duolingo pattern) instead of an empty spacer; the trailing X is then hidden.
@@ -1352,7 +1355,7 @@ internal fun OnboardingFlowHost(
                 // Mirrors iOS OnboardingRenderer.swift:253.
                 val backIconColor = bbStyle?.icon_color?.let { ai.appdna.sdk.core.StyleEngine.parseColor(it) }
                     ?: ai.appdna.sdk.core.StyleEngine.parseColor("#6B7280")
-                if (flow.settings.allow_back && navigationHistory.isNotEmpty()) {
+                if (flow.settings.allow_back && navigationHistory.isNotEmpty() && currentStep?.hide_back != true) {
                     val backCd = stringResource(R.string.appdna_a11y_onboarding_back)
                     IconButton(
                         onClick = {
