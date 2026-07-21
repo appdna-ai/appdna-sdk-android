@@ -194,7 +194,7 @@ data class BlockGradientStyle(
  * Applies `block_style` design tokens to any Composable's Modifier.
  * Order: inner padding → background → clip/border → shadow → opacity → outer margin.
  */
-fun Modifier.applyBlockStyle(style: BlockStyle?): Modifier {
+fun Modifier.applyBlockStyle(style: BlockStyle?, clipContent: Boolean = true): Modifier {
     if (style == null) return this
 
     var mod = this
@@ -225,9 +225,11 @@ fun Modifier.applyBlockStyle(style: BlockStyle?): Modifier {
         )
     }
 
-    // Clip shape
+    // Clip shape. `pulsing_avatar` / `star_background` draw pulse rings / stars that intentionally
+    // overflow the block box (iOS renders them in an unclipped ZStack); clipping here cut the pulse
+    // ring at peak animation scale. `clipContent = false` from those blocks preserves the overflow.
     val shape = RoundedCornerShape((style.border_radius ?: 0.0).dp)
-    mod = mod.then(Modifier.clip(shape))
+    if (clipContent) mod = mod.then(Modifier.clip(shape))
 
     // Background (gradient takes precedence over solid color)
     if (style.background_gradient != null) {
@@ -1405,7 +1407,11 @@ internal fun RenderBlock(
     // visible container values.
     val contentModifier = with(StyleEngine) {
         Modifier
-            .applyBlockStyle(block.block_style)
+            .applyBlockStyle(
+                block.block_style,
+                // Overflow blocks (pulse rings / star field) must not be clipped to the block box.
+                clipContent = block.type != "pulsing_avatar" && block.type != "star_background",
+            )
             .applyBlockPosition(
                 verticalAlign = block.vertical_align,
                 horizontalAlign = block.horizontal_align,
@@ -6167,9 +6173,17 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
             modifier = Modifier.size(frameSize),
             contentAlignment = Alignment.Center,
         ) {
-            // Pulse rings
+            // Pulse rings — drawn on a Canvas that fills the reserved frame so each
+            // stroked circle grows by RADIUS (like iOS Circle().stroke().scaleEffect,
+            // ContentBlockStandaloneViews.swift:1664) and can never be clipped to a
+            // per-ring box. The prior Box(.size(ringSize).scale().border(CircleShape))
+            // clipped the ring to its own square graphicsLayer bounds at peak scale —
+            // a circle clipped by a square smaller than its radius reads as a
+            // rounded-square "cut" (flat axis edges + arc corners). That was the
+            // Mrozu-reported pulse clip; it is a layer-bounds clip, NOT a frame-size
+            // issue (frame stays at the iOS 1.3× reservation).
             for (i in 0 until ringCount) {
-                val ringSize = avatarSize + (i + 1).dp * 20
+                val baseRadiusDp = (avatarSize.value + (i + 1) * 20f) / 2f
                 val scale by infiniteTransition.animateFloat(
                     initialValue = 1f,
                     targetValue = 1.2f,
@@ -6194,19 +6208,13 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     ),
                     label = "ring_alpha_$i",
                 )
-                // SPEC-401-A R49 (Lens C #1, P1) — Modifier.scale applies a GPU
-                // transform that visually grows the already-drawn border.
-                // The legacy chained `.then(Modifier.size(ringSize * scale))`
-                // changed slot size but didn't grow the rendered ring — rings
-                // faded out in place on Android while iOS rings expand outward
-                // (iOS ContentBlockStandaloneViews.swift:1664 .scaleEffect).
-                Box(
-                    modifier = Modifier
-                        .size(ringSize)
-                        .alpha(alpha)
-                        .scale(scale.coerceIn(1f, 1.5f))
-                        .border(2.dp, pulseColor.copy(alpha = 0.3f), CircleShape),
-                )
+                androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawCircle(
+                        color = pulseColor.copy(alpha = alpha),
+                        radius = baseRadiusDp.dp.toPx() * scale,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
+                    )
+                }
             }
 
             // Avatar image — shape honors block.image_shape ("circle" default |
