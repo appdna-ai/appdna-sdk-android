@@ -6149,7 +6149,10 @@ private fun WheelPickerBlock(
 private fun PulsingAvatarBlock(block: ContentBlock) {
     val avatarSize = (block.icon_size ?: block.height ?: 80.0).dp
     val pulseColor = StyleEngine.parseColor(block.pulse_color ?: (ai.appdna.sdk.AppDNA.brandAccentHex ?: "#6366F1"))
-    val ringCount = block.pulse_ring_count ?: 3
+    // iOS forces `max(1, pulse_ring_count ?? 3)` (ContentBlockStandaloneViews.swift:1942) so a
+    // `pulse_ring_count: 0` still shows one ring and the per-ring stagger never divides by zero.
+    // Mirror it — without the floor Android drew ZERO rings where iOS drew one.
+    val ringCount = (block.pulse_ring_count ?: 3).coerceAtLeast(1)
     val pulseDurationMs = ((block.pulse_speed ?: 1.5) * 1000).toInt()
     val borderW = (block.border_width ?: 0.0).dp
     val borderCol = StyleEngine.parseColor(block.border_color ?: "#FFFFFF")
@@ -6209,8 +6212,12 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
                     label = "ring_alpha_$i",
                 )
                 androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                    // iOS composes TWO opacity factors: a fixed stroke opacity 0.3
+                    // (ContentBlockStandaloneViews.swift:1959 `.stroke(pulseCol.opacity(0.3))`) times the
+                    // animated view opacity 0.6→0 (:1963) = 0.18 peak. Fold BOTH in — using `alpha`
+                    // alone (0.6 peak) rendered the rings 3.3× too opaque vs iOS and the prior Android.
                     drawCircle(
-                        color = pulseColor.copy(alpha = alpha),
+                        color = pulseColor.copy(alpha = alpha * 0.3f),
                         radius = baseRadiusDp.dp.toPx() * scale,
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()),
                     )
