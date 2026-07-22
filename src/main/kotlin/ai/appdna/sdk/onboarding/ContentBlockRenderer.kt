@@ -6163,7 +6163,7 @@ private fun PulsingAvatarBlock(block: ContentBlock) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
 
     // SPEC-401-A R48 (Lens A #3) — reserve a fixed-size frame so the largest
-    // pulse ring at peak scale (×1.5) doesn't overlap adjacent content.
+    // pulse ring at peak scale (×1.2) doesn't overlap adjacent content.
     // iOS uses .frame(width: avatarSize + CGFloat(ringCount + 1) * 20 * 1.3,
     // height: same). We mirror the same reservation on Android so layout
     // doesn't collapse adjacent rows on top of the rings during animation.
