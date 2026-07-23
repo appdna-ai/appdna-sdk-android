@@ -80,24 +80,24 @@ class SubsystemInitIsolationTest {
 
         configureWith(setOf("surveys"))
 
-        // `lastInitError` is a SINGLE last-write-wins slot: every `reportInitDegraded` overwrites it
-        // (AppDNA.kt:187). So it answers "did init degrade, and how" — NOT "which subsystem", once more
-        // than one can report. This test used to assert the slot named "surveys", which made it
-        // order-dependent: whenever a second subsystem degraded (a previous test's async `shutdown()`
-        // overlapping this `configure()` is enough), the later write won and the assertion flipped —
-        // observed on compileSdk=35/testDebug and again on 28/testRelease, 3 of 4 levels green each
-        // time. Draining the looper first does not fix it, it GUARANTEES the loss, because the later
-        // write always lands.
+        // `lastInitError` is a SINGLE last-write-wins slot that EVERY `reportInitDegraded` overwrites
+        // (AppDNA.kt:187), and it is shared with reporters that are guaranteed to fire in a unit test:
+        // Robolectric has no `google-services-appdna.json`, so AppDNA.kt:2107 always reports
+        // `IllegalStateException("Firebase: No configuration found...")`, and billing init can report
+        // too (:2173). So in this environment the slot holds neither a predictable SUBSYSTEM nor even a
+        // predictable TYPE — whichever reporter lands last wins.
         //
-        // So assert here only what this slot actually promises, and let the "which subsystem degraded"
-        // contract be carried by the delegate below — which receives EVERY error and is matched with
-        // `.any`, making it both order-independent and the stronger check of the two.
-        val error = AppDNA.lastInitError
-        assertNotNull("a failing subsystem must surface an error, not vanish", error)
-        assertTrue(
-            "the surfaced error must be a subsystem failure, got: $error",
-            error is AppDNAInitError.SubsystemFailed,
-        )
+        // That is what made this test flaky rather than wrong: it asserted the slot named "surveys"
+        // (red on compileSdk=35/testDebug, then 28/testRelease), and a first fix that only relaxed it
+        // to "is a SubsystemFailed" still lost to the Firebase IllegalStateException (red on
+        // 33/testDebug) — 3 of 4 levels green every time. Draining the looper first does not fix the
+        // race either; it GUARANTEES the loss, because the later write always lands.
+        //
+        // So the slot is asserted for the ONE thing it does promise here — that degradation was
+        // recorded rather than swallowed, which is this test's name — and the "which subsystem"
+        // contract is carried entirely by the delegate below, which receives EVERY error and is
+        // matched with `.any`: order-independent, and the stronger of the two checks.
+        assertNotNull("init degradation must be recorded, not swallowed", AppDNA.lastInitError)
 
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
         assertTrue(
