@@ -80,11 +80,23 @@ class SubsystemInitIsolationTest {
 
         configureWith(setOf("surveys"))
 
+        // `lastInitError` is a SINGLE last-write-wins slot: every `reportInitDegraded` overwrites it
+        // (AppDNA.kt:187). So it answers "did init degrade, and how" — NOT "which subsystem", once more
+        // than one can report. This test used to assert the slot named "surveys", which made it
+        // order-dependent: whenever a second subsystem degraded (a previous test's async `shutdown()`
+        // overlapping this `configure()` is enough), the later write won and the assertion flipped —
+        // observed on compileSdk=35/testDebug and again on 28/testRelease, 3 of 4 levels green each
+        // time. Draining the looper first does not fix it, it GUARANTEES the loss, because the later
+        // write always lands.
+        //
+        // So assert here only what this slot actually promises, and let the "which subsystem degraded"
+        // contract be carried by the delegate below — which receives EVERY error and is matched with
+        // `.any`, making it both order-independent and the stronger check of the two.
         val error = AppDNA.lastInitError
         assertNotNull("a failing subsystem must surface an error, not vanish", error)
         assertTrue(
-            "the error must name the subsystem that failed, got: $error",
-            error is AppDNAInitError.SubsystemFailed && error.name == "surveys",
+            "the surfaced error must be a subsystem failure, got: $error",
+            error is AppDNAInitError.SubsystemFailed,
         )
 
         org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
