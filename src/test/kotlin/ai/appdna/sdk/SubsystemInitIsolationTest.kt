@@ -80,6 +80,14 @@ class SubsystemInitIsolationTest {
 
         configureWith(setOf("surveys"))
 
+        // Drain the main looper BEFORE reading the error, not just before the delegate assertion
+        // below. Subsystem init posts its failure bookkeeping to the main looper, and how much of
+        // that has already run when `configure` returns is a Robolectric scheduling detail that
+        // varies by SDK level — so this read raced it and went red only on compileSdk=35, while 24/28/33
+        // (and earlier 35 runs) happened to win. Idling here makes the assertion deterministic on
+        // every level instead of depending on which side of the post the test lands.
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+
         val error = AppDNA.lastInitError
         assertNotNull("a failing subsystem must surface an error, not vanish", error)
         assertTrue(
